@@ -1,0 +1,107 @@
+import 'dart:convert';
+
+import '../core/constants.dart';
+
+/// Типы сообщений. Ведущий — единственный источник истины:
+/// клиент только отображает то, что получил.
+class Msg {
+  // ведущий -> игрок
+  static const registerOk = 'register_ok';
+  static const registerDenied = 'register_denied';
+  static const lobby = 'lobby';
+  static const roleAssign = 'role_assign';
+  static const phase = 'phase';
+  static const timeUpdate = 'time_update';
+  static const nightResult = 'night_result';
+  static const voteRunoff = 'vote_runoff';
+  static const voteResult = 'vote_result';
+  static const eliminated = 'eliminated';
+  static const sync = 'sync';
+  static const gameOver = 'game_over';
+  static const kick = 'kick';
+
+  /// Ведущий изменил имя игрока — клиент обязан его принять.
+  static const rename = 'rename';
+
+  /// Игрок вернулся в свой слот после перезапуска приложения.
+  static const reclaimed = 'reclaimed';
+  static const pong = 'pong';
+
+  /// Команда синхронного воспроизведения звука на всех устройствах.
+  static const sound = 'sound';
+  static const ack = 'ack';
+
+  // игрок -> ведущий
+  static const register = 'register';
+  static const nightAction = 'night_action';
+  static const vote = 'vote';
+  static const ping = 'ping';
+  static const resyncRequest = 'resync_request';
+  static const leave = 'leave';
+
+  /// Игрок прочитал и подтвердил свою роль.
+  static const roleAck = 'role_ack';
+}
+
+/// Причины отказа в подключении.
+class DenyReason {
+  static const nameTaken = 'name_taken';
+  static const gameFull = 'game_full';
+  static const gameStarted = 'game_started';
+  static const badCode = 'bad_code';
+}
+
+/// Конверт сообщения: тип + версия + метка времени + полезная нагрузка.
+class Envelope {
+  final String type;
+  final Map<String, dynamic> data;
+  final int version;
+  final int ts;
+
+  Envelope(this.type, [Map<String, dynamic>? data])
+      : data = data ?? <String, dynamic>{},
+        version = Net.protocolVersion,
+        ts = DateTime.now().millisecondsSinceEpoch;
+
+  Envelope._raw(this.type, this.data, this.version, this.ts);
+
+  String encode() => jsonEncode({
+        'v': version,
+        'ts': ts,
+        'type': type,
+        ...data,
+      });
+
+  /// Разбор входящего сообщения. Возвращает null, если пакет повреждён
+  /// или версия протокола не совпадает.
+  static Envelope? decode(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return null;
+      final type = decoded['type'];
+      if (type is! String) return null;
+      final version = decoded['v'] as int? ?? 0;
+      if (version != Net.protocolVersion) return null;
+      final data = Map<String, dynamic>.from(decoded)
+        ..remove('type')
+        ..remove('v')
+        ..remove('ts');
+      return Envelope._raw(
+        type,
+        data,
+        version,
+        decoded['ts'] as int? ?? 0,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  T? get<T>(String key) {
+    final value = data[key];
+    return value is T ? value : null;
+  }
+
+  @override
+  String toString() => 'Envelope($type, $data)';
+}

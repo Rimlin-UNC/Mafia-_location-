@@ -1,0 +1,233 @@
+/* Стиль повторяет нативное приложение: та же тёмная нуарная палитра. */
+:root{
+  --bg:#0e0f14; --panel:#171922; --panel2:#1f2230; --line:#2b2f40;
+  --txt:#e8eaf2; --dim:#8d93a8; --acc:#7c5cff; --acc2:#a78bfa;
+  --ok:#2ecc71; --warn:#f5a623; --bad:#ff4d5e;
+  --safe-top:env(safe-area-inset-top,0px);
+  --safe-bot:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%}
+body{
+  background:var(--bg);color:var(--txt);
+  font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  overscroll-behavior:none;
+}
+.hidden{display:none !important}
+
+/* экраны */
+.screen{display:none;height:100%;flex-direction:column}
+.screen.active{display:flex}
+.wrap{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;
+      padding:16px 16px calc(16px + var(--safe-bot))}
+.center-v{display:flex;flex-direction:column;justify-content:center}
+
+.bar{
+  display:flex;align-items:center;gap:10px;
+  padding:calc(12px + var(--safe-top)) 16px 12px;
+  background:var(--panel);border-bottom:1px solid var(--line);flex:none;
+}
+.bar b{font-size:16px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.hero{text-align:center;padding:26px 0 18px}
+.hero.small{padding:16px 0}
+.hero h1{font-size:25px;margin:6px 0 4px}
+.hero h2{font-size:19px;margin:6px 0 4px}
+.emoji{font-size:52px;line-height:1}
+.spin{animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.45}50%{opacity:1}}
+
+.dim{color:var(--dim);font-size:13px}
+.tiny{font-size:11.5px}
+.center{text-align:center}
+.lbl{display:block;font-size:11.5px;color:var(--dim);
+     text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px}
+
+.input{
+  width:100%;padding:13px 14px;border-radius:12px;
+  background:var(--panel2);border:1px solid var(--line);
+  color:var(--txt);font-size:16px;outline:none;
+}
+.input:focus{border-color:var(--acc)}
+.code-input{font-size:30px;letter-spacing:.32em;text-align:center;font-weight:700}
+
+.btn{
+  display:block;width:100%;margin-top:14px;padding:15px;
+  border:none;border-radius:12px;background:var(--acc);color:#fff;
+  font-size:16px;font-weight:600;cursor:pointer;
+}
+.btn:disabled{opacity:.4}
+.btn:active:not(:disabled){transform:scale(.985)}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--txt);font-weight:500}
+.btn.small{padding:11px;font-size:14px;margin-top:10px}
+.btn.danger{background:var(--bad)}
+.chip{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+      padding:7px 12px;border-radius:99px;font-size:12.5px}
+
+.card{background:var(--panel);border:1px solid var(--line);
+      border-radius:14px;padding:14px;margin-bottom:10px}
+.card.info{display:flex;gap:10px;align-items:flex-start;font-size:12.5px;color:var(--dim)}
+.card.info .ico{font-size:17px}
+.card.me{display:flex;align-items:center;gap:10px;font-size:14px}
+.warn-card{text-align:center;border-color:rgba(245,166,35,.5)}
+.warn-card h2{margin:10px 0 8px;font-size:20px}
+.dead-card{text-align:center;border-color:rgba(255,77,94,.45);
+           background:rgba(255,77,94,.08)}
+.hint-box{margin-top:14px;padding:12px;border-radius:11px;
+          background:rgba(0,0,0,.28);font-size:11.5px;color:var(--dim);text-align:left}
+
+.alert{padding:12px 14px;border-radius:12px;margin-bottom:12px;font-size:13.5px}
+.alert.bad{background:rgba(255,77,94,.13);border:1px solid rgba(255,77,94,.45);color:#ff9aa4}
+.alert.info{background:rgba(124,92,255,.13);border:1px solid rgba(124,92,255,.45)}
+.alert.ok{background:rgba(46,204,113,.12);border:1px solid rgba(46,204,113,.45);color:#7ff0b0}
+
+/* фаза */
+.phase{display:flex;align-items:center;gap:10px;padding:13px 15px;
+       border-radius:13px;margin-bottom:12px}
+.phase.night{background:linear-gradient(135deg,#1b2547,#2b3a67)}
+.phase.day{background:linear-gradient(135deg,#5a4a12,#8a6f1c)}
+.phase.voting{background:linear-gradient(135deg,#4a1220,#8a1c3a)}
+.phase b{font-size:16px}
+.timer{margin-left:auto;font-size:19px;font-weight:700;
+       font-variant-numeric:tabular-nums}
+
+/* список игроков */
+.list{display:flex;flex-direction:column;gap:8px}
+.p{display:flex;align-items:center;gap:11px;padding:12px;
+   background:var(--panel);border:1px solid var(--line);
+   border-radius:12px;font-size:15px}
+.p.sel{border-color:var(--acc);background:rgba(124,92,255,.16)}
+.p.dead{opacity:.45;text-decoration:line-through}
+.p .av{width:30px;height:30px;border-radius:50%;flex:none;
+       display:grid;place-items:center;font-size:13px;font-weight:700;color:#111}
+.p .nm{flex:1}
+.p .sub{display:block;font-size:11.5px;color:var(--dim);text-decoration:none}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--ok);flex:none}
+.dot.off{background:var(--bad)}
+
+.prompt{font-size:16px;margin:16px 0 10px}
+.idle{text-align:center;padding:44px 20px}
+.idle h2{font-size:26px;margin:12px 0 6px}
+
+/* карта роли */
+.rolecard{position:relative;width:100%;aspect-ratio:2/3;max-height:44vh;
+          border-radius:16px;overflow:hidden;border:2px solid #d4a84e;
+          box-shadow:0 8px 24px rgba(0,0,0,.5);cursor:pointer}
+.rolecard img{width:100%;height:100%;object-fit:cover;display:block}
+.rc-shade{position:absolute;inset:0;
+          background:linear-gradient(to bottom,transparent 45%,rgba(0,0,0,.86))}
+.rc-text{position:absolute;left:14px;right:14px;bottom:12px}
+.rc-name{font-size:21px;font-weight:700;text-shadow:0 2px 8px #000}
+.rc-sub{font-size:12.5px;color:#d8d2e4;margin-top:3px;text-shadow:0 2px 6px #000}
+.rc-back{position:absolute;inset:0;background:#241a3a url('/cards/card_back.jpg') center/cover;
+         display:flex;flex-direction:column;align-items:center;justify-content:center;
+         gap:12px;text-align:center;font-size:14px;font-weight:600;color:#e8dcc0}
+.rc-back::before{content:'';position:absolute;inset:0;background:rgba(0,0,0,.45)}
+.rc-lock{font-size:34px;position:relative}
+.rc-back div{position:relative}
+.rc-badge{position:absolute;top:10px;left:10px;right:10px;padding:8px 10px;
+          border-radius:9px;font-size:11px;text-align:center;
+          background:rgba(47,58,34,.94);border:1px solid #8fa86a;color:#bfd79a}
+.rolecard.disguised{border-color:#8fa86a}
+
+.log{background:#101219;border:1px solid var(--line);border-radius:12px;
+     padding:12px;font-size:12.5px;color:#aab0c6;max-height:42vh;overflow-y:auto}
+.log div{margin-bottom:6px}
+
+/* Подвал с кнопками. Раньше кнопки шли друг под другом и занимали
+   130 px — на экране 320×568 это четверть высоты. Ставим в ряд:
+   «Пропустить» вторична и не нуждается в полной ширине. */
+.foot{flex:none;padding:10px 14px calc(10px + var(--safe-bot));
+      background:var(--panel);border-top:1px solid var(--line);
+      display:flex;gap:8px;align-items:stretch}
+.foot .btn{margin-top:0;flex:2;min-height:46px}
+.foot .btn.ghost{flex:1;font-size:13px;padding-left:6px;padding-right:6px}
+
+.conn{flex:none;display:flex;align-items:center;gap:8px;
+      padding:8px 16px calc(8px + var(--safe-bot));background:var(--panel);
+      border-top:1px solid var(--line);transition:background .2s}
+/* Потеря связи должна быть заметна, но не панической: подкрашиваем
+   полосу, а не показываем модальное окно поверх игры. */
+.conn.warn{background:rgba(255,77,94,.16);border-top-color:rgba(255,77,94,.5)}
+.conn.warn #conn-text{color:#ffb3ba!important}
+
+/* Правая группа кнопок в шапке */
+.bar-right{display:flex;align-items:center;gap:7px;flex:none}
+.chip.icon{padding:7px 10px;font-size:15px;line-height:1}
+
+/* Последние секунды фазы — иначе люди не успевают нажать */
+.timer.urgent{color:#ff6b7a;animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.45}}
+.phase.paused{filter:grayscale(.6) brightness(.8)}
+
+/* Галочка выбранной цели: на солнце цветной рамки мало */
+.p .pick{flex:none;width:22px;height:22px;border-radius:50%;
+         display:grid;place-items:center;font-size:13px;font-weight:700;
+         background:var(--acc);color:#fff;opacity:0;transform:scale(.6);
+         transition:opacity .15s,transform .15s}
+.p.sel .pick{opacity:1;transform:scale(1)}
+
+/* Крупная зона нажатия: палец на ходу промахивается по 44 px */
+.p{min-height:52px;-webkit-tap-highlight-color:transparent;
+   user-select:none;transition:background .12s,border-color .12s}
+.p:active{transform:scale(.985)}
+
+/* Код подставлен из QR — поле не нужно, но пусть остаётся доступным */
+#code-row.filled{opacity:.55}
+#code-row.filled .code-input{font-size:20px;letter-spacing:4px;padding:10px}
+
+/* Компактная полоса роли во время выбора цели.
+   Заменяет карту 2:3, которая занимала до 44% высоты экрана. */
+#role-strip{display:flex;align-items:center;gap:11px;padding:9px 11px;
+            background:var(--panel);border:1px solid #d4a84e66;
+            border-radius:12px;margin-bottom:12px}
+#role-strip.hidden{display:none}
+.rs-face{width:38px;height:52px;flex:none;border-radius:7px;overflow:hidden;
+         border:1px solid #d4a84e}
+.rs-face img{width:100%;height:100%;object-fit:cover;display:block}
+.rs-txt{flex:1;min-width:0;font-size:14.5px;line-height:1.3}
+.rs-txt .sub{display:block;font-size:11.5px;color:var(--dim);
+             overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#rs-expand{flex:none}
+
+/* Список целей не должен уезжать под сгиб: даём ему прокрутку,
+   а кнопку отправки держим прижатой к низу (она в .foot). */
+#action-area{display:flex;flex-direction:column;min-height:0}
+#targets{overflow-y:auto;-webkit-overflow-scrolling:touch}
+
+/* Когда целей много (партия на 15-20 человек), список становится плотнее
+   и двухколоночным. На экране 320 px это разница между двумя видимыми
+   именами и восемью — иначе игрок голосует, не видя половины стола. */
+#targets.dense{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+#targets.dense .p{min-height:44px;padding:8px 9px;gap:8px;font-size:13.5px}
+#targets.dense .p .av{width:25px;height:25px;font-size:11px}
+#targets.dense .p .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#targets.dense .p .pick{width:18px;height:18px;font-size:11px}
+
+/* Подсказка о прокрутке: без неё люди не догадываются, что список длиннее
+   экрана, и голосуют за первого попавшегося. */
+.scroll-hint{text-align:center;font-size:11px;color:var(--dim);
+             padding:4px 0 2px}
+.scroll-hint.hidden{display:none}
+
+/* шторка */
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:50;
+          display:flex;align-items:flex-end}
+.sheet{width:100%;max-height:92%;overflow-y:auto;background:var(--panel);
+       border-radius:18px 18px 0 0;padding:14px 18px calc(18px + var(--safe-bot));
+       animation:up .25s ease}
+@keyframes up{from{transform:translateY(100%)}}
+.grabber{width:42px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 14px}
+.blk{background:var(--panel2);border:1px solid var(--line);
+     border-radius:12px;padding:13px;margin-bottom:10px}
+.blk h4{margin:0 0 6px;font-size:12.5px;letter-spacing:.04em}
+.blk p{margin:0;font-size:13.5px;line-height:1.42}
+.blk.goal h4{color:var(--acc2)} .blk.night h4{color:#7c9bd4}
+.blk.day h4{color:var(--warn)}  .blk.win h4{color:var(--ok)}
+.blk.team{background:rgba(255,77,94,.1);border-color:rgba(255,77,94,.4)}
+.blk ul{margin:6px 0 0;padding-left:18px;font-size:13px;color:#c7cbdb}
+.blk li{margin-bottom:5px}
+
+.flash{position:fixed;inset:0;background:rgba(255,77,94,.5);
+       pointer-events:none;z-index:99;animation:fade .6s ease-out forwards}
+@keyframes fade{to{opacity:0}}

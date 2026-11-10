@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Мафия Offline — эскизы интерфейсов (кликабельный прототип)</title>
+<style>
+:root{
+  --bg:#0e0f14; --panel:#171922; --panel2:#1f2230; --line:#2b2f40;
+  --txt:#e8eaf2; --dim:#8d93a8; --acc:#7c5cff; --acc2:#a78bfa;
+  --ok:#2ecc71; --warn:#f5a623; --bad:#ff4d5e; --night:#2b3a67; --day:#f5c451;
+  --r:14px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.45 -apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
+a{color:var(--acc2)}
+header.top{padding:18px 24px;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:center;flex-wrap:wrap;background:linear-gradient(90deg,#171922,#0e0f14)}
+header.top h1{font-size:19px;margin:0;font-weight:650}
+header.top .sub{color:var(--dim);font-size:13px}
+.badge{background:var(--panel2);border:1px solid var(--line);padding:3px 9px;border-radius:999px;font-size:12px;color:var(--dim)}
+.wrap{display:grid;grid-template-columns:290px 1fr;gap:0;min-height:calc(100vh - 64px)}
+nav{border-right:1px solid var(--line);padding:16px;background:var(--panel);overflow:auto}
+nav h3{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin:18px 0 8px}
+nav h3:first-child{margin-top:0}
+.navbtn{display:flex;gap:10px;align-items:center;width:100%;text-align:left;background:transparent;border:1px solid transparent;color:var(--txt);padding:9px 11px;border-radius:10px;cursor:pointer;font-size:13.5px;margin-bottom:3px}
+.navbtn:hover{background:var(--panel2)}
+.navbtn.active{background:rgba(124,92,255,.16);border-color:rgba(124,92,255,.5);color:#fff}
+.navbtn .n{width:22px;height:22px;border-radius:6px;background:var(--panel2);display:grid;place-items:center;font-size:11px;color:var(--dim);flex:none}
+.navbtn.active .n{background:var(--acc);color:#fff}
+main{padding:26px 30px;overflow:auto}
+.stage{display:flex;gap:34px;align-items:flex-start;flex-wrap:wrap}
+.notes{max-width:420px;flex:1 1 320px}
+.notes h2{margin:0 0 6px;font-size:20px}
+.notes .path{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:var(--acc2);background:rgba(124,92,255,.1);border:1px solid rgba(124,92,255,.25);padding:3px 8px;border-radius:7px;display:inline-block;margin-bottom:14px}
+.notes ul{padding-left:18px;margin:10px 0;color:#c7cbdb}
+.notes li{margin-bottom:7px;font-size:13.6px}
+.notes .kv{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--panel);margin-top:14px}
+.notes .kv b{font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:6px}
+code.msg{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#ffd479;display:block;white-space:pre-wrap}
+
+/* device frames */
+.device{background:#000;border-radius:34px;padding:11px;box-shadow:0 24px 60px rgba(0,0,0,.55);border:1px solid #262a38;flex:none}
+.device.phone{width:340px}
+.device.tablet{width:430px}
+.screen{background:var(--bg);border-radius:25px;overflow:hidden;height:690px;display:flex;flex-direction:column;position:relative}
+.device .label{text-align:center;color:var(--dim);font-size:11.5px;padding-top:9px;letter-spacing:.06em;text-transform:uppercase}
+.statusbar{display:flex;justify-content:space-between;padding:9px 16px 4px;font-size:11px;color:var(--dim);flex:none}
+.appbar{padding:10px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line);flex:none;background:var(--panel)}
+.appbar .t{font-weight:650;font-size:15px}
+.appbar .r{margin-left:auto;color:var(--dim);font-size:12px}
+.body{padding:14px 16px;overflow:auto;flex:1}
+.body::-webkit-scrollbar{width:5px}.body::-webkit-scrollbar-thumb{background:#2c3145;border-radius:9px}
+.foot{padding:12px 16px;border-top:1px solid var(--line);flex:none;background:var(--panel)}
+
+/* generic ui */
+.btn{display:block;width:100%;padding:13px;border-radius:12px;border:none;background:var(--acc);color:#fff;font-weight:650;font-size:15px;cursor:pointer}
+.btn.sec{background:var(--panel2);border:1px solid var(--line);color:var(--txt);font-weight:550}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--dim)}
+.btn.danger{background:var(--bad)}
+.btn:disabled{opacity:.38;cursor:not-allowed}
+.btn+.btn{margin-top:9px}
+.row{display:flex;gap:8px}.row>*{flex:1}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:11.5px;color:var(--dim);margin-bottom:5px;text-transform:uppercase;letter-spacing:.07em}
+.input{width:100%;padding:11px 12px;border-radius:11px;background:var(--panel2);border:1px solid var(--line);color:var(--txt);font-size:15px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px;margin-bottom:10px}
+.hint{font-size:12.5px;color:var(--dim)}
+.center{display:grid;place-items:center;text-align:center;height:100%}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;padding:3px 9px;border-radius:999px;background:var(--panel2);border:1px solid var(--line);color:var(--dim)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none}
+.dot.off{background:var(--bad)}.dot.warn{background:var(--warn)}
+
+/* role table */
+.rrow{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.rrow:last-child{border-bottom:none}
+.rrow .ico{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:var(--panel2);font-size:15px;flex:none}
+.rrow .nm{flex:1;font-size:14px}
+.rrow .nm small{display:block;color:var(--dim);font-size:11px}
+.cnt{width:26px;text-align:center;font-weight:700;font-variant-numeric:tabular-nums}
+.sq{width:29px;height:29px;border-radius:9px;background:var(--panel2);border:1px solid var(--line);color:var(--txt);font-size:17px;line-height:1;cursor:pointer}
+.sq:active{background:var(--acc)}
+.balance{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-radius:11px;font-size:13px;margin-top:10px}
+.balance.ok{background:rgba(46,204,113,.13);border:1px solid rgba(46,204,113,.4);color:#7ff0b0}
+.balance.bad{background:rgba(255,77,94,.13);border:1px solid rgba(255,77,94,.45);color:#ff9aa4}
+
+/* players */
+.plist{display:flex;flex-direction:column;gap:6px}
+.p{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:11px;background:var(--panel);border:1px solid var(--line);font-size:13.5px}
+.p .av{width:26px;height:26px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:11px;font-weight:700;color:#111}
+.p .nm{flex:1}
+.p .nm small{display:block;color:var(--dim);font-size:11px}
+.p.dead{opacity:.42;text-decoration:line-through}
+.p.act{border-color:var(--bad);box-shadow:0 0 0 1px rgba(255,77,94,.35) inset}
+.p.sel{border-color:var(--acc);background:rgba(124,92,255,.15)}
+.p .tick{color:var(--ok);font-weight:700}
+.p .x{background:transparent;border:none;color:var(--dim);cursor:pointer;font-size:16px}
+
+/* timer */
+.timer{font-size:44px;font-weight:750;font-variant-numeric:tabular-nums;letter-spacing:-.02em;line-height:1}
+.phasebar{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;margin-bottom:10px}
+.phasebar.night{background:linear-gradient(135deg,#1b2547,#2b3a67)}
+.phasebar.day{background:linear-gradient(135deg,#5a4a12,#8a6f1c)}
+.phasebar .ph{font-weight:700}
+.phasebar .rd{margin-left:auto;font-size:12px;color:#cdd3ea}
+.mini{padding:7px 6px;font-size:12px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);color:var(--txt);cursor:pointer}
+
+/* log */
+.log{background:#101219;border:1px solid var(--line);border-radius:11px;padding:9px 11px;font-size:12px;color:#aab0c6;font-family:ui-monospace,Menlo,Consolas,monospace;max-height:96px;overflow:auto}
+.log div{margin-bottom:3px}
+.prompt{background:rgba(124,92,255,.12);border:1px solid rgba(124,92,255,.4);border-radius:11px;padding:10px 12px;font-size:13px;margin-bottom:9px}
+.prompt b{color:var(--acc2)}
+
+/* voting bars */
+.vote{margin-bottom:9px}
+.vote .hd{display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px}
+.bar{height:9px;border-radius:9px;background:var(--panel2);overflow:hidden}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),var(--acc2));border-radius:9px}
+
+/* player role card */
+.rolecard{border-radius:16px;padding:16px;text-align:center;background:linear-gradient(160deg,#3b1d33,#241426);border:1px solid #6b2c4e}
+.rolecard .em{font-size:40px}
+.rolecard .rn{font-size:22px;font-weight:750;margin-top:4px}
+.rolecard .rd{font-size:12.5px;color:#e0c3d4;margin-top:5px}
+.big{font-size:26px;font-weight:700;text-align:center;margin:10px 0}
+.qr{width:150px;height:150px;background:#fff;border-radius:12px;margin:0 auto;display:block}
+.code{font-size:38px;font-weight:800;letter-spacing:.16em;text-align:center;font-variant-numeric:tabular-nums}
+.sw{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px}
+.toggle{width:44px;height:25px;border-radius:99px;background:var(--panel2);border:1px solid var(--line);position:relative;cursor:pointer}
+.toggle i{position:absolute;top:2px;left:2px;width:19px;height:19px;border-radius:50%;background:var(--dim);transition:.18s}
+.toggle.on{background:rgba(124,92,255,.35);border-color:var(--acc)}
+.toggle.on i{left:21px;background:var(--acc2)}
+.modal{position:absolute;inset:0;background:rgba(5,6,10,.72);display:grid;place-items:center;padding:18px;z-index:5}
+.sheet{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px;width:100%;max-height:92%;overflow:auto}
+.sheet h4{margin:0 0 10px;font-size:16px}
+.flash{position:absolute;inset:0;background:rgba(255,77,94,.55);pointer-events:none;animation:f .55s ease-out forwards;z-index:9}
+@keyframes f{to{opacity:0}}
+.flowbox{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.4px;color:#b9bfd4;white-space:pre;overflow:auto}
+@media(max-width:900px){.wrap{grid-template-columns:1fr}nav{border-right:none;border-bottom:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>🎭 Мафия Offline — эскизы интерфейсов</h1>
+  <span class="badge">кликабельный прототип v1</span>
+  <span class="sub">Flutter + BLE · экраны ведущего (Android) и игрока (Android/iOS)</span>
+</header>
+
+<div class="wrap">
+<nav id="nav"></nav>
+<main>
+  <div class="stage">
+    <div id="deviceHost"></div>
+    <div class="notes" id="notes"></div>
+  </div>
+</main>
+</div>
+
+<script>
+/* ---------------- state ---------------- */
+const COLORS=['#FF5733','#33FF57','#3357FF','#FF33A1','#FFD733','#33FFF5','#F533FF','#F5A623','#7ED321','#4A90E2'];
+const NAMES=['Анна','Иван','Пётр','Сергей','Мария','Олег','Дина','Костя','Лена','Артём'];
+const state={
+  screen:'host_menu',
+  game:{name:'Игра от 26.07.2026', total:10, code:'482913', round:3},
+  roles:{mafia:2,don:1,doctor:1,commissioner:1,prostitute:1,maniac:0},
+  players:NAMES.map((n,i)=>({id:'p'+i,name:n,color:COLORS[i],alive:true,connected:true,role:null,acted:false})),
+  timer:47, phase:'night', paused:false,
+  votes:{p1:3,p4:2,p7:1},
+  revealRoles:false,
+  sel:null, sent:false, modal:null
+};
+// раздать роли для демо
+(function(){const r=['mafia','mafia','don','doctor','commissioner','prostitute','civilian','civilian','civilian','civilian'];
+ state.players.forEach((p,i)=>p.role=r[i]);
+ state.players[0].alive=false; state.players[6].alive=false; state.players[3].connected=false;
+ state.players[1].acted=true; state.players[2].acted=true;})();
+
+const ROLE_META={
+  mafia:{n:'Мафия',e:'🔫',d:'Каждую ночь выбирает жертву для убийства.'},
+  don:{n:'Дон',e:'🎩',d:'Глава мафии. Его голос решающий, комиссар видит его как мирного.'},
+  doctor:{n:'Доктор',e:'💉',d:'Каждую ночь лечит одного игрока (нельзя себя два раза подряд).'},
+  commissioner:{n:'Комиссар',e:'🔎',d:'Каждую ночь проверяет одного игрока на принадлежность к мафии.'},
+  prostitute:{n:'Проститутка',e:'💋',d:'Блокирует одного игрока — тот пропускает ночной ход.'},
+  maniac:{n:'Маньяк',e:'🔪',d:'Убивает по ночам, играет сам за себя.'},
+  civilian:{n:'Мирный житель',e:'👤',d:'Днём голосует и ищет мафию. Ночью спит.'}
+};
+const alive=()=>state.players.filter(p=>p.alive);
+const fmt=s=>String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+const rolesSum=()=>Object.values(state.roles).reduce((a,b)=>a+b,0);
+const civils=()=>state.game.total-rolesSum();
+
+/* ---------------- screens registry ---------------- */
+const SCREENS={};
+const NAV=[
+ {group:'🖥️ Ведущий (Android)',items:[
+  ['host_menu','1 · Главное меню'],
+  ['host_settings','1a · Настройки'],
+  ['host_setup','2 · Создание игры'],
+  ['host_lobby','3 · Ожидание игроков'],
+  ['host_game','4 · Основной экран (ночь)'],
+  ['host_night','5 · Итоги ночи'],
+  ['host_vote','6 · Голосование'],
+  ['host_end','7 · Конец игры / история'],
+ ]},
+ {group:'📱 Игрок (Android/iOS)',items:[
+  ['pl_connect','1 · Присоединиться'],
+  ['pl_wait','2 · Ожидание старта'],
+  ['pl_night','3a · Ночь · роль активна'],
+  ['pl_sleep','3b · Ночь · «Спите»'],
+  ['pl_day','3c · День · обсуждение'],
+  ['pl_vote','3d · Голосование'],
+  ['pl_dead','4 · Выбывший (зритель)'],
+  ['pl_lost','5 · Обрыв связи'],
+ ]},
+ {group:'🔄 Логика',items:[
+  ['flow','Карта переходов + протокол'],
+ ]}
+];
+
+/* ---------- helpers to build UI ---------- */
+function dev(kind,label,inner){return `<div class="device ${kind}"><div class="screen">${inner}</div><div class="label">${label}</div></div>`;}
+function bar(title,right=''){return `<div class="statusbar"><span>21:4${state.game.round} </span><span>BLE ▮▮▮ 78%</span></div>
+ <div class="appbar"><div class="t">${title}</div><div class="r">${right}</div></div>`;}
+function plist(arr,opt={}){return `<div class="plist">${arr.map(p=>{
+  const act = opt.active&&opt.active(p);
+  const sel = state.sel===p.id&&opt.selectable;
+  return `<div class="p ${p.alive?'':'dead'} ${act?'act':''} ${sel?'sel':''}" ${opt.selectable&&p.alive?`onclick="pick('${p.id}')"`:''}>
+   <div class="av" style="background:${p.color}">${p.name[0]}</div>
+   <div class="nm">${p.name}${opt.sub?`<small>${opt.sub(p)}</small>`:''}</div>
+   ${opt.right?opt.right(p):''}</div>`;}).join('')}</div>`;}
+function pick(id){state.sel=state.sel===id?null:id;state.sent=false;render();}
+
+/* =========================================================
+   ВЕДУЩИЙ
+   ========================================================= */
+SCREENS.host_menu={dev:'tablet',label:'Ведущий · главное меню',
+ notes:{t:'1. Главное меню',p:'features/menu/menu_screen.dart',
+  li:['Три входа: «Новая игра», «История игр», «Настройки».','Отдельная кнопка «Я игрок» — тот же APK работает и как клиент.','Проверка Bluetooth/разрешений при старте (permission_handler), баннер если BLE выключен.'],
+  kv:['Состояние','currentGameProvider = null → показываем меню; при tap «Новая игра» → route /setup']},
+ html:()=>bar('Мафия Offline','v1.0')+`<div class="body">
+  <div style="text-align:center;padding:26px 0 18px"><div style="font-size:64px">🎭</div>
+   <div style="font-size:24px;font-weight:750;margin-top:6px">Мафия Offline</div>
+   <div class="hint">Игра по Bluetooth · без интернета</div></div>
+  <div class="card" style="display:flex;gap:8px;align-items:center"><span class="dot"></span><span class="hint">Bluetooth включён · разрешения выданы</span></div>
+  <button class="btn" onclick="go('host_setup')">➕ Новая игра</button>
+  <button class="btn sec" onclick="go('host_end')">📜 История игр</button>
+  <button class="btn sec" onclick="go('host_settings')">⚙️ Настройки</button>
+  <button class="btn ghost" onclick="go('pl_connect')">📱 Я игрок — подключиться к игре</button>
+ </div><div class="foot"><div class="hint" style="text-align:center">Последняя игра: 24.07 · победа мирных</div></div>`};
+
+SCREENS.host_settings={dev:'tablet',label:'Ведущий · настройки',
+ notes:{t:'1a. Настройки',p:'shared_preferences',
+  li:['Звук фаз и фоновая музыка — раздельные переключатели (AudioService.toggleSound/ toggleMusic).','Длительности по умолчанию: ночь = 10с + 2с × активных, день = 60с × живых — обе формулы редактируемы.','Тема, вибрация, «показывать роли в списке» (страховка от подглядывания).'],
+  kv:['Хранение','SharedPreferences: sound, music, night_base, night_per_player, day_per_player, theme']},
+ html:()=>bar('Настройки','← Меню')+`<div class="body">
+  <div class="card"><b class="hint">ЗВУК</b>
+   <div class="sw">Звуки фаз <div class="toggle on" onclick="this.classList.toggle('on')"><i></i></div></div>
+   <div class="sw">Фоновая музыка <div class="toggle" onclick="this.classList.toggle('on')"><i></i></div></div>
+   <div class="sw" style="border:none">Вибро-уведомления <div class="toggle on" onclick="this.classList.toggle('on')"><i></i></div></div></div>
+  <div class="card"><b class="hint">ТАЙМЕРЫ ПО УМОЛЧАНИЮ</b>
+   <div class="field" style="margin-top:8px"><label>Ночь: база + на каждого активного</label>
+    <div class="row"><input class="input" value="10 с"><input class="input" value="+2 с"></div></div>
+   <div class="field" style="margin:0"><label>День: на каждого живого игрока</label><input class="input" value="60 с"></div></div>
+  <div class="card"><b class="hint">ИНТЕРФЕЙС</b>
+   <div class="sw">Тёмная тема <div class="toggle on" onclick="this.classList.toggle('on')"><i></i></div></div>
+   <div class="sw" style="border:none">Скрывать роли в списке <div class="toggle on" onclick="this.classList.toggle('on')"><i></i></div></div></div>
+ </div><div class="foot"><button class="btn" onclick="go('host_menu')">Сохранить</button></div>`};
+
+SCREENS.host_setup={dev:'tablet',label:'Ведущий · создание игры',
+ notes:{t:'2. Создание игры (состав ролей)',p:'features/game_setup/game_setup_screen.dart',
+  li:['Счётчик игроков 6–20; «Мирные» считаются автоматически: total − Σ(спец. роли).','Красная плашка + заблокированная кнопка, если Σ ролей > числа игроков.','Пресеты для 6-8 / 9-12 / 13-16 / 17-20 подставляют проверенный баланс одним тапом.','Мафия (вместе с доном) не должна быть ≥ ½ состава — валидатор предупреждает.'],
+  kv:['Действие','«Создать игру» → generateGameCode() → Game(id, name, availableRoles) → BleService.startHosting(code) → /lobby'],
+  code:'{"type":"game_created","code":"482913","name":"Игра от 26.07.2026"}'},
+ html:()=>{
+  const bad=rolesSum()>state.game.total;
+  const R=(k,extra='')=>{const m=ROLE_META[k];return `<div class="rrow"><div class="ico">${m.e}</div>
+   <div class="nm">${m.n}<small>${extra||m.d}</small></div>
+   <button class="sq" onclick="rl('${k}',-1)">−</button><div class="cnt">${state.roles[k]}</div><button class="sq" onclick="rl('${k}',1)">+</button></div>`;};
+  return bar('Новая игра','Шаг 1 из 2')+`<div class="body">
+  <div class="field"><label>Название игры</label><input class="input" value="${state.game.name}"></div>
+  <div class="card"><div style="display:flex;align-items:center;gap:10px">
+    <div style="flex:1"><b>Игроков</b><div class="hint">от 6 до 20</div></div>
+    <button class="sq" onclick="tot(-1)">−</button><div class="cnt" style="font-size:20px;width:34px">${state.game.total}</div><button class="sq" onclick="tot(1)">+</button></div></div>
+  <div class="card">${R('mafia')}${R('don')}${R('doctor')}${R('commissioner')}${R('prostitute')}${R('maniac')}
+   <div class="rrow"><div class="ico">👤</div><div class="nm">Мирные жители<small>считаются автоматически</small></div><div class="cnt" style="color:var(--acc2)">${Math.max(0,civils())}</div></div></div>
+  <div class="balance ${bad?'bad':'ok'}"><span>${bad?'⚠️ Ролей больше, чем игроков':'✅ Состав сбалансирован'}</span><b>${rolesSum()} + ${Math.max(0,civils())} = ${state.game.total}</b></div>
+  <div class="row" style="margin-top:10px"><button class="mini" onclick="preset(8)">Пресет 6-8</button><button class="mini" onclick="preset(10)">9-12</button><button class="mini" onclick="preset(14)">13-16</button><button class="mini" onclick="preset(18)">17-20</button></div>
+ </div><div class="foot"><button class="btn" ${bad?'disabled':''} onclick="go('host_lobby')">Создать игру · получить код</button></div>`;}};
+function rl(k,d){state.roles[k]=Math.max(0,state.roles[k]+d);render();}
+function tot(d){state.game.total=Math.min(20,Math.max(6,state.game.total+d));render();}
+function preset(n){const P={8:{mafia:1,don:1,doctor:1,commissioner:1,prostitute:0,maniac:0},
+ 10:{mafia:2,don:1,doctor:1,commissioner:1,prostitute:1,maniac:0},
+ 14:{mafia:3,don:1,doctor:1,commissioner:1,prostitute:1,maniac:1},
+ 18:{mafia:4,don:1,doctor:1,commissioner:1,prostitute:1,maniac:1}};
+ state.game.total=n;state.roles={...P[n]};render();}
+
+SCREENS.host_lobby={dev:'tablet',label:'Ведущий · ожидание игроков',
+ notes:{t:'3. Ожидание подключения',p:'features/lobby/lobby_screen.dart',
+  li:['Код 6 цифр + QR (qr_flutter) — игрок вводит вручную или сканирует.','Список растёт динамически по мере register-пакетов; уникальность имени проверяет ведущий.','Зелёная точка = активное BLE-соединение, «Исключить» — kick + разрыв связи.','«Старт» активен при полном составе; можно запустить принудительно с предупреждением.'],
+  kv:['Пакет от игрока','type=register → ведущий назначает id/цвет и отвечает register_ok либо name_taken'],
+  code:'→ {"type":"register","name":"Иван","color":"#33FF57"}\n← {"type":"register_ok","id":"p1","color":"#33FF57"}\n← {"type":"name_taken"}'},
+ html:()=>{const c=state.players.slice(0,7);
+  return bar('Ожидание игроков',`${c.length}/${state.game.total}`)+`<div class="body">
+  <div class="card" style="text-align:center"><div class="hint">Код игры</div><div class="code">${state.game.code}</div>
+   <svg class="qr" viewBox="0 0 21 21" shape-rendering="crispEdges">${qr()}</svg>
+   <div class="hint" style="margin-top:8px">Устройство: <b>Mafia_${state.game.code}</b></div></div>
+  ${plist(c,{sub:p=>'подключён',right:p=>`<span class="dot"></span><button class="x">✕</button>`})}
+  <div class="card" style="margin-top:10px;border-color:rgba(245,166,35,.4);background:rgba(245,166,35,.08)">
+   <span class="hint" style="color:#f8c778">⚠️ Ожидаем ещё ${state.game.total-c.length} игроков. Можно стартовать принудительно — недостающие роли уйдут в «мирные».</span></div>
+ </div><div class="foot"><button class="btn" onclick="go('host_game')">▶ Старт игры · раздать роли</button>
+  <button class="btn ghost" onclick="go('host_setup')">← Изменить состав</button></div>`;}};
+function qr(){let s='';let seed=7;const rnd=()=>((seed=seed*1103515245+12345)>>>16)%100;
+ for(let y=0;y<21;y++)for(let x=0;x<21;x++){const fin=(x<7&&y<7)||(x>13&&y<7)||(x<7&&y>13);
+  let on=fin?((x%6===0||y%6===0)||(x>1&&x<5&&y>1&&y<5)):rnd()>52;
+  if(fin&&((x===1||x===5)&&y>0&&y<6||(y===1||y===5)&&x>0&&x<6))on=false;
+  if(on)s+=`<rect x="${x}" y="${y}" width="1" height="1" fill="#000"/>`;}
+ return s;}
+
+SCREENS.host_game={dev:'tablet',label:'Ведущий · игра идёт (ночь)',
+ notes:{t:'4. Основной экран ведущего — 3 зоны',p:'features/host_game/host_game_screen.dart',
+  li:['Зона 1 — фаза, раунд, крупный таймер, «Пауза / +1 мин / +30 с / Завершить фазу».','Зона 2 — список игроков: цвет, имя, жив/мёртв, скрытая роль (тап «Показать роли»), красный контур у тех, кто ходит сейчас, ✓ у ответивших.','Зона 3 — автоподсказка «кого ждём», короткий лог и «Развернуть лог».','Таймер ночи пересчитывается автоматически: 10с + 2с × активных ночью.'],
+  kv:['Ключевые методы','GameController: togglePause(), addTime(30), onNightActionReceived(id,target), _finishNight()'],
+  code:'← {"type":"phase","phase":"night","round":3,"time":47}\n→ {"type":"night_action","player":"p2","target":"p5"}'},
+ html:()=>{const A=alive();const waiting=A.filter(p=>['mafia','don','doctor','commissioner','prostitute'].includes(p.role)&&!p.acted);
+ return bar(state.game.name,'⛶ лог')+`<div class="body">
+  <div class="phasebar ${state.phase}"><span style="font-size:20px">${state.phase==='night'?'🌙':'☀️'}</span>
+   <span class="ph">${state.phase==='night'?'Ночь':'День'}</span><span class="rd">Раунд ${state.game.round} · живых ${A.length}/${state.players.length}</span></div>
+  <div class="card" style="text-align:center;padding:14px">
+   <div class="timer">${fmt(state.timer)}</div>
+   <div class="hint" style="margin:6px 0 10px">${state.paused?'⏸ пауза':'осталось до конца фазы'}</div>
+   <div class="row"><button class="mini" onclick="tg()">${state.paused?'▶ Пуск':'⏸ Пауза'}</button>
+    <button class="mini" onclick="addT(60)">+1 мин</button><button class="mini" onclick="addT(30)">+30 с</button></div>
+   <button class="btn sec" style="margin-top:8px" onclick="go('host_night')">⏭ Завершить фазу → Рассвет</button></div>
+  <div style="display:flex;align-items:center;margin:12px 0 7px"><b style="font-size:13px">Игроки</b>
+   <button class="mini" style="margin-left:auto" onclick="state.revealRoles=!state.revealRoles;render()">${state.revealRoles?'🙈 Скрыть роли':'👁 Показать роли'}</button></div>
+  ${plist(state.players,{active:p=>p.alive&&['mafia','don'].includes(p.role),
+    sub:p=>state.revealRoles?ROLE_META[p.role].e+' '+ROLE_META[p.role].n:(p.alive?'жив':'выбыл'),
+    right:p=>!p.alive?'<span class="hint">☠</span>':(!p.connected?'<span class="dot off" title="нет связи"></span>':(p.acted?'<span class="tick">✓</span>':'<span class="dot warn"></span>'))})}
+  <div class="prompt" style="margin-top:12px">🎙 <b>Сейчас ход мафии.</b> Ожидаем выбор от: ${waiting.map(p=>p.name).join(', ')||'—'}</div>
+  <div class="log"><div>Ночь 3 · просыпается мафия…</div><div>День 2 · голосованием выбыл Дина (4 голоса)</div><div>Ночь 2 · убита Анна, доктор вылечил Петра</div></div>
+  <button class="btn ghost" style="margin-top:8px" onclick="alert('Полная история событий игры')">Развернуть лог</button>
+ </div>${state.players.some(p=>!p.connected)?`<div class="foot" style="background:rgba(255,77,94,.12)"><span class="hint" style="color:#ff9aa4">🔌 Сергей потерял соединение · идёт автопереподключение (2/3)</span></div>`:''}`;}};
+function tg(){state.paused=!state.paused;render();}
+function addT(s){state.timer+=s;render();}
+
+SCREENS.host_night={dev:'tablet',label:'Ведущий · итоги ночи',
+ notes:{t:'5. Итоги ночи (перед оглашением)',p:'_resolveNightActions()',
+  li:['Порядок разрешения: проститутка → блокировка, доктор → лечение, мафия/маньяк → убийство, комиссар → проверка.','Каждую строку можно поправить тапом (ошибка ведущего / спорный момент).','Результат комиссара виден только ведущему — он решает, оглашать ли.','«Огласить» рассылает игрокам night_result и переводит фазу в день.'],
+  kv:['Рассылка','BleService.broadcastToAll({type:"night_result", killed:[...], healed:true})'],
+  code:'← {"type":"night_result","killed":["p4"],"round":3,\n    "text":"Этой ночью погиб Сергей"}'},
+ html:()=>bar('Итоги ночи 3','можно править')+`<div class="body">
+  <div class="card" style="border-color:rgba(255,77,94,.4)"><div style="display:flex;gap:10px;align-items:center">
+   <span style="font-size:22px">🔫</span><div style="flex:1"><b>Мафия убила: Сергей</b><div class="hint">выбор дона · единогласно</div></div><button class="mini">Изменить</button></div></div>
+  <div class="card"><div style="display:flex;gap:10px;align-items:center">
+   <span style="font-size:22px">💉</span><div style="flex:1"><b>Доктор лечил: Мария</b><div class="hint">не совпало с целью мафии → убийство состоялось</div></div><button class="mini">Изменить</button></div></div>
+  <div class="card"><div style="display:flex;gap:10px;align-items:center">
+   <span style="font-size:22px">🔎</span><div style="flex:1"><b>Комиссар проверил: Пётр</b><div class="hint" style="color:#ff9aa4">результат: МАФИЯ (виден только вам)</div></div><button class="mini">Изменить</button></div></div>
+  <div class="card"><div style="display:flex;gap:10px;align-items:center">
+   <span style="font-size:22px">💋</span><div style="flex:1"><b>Проститутка заблокировала: Костя</b><div class="hint">роль «мирный» → ход и так пропущен</div></div><button class="mini">Изменить</button></div></div>
+  <div class="card" style="background:rgba(124,92,255,.1);border-color:rgba(124,92,255,.35)">
+   <b class="hint">ТЕКСТ ДЛЯ ОГЛАШЕНИЯ</b><div style="margin-top:6px">«Город просыпается. Этой ночью мы потеряли <b>Сергея</b>.»</div></div>
+ </div><div class="foot"><button class="btn" onclick="flash();go('host_vote')">📢 Огласить и начать день</button>
+  <button class="btn ghost" onclick="go('host_game')">← Вернуться к ночи</button></div>`};
+
+SCREENS.host_vote={dev:'tablet',label:'Ведущий · голосование',
+ notes:{t:'6. Дневное голосование',p:'startVoting() / _resolveVoting()',
+  li:['Прогресс-бары считаются в реальном времени; имена голосовавших скрыты, но ведущий может раскрыть тапом по кандидату.','Ничья → автоматический второй тур только между лидерами; повторная ничья → никто не выбывает (настраивается).','После «Подтвердить» игрок помечается мёртвым, таймеры дня/ночи пересчитываются, проверяются условия победы.'],
+  kv:['Проверка победы','mafiaWon: мафии ≥ мирных · civiliansWon: мафии не осталось'],
+  code:'→ {"type":"vote","from":"p5","target":"p1"}\n← {"type":"vote_result","eliminated":"p1","tie":false}'},
+ html:()=>{const cand=[['p1','Иван',3],['p4','Мария',2],['p7','Костя',1],['p9','Артём',0]];const voted=6,total=8;
+ return bar('Голосование · день 3','тур 1')+`<div class="body">
+  <div class="phasebar day"><span style="font-size:20px">🗳</span><span class="ph">Голосование</span><span class="rd">${voted}/${total} проголосовали · ${fmt(18)}</span></div>
+  ${cand.map(([id,n,v])=>`<div class="vote"><div class="hd"><span>${n} ${v===3?'👑':''}</span><b>${v}</b></div><div class="bar"><i style="width:${v/3*100}%"></i></div></div>`).join('')}
+  <div class="card" style="margin-top:12px"><b class="hint">КТО ЗА ИВАНА (только для вас)</b>
+   <div class="hint" style="margin-top:6px">Пётр · Мария · Лена</div></div>
+  <div class="card" style="border-color:rgba(46,204,113,.4);background:rgba(46,204,113,.08)">
+   <b>Лидер: Иван — 3 голоса</b><div class="hint">Ничьей нет, второй тур не требуется</div></div>
+ </div><div class="foot"><button class="btn danger" onclick="flash();go('host_end')">✔ Подтвердить выбывание · Иван</button>
+  <button class="btn ghost" onclick="alert('Повторное голосование запущено')">↻ Перезапустить тур</button></div>`;}};
+
+SCREENS.host_end={dev:'tablet',label:'Ведущий · итог и история',
+ notes:{t:'7. Конец игры и история',p:'services/database_service.dart (sqflite)',
+  li:['Экран победы: сторона-победитель, полный расклад ролей, длительность, число раундов.','Игра целиком сохраняется в SQLite (players_json, roles_json, log_json) и доступна в «Истории».','Экспорт лога в текст/поделиться — удобно для разбора после партии.'],
+  kv:['Схема','games(id, name, created_at, ended_at, players_json, roles_json, current_round, phase, winner, log_json)']},
+ html:()=>bar('Игра окончена','26.07.2026')+`<div class="body">
+  <div style="text-align:center;padding:14px 0"><div style="font-size:54px">🎉</div>
+   <div style="font-size:22px;font-weight:750">Победили мирные жители</div>
+   <div class="hint">5 раундов · 41 минута · 10 игроков</div></div>
+  <div class="card"><b class="hint">РАСКЛАД РОЛЕЙ</b>
+   ${state.players.map(p=>`<div class="rrow" style="padding:6px 0"><div class="ico" style="background:${p.color}22">${ROLE_META[p.role].e}</div>
+    <div class="nm">${p.name}<small>${ROLE_META[p.role].n}</small></div><span class="hint">${p.alive?'выжил':'выбыл'}</span></div>`).join('')}</div>
+  <div class="card"><b class="hint">ИСТОРИЯ ИГР</b>
+   <div class="rrow"><div class="ico">🎭</div><div class="nm">Игра от 24.07<small>10 игроков · победа мафии</small></div><span class="hint">›</span></div>
+   <div class="rrow"><div class="ico">🎭</div><div class="nm">Игра от 19.07<small>8 игроков · победа мирных</small></div><span class="hint">›</span></div></div>
+ </div><div class="foot"><button class="btn" onclick="go('host_setup')">🔁 Новая игра тем же составом</button>
+  <button class="btn ghost" onclick="go('host_menu')">В главное меню</button></div>`};
+
+/* =========================================================
+   ИГРОК
+   ========================================================= */
+SCREENS.pl_connect={dev:'phone',label:'Игрок · подключение',
+ notes:{t:'1. Присоединиться к игре',p:'features/player/connect_screen.dart',
+  li:['Ввод 6-значного кода либо скан QR → поиск BLE-устройства с localName = Mafia_&lt;код&gt;.','Имя проверяется на уникальность ведущим; при дубле — просьба сменить.','Цвет игрока выдаёт ведущий (из палитры), чтобы не было совпадений.'],
+  kv:['BLE','scanAndConnect(code,name,color) → discoverServices → notify на TX → write register в RX'],
+  code:'SERVICE 12345678-…-9abc\nRX (write)  …9abd\nTX (notify) …9abe'},
+ html:()=>bar('Подключение','игрок')+`<div class="body">
+  <div style="text-align:center;padding:18px 0 8px"><div style="font-size:52px">📱</div><div class="hint">Введите код, который показывает ведущий</div></div>
+  <div class="field"><label>Код игры</label><input class="input" style="font-size:26px;letter-spacing:.18em;text-align:center" value="482913"></div>
+  <button class="btn sec">📷 Сканировать QR-код</button>
+  <div class="field" style="margin-top:14px"><label>Ваше имя</label><input class="input" value="Иван"></div>
+  <div class="card" style="display:flex;gap:8px;align-items:center"><span class="dot"></span><span class="hint">Найдено устройство «Mafia_482913»</span></div>
+ </div><div class="foot"><button class="btn" onclick="go('pl_wait')">Подключиться</button></div>`};
+
+SCREENS.pl_wait={dev:'phone',label:'Игрок · ожидание старта',
+ notes:{t:'2. Ожидание начала',p:'lobby (клиентская часть)',
+  li:['Видно название игры, ведущего и всех уже подключившихся.','Пинг каждые 5 секунд подтверждает связь; индикатор внизу.','Роль приходит одним пакетом role_assign в момент старта — до этого её нет на устройстве.'],
+  code:'← {"type":"role_assign","role":"mafia",\n    "teammates":["Пётр","Мария"]}'},
+ html:()=>bar('Игра от 26.07','код 482913')+`<div class="body">
+  <div style="text-align:center;padding:22px 0"><div style="font-size:42px">⏳</div>
+   <div style="font-size:18px;font-weight:650;margin-top:6px">Ожидание начала игры…</div>
+   <div class="hint">Ведущий: Олег · 7 из 10 игроков</div></div>
+  ${plist(state.players.slice(0,7),{sub:p=>p.name==='Иван'?'это вы':'подключён',right:p=>'<span class="dot"></span>'})}
+ </div><div class="foot"><div style="display:flex;gap:8px;align-items:center"><span class="dot"></span><span class="hint">Связь стабильна · пинг 5 с</span></div></div>`};
+
+SCREENS.pl_night={dev:'phone',label:'Игрок · ночь, роль активна',
+ notes:{t:'3a. Ночь — активная роль',p:'features/player/player_game_screen.dart',
+  li:['Крупная карточка роли + список живых для выбора цели.','«Отправить» активна только после выбора; после отправки всё блокируется до следующей фазы.','Мафия видит своих союзников подсветкой; дон отмечен короной.','Если время вышло без ответа — ход считается пропущенным, ведущему уходит уведомление.'],
+  kv:['Пакет',' {"type":"night_action","player":"p1","target":"p4"} · ответ ack'],
+  code:'→ {"type":"night_action","player":"p1","target":"p4"}\n← {"type":"ack","accepted":true}'},
+ html:()=>{const A=alive();const m=ROLE_META.mafia;
+ return bar('Ночь 3','🌙')+`<div class="body">
+  <div class="phasebar night"><span style="font-size:18px">🌙</span><span class="ph">Ночь</span><span class="rd">${fmt(state.timer)}</span></div>
+  <div class="rolecard"><div class="em">${m.e}</div><div class="rn">${m.n}</div><div class="rd">Ваши союзники: Пётр 🎩, Мария</div></div>
+  <div style="margin:14px 0 7px;font-weight:650;font-size:14px">Кого убить этой ночью?</div>
+  ${plist(A.filter(p=>!['mafia','don'].includes(p.role)),{selectable:!state.sent,sub:p=>'жив'})}
+  ${state.sent?'<div class="card" style="margin-top:10px;background:rgba(46,204,113,.1);border-color:rgba(46,204,113,.4)"><b>✓ Выбор отправлен ведущему</b><div class="hint">Ожидайте рассвета</div></div>':''}
+ </div><div class="foot">
+  <button class="btn" ${!state.sel||state.sent?'disabled':''} onclick="state.sent=true;render()">${state.sent?'Отправлено':'Отправить выбор'}</button>
+  <div class="row" style="margin-top:8px"><button class="btn ghost" onclick="modal('role')">Моя роль</button><button class="btn ghost" onclick="state.sent=true;render()">Пропустить ход</button></div>
+ </div>${state.modal==='role'?roleSheet('mafia'):''}`;}};
+function roleSheet(k){const m=ROLE_META[k];return `<div class="modal" onclick="state.modal=null;render()"><div class="sheet" onclick="event.stopPropagation()">
+ <h4>${m.e} ${m.n}</h4><p class="hint">${m.d}</p>
+ <div class="card"><b class="hint">КАК ХОДИТЬ</b><div style="font-size:13px;margin-top:6px">Ночью выберите цель из списка и нажмите «Отправить». Если мафия не сошлась во мнении — решает голос дона.</div></div>
+ <div class="card"><b class="hint">УСЛОВИЕ ПОБЕДЫ</b><div style="font-size:13px;margin-top:6px">Мафии должно стать не меньше, чем мирных.</div></div>
+ <button class="btn sec" onclick="state.modal=null;render()">Закрыть</button></div></div>`;}
+function modal(m){state.modal=m;render();}
+
+SCREENS.pl_sleep={dev:'phone',label:'Игрок · ночь, роль спит',
+ notes:{t:'3b. Ночь — пассивная роль',p:'состояние «нет действия»',
+  li:['Никаких кнопок выбора — только фаза, таймер и напоминание роли.','Экран намеренно тёмный и «пустой», чтобы соседи ничего не считали с него.','Опция «Затемнить экран полностью» — защита от подглядывания.'],
+  kv:['Логика','role.isActiveAtNight == false → рендерим заглушку']},
+ html:()=>bar('Ночь 3','🌙')+`<div class="body" style="display:flex;flex-direction:column">
+  <div class="phasebar night"><span style="font-size:18px">🌙</span><span class="ph">Ночь</span><span class="rd">${fmt(state.timer)}</span></div>
+  <div class="center" style="flex:1"><div><div style="font-size:64px">😴</div>
+   <div style="font-size:26px;font-weight:750;margin-top:8px">Спите</div>
+   <div class="hint" style="margin-top:6px;max-width:220px">Город засыпает. Ваша роль ночью не действует — дождитесь рассвета.</div>
+   <div class="chip" style="margin-top:14px">👤 Мирный житель</div></div></div>
+ </div><div class="foot"><button class="btn ghost" onclick="modal('role')">Моя роль</button>
+  <div style="display:flex;gap:8px;align-items:center;margin-top:8px"><span class="dot"></span><span class="hint">Подключено</span></div></div>
+ ${state.modal==='role'?roleSheet('civilian'):''}`};
+
+SCREENS.pl_day={dev:'phone',label:'Игрок · день, обсуждение',
+ notes:{t:'3c. День — обсуждение',p:'phase = day',
+  li:['Итог ночи приходит пуш-сообщением и показывается баннером.','Таймер обсуждения общий с ведущим — синхронизируется каждым тиком time_update.','Кнопок выбора нет: «Обсуждайте» + порядок речей (опционально).'],
+  code:'← {"type":"time_update","time":214}\n← {"type":"night_result","text":"Погиб Сергей"}'},
+ html:()=>bar('День 3','☀️')+`<div class="body" style="display:flex;flex-direction:column">
+  <div class="phasebar day"><span style="font-size:18px">☀️</span><span class="ph">День · обсуждение</span><span class="rd">${fmt(214)}</span></div>
+  <div class="card" style="border-color:rgba(255,77,94,.4);background:rgba(255,77,94,.09)">
+   <b>☠️ Этой ночью погиб Сергей</b><div class="hint">Роль погибшего не раскрывается</div></div>
+  <div class="center" style="flex:1"><div><div style="font-size:56px">💬</div>
+   <div style="font-size:24px;font-weight:750;margin-top:8px">Обсуждайте</div>
+   <div class="hint" style="margin-top:6px;max-width:230px">Сейчас говорит: <b>Мария</b> · далее Пётр</div></div></div>
+ </div><div class="foot"><button class="btn ghost" onclick="modal('role')">Моя роль</button></div>
+ ${state.modal==='role'?roleSheet('civilian'):''}`};
+
+SCREENS.pl_vote={dev:'phone',label:'Игрок · голосование',
+ notes:{t:'3d. Голосование',p:'phase = voting',
+  li:['Список живых, один тап — один голос, подтверждение кнопкой.','Голос анонимен для других игроков (ведущий видит расшифровку).','Второй тур приходит отдельным пакетом с урезанным списком кандидатов.'],
+  code:'→ {"type":"vote","from":"p1","target":"p4"}\n← {"type":"vote_runoff","candidates":["p1","p4"]}'},
+ html:()=>{const A=alive().filter(p=>p.name!=='Иван');
+ return bar('Голосование','🗳')+`<div class="body">
+  <div class="phasebar day"><span style="font-size:18px">🗳</span><span class="ph">Голосование</span><span class="rd">${fmt(18)}</span></div>
+  <div style="margin:4px 0 8px;font-weight:650;font-size:14px">Кого отправляем из города?</div>
+  ${plist(A,{selectable:!state.sent})}
+  <div class="card" style="margin-top:8px"><span class="hint">Голос анонимен для других игроков. Изменить нельзя после отправки.</span></div>
+ </div><div class="foot"><button class="btn" ${!state.sel||state.sent?'disabled':''} onclick="state.sent=true;render()">${state.sent?'✓ Голос учтён':'Проголосовать'}</button>
+  <button class="btn ghost" style="margin-top:8px" onclick="state.sent=true;render()">Воздержаться</button></div>`;}};
+
+SCREENS.pl_dead={dev:'phone',label:'Игрок · выбывший (зритель)',
+ notes:{t:'4. Режим зрителя',p:'isAlive == false',
+  li:['Все элементы выбора убраны, остаются фаза, таймер и полный лог событий.','Роли других игроков по-прежнему скрыты — чтобы не подсказывать живым.','«Выйти из игры» разрывает BLE-сессию, но история партии сохраняется у ведущего.'],
+  code:'← {"type":"eliminated","reason":"vote","round":3}'},
+ html:()=>bar('Вы выбыли','режим зрителя')+`<div class="body">
+  <div class="card" style="text-align:center;border-color:#4a2030;background:rgba(255,77,94,.08)">
+   <div style="font-size:44px">☠️</div><div style="font-size:19px;font-weight:700">Вы выбыли из игры</div>
+   <div class="hint">Выгнан голосованием · день 3 · ваша роль: 🔫 Мафия</div></div>
+  <div class="phasebar night" style="margin-top:10px"><span>🌙</span><span class="ph">Ночь 4</span><span class="rd">${fmt(34)}</span></div>
+  <div style="margin:12px 0 7px;font-weight:650;font-size:14px">Лог событий</div>
+  <div class="log" style="max-height:250px">
+   <div>День 3 · голосованием выбыл Иван (3 голоса)</div>
+   <div>Ночь 3 · погиб Сергей</div>
+   <div>День 2 · голосованием выбыла Дина</div>
+   <div>Ночь 2 · погибла Анна, доктор спас Петра</div>
+   <div>Ночь 1 · обошлось без жертв</div>
+   <div>Игра началась · 10 игроков</div></div>
+ </div><div class="foot"><button class="btn ghost" onclick="go('host_end')">Выйти из игры</button></div>`};
+
+SCREENS.pl_lost={dev:'phone',label:'Игрок · обрыв связи',
+ notes:{t:'5. Обрыв и автопереподключение',p:'BleService._attemptReconnect',
+  li:['Пинг раз в 5 с; ведущий считает игрока отключённым после 10 с тишины, но НЕ удаляет из игры.','Клиент сам пробует переподключиться 3 раза с интервалом 2 с — без участия пользователя.','Успех → синхронизация фазы и таймера, игра продолжается с той же точки.','Неудача → ручная кнопка «Повторить». Пропущенные за это время действия аннулируются, ведущему уходит уведомление.'],
+  kv:['Тайминги','ping 5 с · timeout 10 с · retry 3 × 2 с'],
+  code:'→ {"type":"ping"}   ← {"type":"pong"}\n← {"type":"sync","phase":"night","round":3,"time":21}'},
+ html:()=>bar('Соединение потеряно','⚠️')+`<div class="body" style="display:flex;flex-direction:column">
+  <div class="center" style="flex:1"><div><div style="font-size:58px">📡</div>
+   <div style="font-size:20px;font-weight:700;margin-top:8px">Связь с ведущим потеряна</div>
+   <div class="hint" style="margin-top:6px;max-width:230px">Автоматическое переподключение… попытка <b>2 из 3</b></div>
+   <div class="bar" style="width:180px;margin:14px auto"><i style="width:66%"></i></div>
+   <div class="hint">Ваши ходы за это время будут пропущены</div></div></div>
+ </div><div class="foot"><button class="btn">↻ Повторить подключение</button>
+  <div style="display:flex;gap:8px;align-items:center;margin-top:9px"><span class="dot off"></span><span class="hint">Не подключено · Mafia_482913</span></div></div>`};
+
+/* ---------------- flow ---------------- */
+SCREENS.flow={dev:null,
+ notes:{t:'Карта переходов и протокол BLE',p:'core/router.dart + ble_service.dart',
+  li:['Ведущий — один экран на всю партию, модалки поверх него (итоги ночи, лог, правка).','Игрок — один экран, содержимое центральной зоны меняется по phase + isActiveAtNight + isAlive.','Все переходы фаз инициирует только ведущий: клиент рисует то, что пришло в phase.'],
+  kv:['Правило','Клиент не хранит игровую логику — он «тонкий»: получил phase → отрисовал, отправил action → заблокировался']},
+ html:null};
+
+/* ---------------- render ---------------- */
+function go(s){state.screen=s;state.sel=null;state.sent=false;state.modal=null;render();}
+function flash(){const sc=document.querySelector('.screen');if(!sc)return;const d=document.createElement('div');d.className='flash';sc.appendChild(d);}
+function render(){
+  document.getElementById('nav').innerHTML=NAV.map(g=>`<h3>${g.group}</h3>`+g.items.map(([id,t],i)=>
+    `<button class="navbtn ${state.screen===id?'active':''}" onclick="go('${id}')"><span class="n">${i+1}</span>${t}</button>`).join('')).join('');
+  const S=SCREENS[state.screen];
+  document.getElementById('deviceHost').innerHTML = S.html?dev(S.dev,S.label,S.html()):flowHTML();
+  const n=S.notes;
+  document.getElementById('notes').innerHTML=`<h2>${n.t}</h2><div class="path">${n.p}</div>
+   <ul>${n.li.map(x=>`<li>${x}</li>`).join('')}</ul>
+   ${n.kv?`<div class="kv"><b>${n.kv[0]}</b>${n.kv[1]}</div>`:''}
+   ${n.code?`<div class="kv"><b>Пакеты BLE</b><code class="msg">${n.code}</code></div>`:''}`;
+}
+function flowHTML(){return `<div class="flowbox" style="max-width:560px">
+ВЕДУЩИЙ                                ИГРОК
+─────────────────────────────────────  ─────────────────────────
+[Главное меню]                         [Присоединиться]
+     │ Новая игра                            │ код + имя
+     ▼                                       ▼  register ──▶
+[Создание игры] ──balance ok──▶        [Ожидание старта]
+     │ создать (код + QR)                    ▲
+     ▼                                       │ ◀── register_ok
+[Ожидание игроков] ◀──── register ───────────┘
+     │ Старт  ──── role_assign ─────────▶ роль получена
+     ▼                                       ▼
+┌─▶[ИГРА · НОЧЬ] ──── night_action ──▶ [Ночь: выбор / «Спите»]
+│    │  все ответили либо таймер = 0
+│    ▼
+│  [Итоги ночи] ─── night_result ────▶ баннер «погиб …»
+│    │ Огласить
+│    ▼
+│  [ИГРА · ДЕНЬ] ─── time_update ────▶ [Обсуждайте]
+│    │ Голосование
+│    ▼
+│  [Голосование] ◀──── vote ───────── [Список кандидатов]
+│    │  ничья? ──▶ второй тур (vote_runoff)
+│    ▼ Подтвердить ─ eliminated ────▶ [Зритель]
+│    │
+│    ├─ победа? ──нет──┘ (round++)
+│    ▼ да
+   [Конец игры] ─── game_over ───────▶ [Итог + расклад ролей]
+        │
+        ▼ сохранение в SQLite → [История игр]
+
+СЛУЖЕБНЫЕ ПАКЕТЫ (в любой фазе)
+  ping / pong        каждые 5 с, таймаут 10 с
+  sync               после переподключения: phase, round, time
+  pause              заморозка таймера у всех
+  kick               исключение из лобби
+</div>`;}
+render();
+setInterval(()=>{if(!state.paused&&state.timer>0&&['host_game','pl_night','pl_sleep'].includes(state.screen)){state.timer--;render();}},1000);
+</script>
+</body>
+</html>
