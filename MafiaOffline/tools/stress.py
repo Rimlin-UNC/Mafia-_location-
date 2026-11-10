@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Массовый прогон: 400 партий на 20 игроков + пограничные составы."""
-import sys
+import os, sys
 from collections import Counter
-sys.path.insert(0,'/home/user/mafia_offline/tools')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from engine import *
 
 NAMES=[f'И{i}' for i in range(20)]

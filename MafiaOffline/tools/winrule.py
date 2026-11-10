@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Условие победы мафии: m >= c+k. Проверяем на реальных раскладах."""
-import sys; sys.path.insert(0,'/home/user/mafia_offline/tools')
+import os, sys; sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from engine import *
 print("Правило: мафия побеждает при mafia >= civ + maniac")
 print(f"{'мафия':>6}{'мирн':>6}{'мань':>6} | результат")

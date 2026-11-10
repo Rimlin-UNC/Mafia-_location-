@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Демо-партия на 20 игроков с проверкой инвариантов на каждом шаге."""
-import sys, random
-sys.path.insert(0,'/home/user/mafia_offline/tools')
+import os, sys, random
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from engine import *
 
 NAMES=['Анна','Иван','Пётр','Сергей','Мария','Олег','Дина','Костя','Лена','Артём',

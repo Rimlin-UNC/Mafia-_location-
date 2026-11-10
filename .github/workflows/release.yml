@@ -1,0 +1,108 @@
+name: Release
+
+# Релиз создаётся при push тега вида v* (например, v1.0.6).
+# Версия приложения берётся из pubspec.yaml (version: 1.0.5+5 -> v1.0.5).
+# Перед релизом обязательно:
+#   1. Поднять version в MafiaOffline/pubspec.yaml (versionName и versionCode).
+#   2. Обновить MafiaOffline/docs/CHANGELOG_<версия>.md.
+#   3. Прогнать CI (flutter analyze + flutter test + python tools) — зелёный.
+#   4. Создать тег: git tag v1.0.6 && git push origin v1.0.6
+#
+# Подпись: сейчас сборка подписывается debug-ключом (см. android/app/build.gradle:
+# signingConfig = signingConfigs.debug). Для продакшена нужен релизный keystore:
+#   - положить keystore в GitHub Secrets (KEYSTORE_BASE64, KEYSTORE_PASSWORD,
+#     KEY_ALIAS, KEY_PASSWORD) и key.properties в android/ (не коммитить!).
+#   - см. MafiaOffline/docs/РАЗРАБОТКА.md, раздел «Релиз и подпись».
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+defaults:
+  run:
+    working-directory: MafiaOffline
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build APK and publish GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter 3.24.5
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # В CI много памяти — отключаем ультра-экономные лимиты из gradle.properties,
+      # чтобы сборка шла быстрее (локально на слабых машинах они нужны).
+      - name: Speed up Gradle in CI
+        run: |
+          sed -i 's/org.gradle.jvmargs=.*/org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g/' android/gradle.properties
+          sed -i 's/org.gradle.daemon=false/org.gradle.daemon=true/' android/gradle.properties
+          sed -i 's/org.gradle.parallel=false/org.gradle.parallel=true/' android/gradle.properties
+          sed -i 's/org.gradle.workers.max=1/org.gradle.workers.max=4/' android/gradle.properties
+          sed -i 's/kotlin.compiler.execution.strategy=in-process/kotlin.compiler.execution.strategy=daemon/' android/gradle.properties
+          sed -i 's/kotlin.incremental=false/kotlin.incremental=true/' android/gradle.properties
+          echo "--- gradle.properties (CI) ---"
+          cat android/gradle.properties
+
+      - name: Build universal APK
+        run: flutter build apk --release
+
+      - name: Build arm64 APK
+        run: flutter build apk --release --target-platform android-arm64
+
+      - name: Prepare release assets
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: *//' | cut -d+ -f1)
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/MafiaOffline-${VERSION}-universal.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/MafiaOffline-${VERSION}-arm64.apk"
+          ls -lh dist/
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Мафия Offline ${{ env.VERSION }}
+          generate_release_notes: true
+          files: |
+            MafiaOffline/dist/*.apk
+          body: |
+            ## Мафия Offline ${{ env.VERSION }}
+
+            Офлайн-игра «Мафия»: сервер работает на телефоне ведущего,
+            игроки играют в браузере по QR-коду. Интернет не нужен.
+
+            ### Файлы
+
+            - `MafiaOffline-${{ env.VERSION }}-universal.apk` — работает на любом Android-телефоне.
+            - `MafiaOffline-${{ env.VERSION }}-arm64.apk` — для телефонов 2018+ (64-bit), легче.
+
+            **Ставит только ведущий.** Игрокам APK не нужен — они сканируют QR
+            и играют в браузере (Android, iPhone, планшет, ноутбук).
+
+            ### Как играть
+
+            См. `MafiaOffline/docs/ВЕДУЩЕМУ.md` в репозитории.
+
+            ### Проверка подписи
+
+            SHA-256 ключа подписи (debug.keystore): `117b5d7eb24ec6e183bc62088fdc452db4b5cee4d8327ef7f7ffabae8c9b6dff`

@@ -7,7 +7,7 @@ iOS-проект уже полностью подготовлен: `ios/Runner.x
 ## Вариант 1 — на Mac (15 минут)
 
 ```bash
-cd mafia_offline
+# (вы уже в папке MafiaOffline — корне проекта)
 flutter pub get
 open ios/Runner.xcworkspace
 ```

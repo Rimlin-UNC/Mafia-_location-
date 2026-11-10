@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Принудительный старт: заказали N, пришло меньше. Что с балансом?"""
-import sys; sys.path.insert(0,'/home/user/mafia_offline/tools')
+import os, sys; sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from engine import *
 from collections import Counter
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Полная проверка веб-клиента: HTTP-раздача + WebSocket-протокол.
-cd /home/user/mafia_offline/tools
+cd "$(dirname "$0")"
 pkill -9 -f mock_host 2>/dev/null
 sleep 1
 

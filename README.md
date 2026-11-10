@@ -21,17 +21,17 @@ Mafia-_location-/
     ├── README.md              ← краткая памятка проекта (из исходного архива)
     ├── ПОЛНОЕ_ОПИСАНИЕ_ПРОЕКТА.md  ← полное архитектурное описание (79 КБ)
     ├── MafiaOffline-project-1.0.5.zip  ← исходный чистый архив (7,2 МБ, 271 файл)
-    ├── mafia_offline/         ← сам Flutter-проект (отсюда собирается APK)
-    │   ├── lib/               ← Dart-код: core, models, net, host, player, services, storage, ui
-    │   ├── assets/            ← карты, звуки, фоны, веб-клиент (assets/web/)
-    │   ├── android/           ← Android-обёртка (applicationId com.example.mafia_offline)
-    │   ├── ios/               ← iOS-обёртка (сборка для iPhone — Mac + Xcode)
-    │   ├── test/              ← 37 юнит-тестов (game_engine_test, wifi_qr_test, widget_test)
-    │   └── tools/             ← Python-стенды: demo20, stress, load20, browser_test и др.
-    ├── docs/                  ← документация, макеты, отчёты, ТЗ
+    ├── pubspec.yaml           ← корень Flutter-проекта (сборка отсюда)
+    ├── lib/                   ← Dart-код: core, models, net, host, player, services, storage, ui
+    ├── assets/                ← карты, звуки, фоны, веб-клиент (assets/web/)
+    ├── android/               ← Android-обёртка (applicationId com.example.mafia_offline)
+    ├── ios/                   ← iOS-обёртка (сборка для iPhone — Mac + Xcode)
+    ├── test/                  ← юнит-тесты (game_engine_test, wifi_qr_test, widget_test)
+    ├── tools/                 ← Python-стенды: demo20, stress, load20, browser_test и др.
+    ├── docs/                  ← документация, макеты, отчёты, ТЗ, руководство разработчика
     ├── uploads/               ← исходный файл заказчика (mafia.txt)
     ├── keystore/              ← debug.keystore (подпись APK; в git не коммитится)
-    └── apk/                   ← готовые APK (в git не коммитятся, см. ниже)
+    └── apk/                   ← готовые APK (в git не коммитятся; см. GitHub Releases)
 ```
 
 Полный инвентарь с привязкой к Google Диску: [`MafiaOffline/ИНВЕНТАРЬ.md`](MafiaOffline/ИНВЕНТАРЬ.md).
@@ -52,10 +52,10 @@ Mafia-_location-/
 ### Для разработчика (собрать)
 
 ```bash
-cd MafiaOffline/mafia_offline
+cd MafiaOffline
 flutter pub get
 flutter build apk --release
-# Готовый файл: build/app/outputs/flutter-apk/app-release.apk
+# Готовый файл: MafiaOffline/build/app/outputs/flutter-apk/app-release.apk
 ```
 
 Требования: Flutter 3.24.x, Dart `>=3.0.0 <4.0.0`, JDK 17 (не Java 25 — см.
@@ -64,12 +64,16 @@ flutter build apk --release
 Проверки:
 
 ```bash
-cd MafiaOffline/mafia_offline
-flutter test                    # 37 юнит-тестов
+cd MafiaOffline
+flutter test                    # юнит-тесты Dart
 python3 tools/demo20.py         # демо-партия на 20 игроков
 python3 tools/stress.py         # 400 партий, проверка инвариантов
 bash    tools/run_test.sh       # веб-клиент: HTTP + WebSocket
 ```
+
+CI на GitHub Actions (`.github/workflows/ci.yml`) прогоняет `flutter analyze`,
+`flutter test` и Python-стенды при каждом push и PR. Релизы APK публикуются
+в [GitHub Releases](../../releases) (воркфлоу `release.yml` при теге `v*`).
 
 ---
 
@@ -101,7 +105,9 @@ UDP :45455 — автопоиск ведущего
 | `MafiaOffline-1.0.4-universal.apk` | 37 МБ | предыдущая версия, любой телефон (архив) |
 
 - APK лежат в `MafiaOffline/apk/` локально, но **в git не коммитятся** (`.gitignore`: `*.apk`).
-  Источник правды для APK — Google Диск (папка «Мафия Offline (v1.0.5)»), см. инвентарь.
+  Для распространения используются **GitHub Releases** (релиз `v1.0.5` содержит
+  `MafiaOffline-1.0.5-arm64.apk` и архивные 1.0.4). Исходная копия также хранится
+  на Google Диске (папка «Мафия Offline (v1.0.5)»), см. инвентарь.
 - Ключ подписи `MafiaOffline/keystore/debug.keystore` (SHA-256 `117b5d7e…9b6dff`)
   также в git не коммитится (`.gitignore`: `*.keystore`). Без него нельзя выпустить
   обновление поверх установленной версии — храните резервную копию отдельно.
@@ -126,6 +132,8 @@ UDP :45455 — автопоиск ведущего
 | [`MafiaOffline/docs/TEST_REPORT.md`](MafiaOffline/docs/TEST_REPORT.md) | отчёт о тестировании |
 | [`MafiaOffline/docs/OPEN_QUESTIONS.md`](MafiaOffline/docs/OPEN_QUESTIONS.md) | открытые вопросы и принятые решения |
 | [`MafiaOffline/docs/ТЗ_Мафия_Offline_v1.0.docx`](MafiaOffline/docs/ТЗ_Мафия_Offline_v1.0.docx) | техническое задание |
+| [`MafiaOffline/docs/ТРАССИРУЕМОСТЬ.md`](MafiaOffline/docs/ТРАССИРУЕМОСТЬ.md) | матрица «требование ТЗ → реализация → тесты» |
+| [`MafiaOffline/docs/РАЗРАБОТКА.md`](MafiaOffline/docs/РАЗРАБОТКА.md) | руководство разработчика: CI, релизы, регламент |
 | [`MafiaOffline/ИНВЕНТАРЬ.md`](MafiaOffline/ИНВЕНТАРЬ.md) | сверка Google Диск ↔ локальные файлы |
 
 ---

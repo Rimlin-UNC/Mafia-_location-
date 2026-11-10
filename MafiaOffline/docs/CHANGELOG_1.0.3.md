@@ -75,7 +75,7 @@ resolutionStrategy {
 Если в папке нет свежего `MafiaOffline-1.0.3-*.apk`, значит сборка в песочнице не уложилась в лимиты: окружению нужно около 3 ГБ ОЗУ, здесь доступно 1.2 ГБ, и Gradle убивает OOM killer. На обычном компьютере это 3–5 минут:
 
 ```bash
-cd mafia_offline
+# (вы уже в папке MafiaOffline — корне проекта)
 flutter pub get
 flutter build apk --release
 ```

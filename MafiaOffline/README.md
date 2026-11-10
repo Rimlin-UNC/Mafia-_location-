@@ -23,10 +23,18 @@
 ## Что в папке
 
 ```
-mafia_offline/     ← сам проект, отсюда собирается APK
-docs/              документация, макеты, отчёты
-uploads/           исходный файл заказчика
+lib/               ← Dart-код (core, models, net, host, player, services, storage, ui)
+assets/            ← карты, звуки, фоны, веб-клиент
+android/ ios/      ← платформенные обёртки
+test/ tools/       ← тесты и Python-стенды
+docs/              ← документация, макеты, отчёты
+uploads/           ← исходный файл заказчика
+apk/               ← готовые APK (в git не коммитятся, см. GitHub Releases)
+keystore/          ← ключ подписи (в git не коммитится)
 ```
+
+> Папка `MafiaOffline/` — корень Flutter-проекта: `flutter pub get` и
+> `flutter build apk --release` запускаются прямо здесь.
 
 ---
 
@@ -48,7 +56,7 @@ uploads/           исходный файл заказчика
 ### Собрать самому
 
 ```bash
-cd mafia_offline
+# (вы уже в папке MafiaOffline — корне проекта)
 flutter pub get
 flutter build apk --release
 ```
@@ -167,15 +175,17 @@ test/         37 юнит-тестов
 | `docs/OPEN_QUESTIONS.md` | нерешённые вопросы, требующие вашего решения |
 | `docs/IOS_BUILD.md` | сборка для iPhone |
 | `docs/ТЗ_Мафия_Offline_v1.0.docx` | техническое задание |
+| `docs/ТРАССИРУЕМОСТЬ.md` | матрица «требование ТЗ → реализация → тесты» |
+| `docs/РАЗРАБОТКА.md` | руководство разработчика: CI, релизы, регламент, quality gates |
 | `docs/mafia_ui_prototype.html` | кликабельный прототип экранов |
-| `mafia_offline/ASSETS_LICENSE.md` | лицензии звуков и картинок |
+| `ASSETS_LICENSE.md` | лицензии звуков и картинок |
 
 ---
 
 ## Проверка
 
 ```bash
-cd mafia_offline
+# (вы уже в папке MafiaOffline — корне проекта)
 flutter test                    # 37 юнит-тестов
 python3 tools/demo20.py         # демо-партия на 20 игроков
 python3 tools/stress.py         # 400 партий, проверка инвариантов

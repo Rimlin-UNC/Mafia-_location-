@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Пограничные и злонамеренные сценарии."""
-import sys; sys.path.insert(0,'/home/user/mafia_offline/tools')
+import os, sys; sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from engine import *
 ok=fail=0
 def chk(n,got,exp):
