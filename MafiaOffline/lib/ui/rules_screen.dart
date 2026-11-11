@@ -24,10 +24,10 @@ class RulesScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
         children: [
-          _Section(
+          const _Section(
             title: 'Как это устроено',
             cards: [
-              _Card(
+              const _Card(
                 image: A.guideHost,
                 title: 'Ведущий и его телефон',
                 body: 'Один человек за столом не играет: он держит телефон, '
@@ -37,10 +37,10 @@ class RulesScreen extends StatelessWidget {
               ),
             ],
           ),
-          _Section(
+          const _Section(
             title: 'Фазы партии',
             cards: [
-              _Card(
+              const _Card(
                 image: A.guideNight,
                 title: 'Ночь',
                 body: 'Город спит, просыпаются только роли. Если у вас нет '
@@ -48,21 +48,21 @@ class RulesScreen extends StatelessWidget {
                     'Порядок: проститутка блокирует, доктор лечит, мафия '
                     'стреляет, маньяк стреляет отдельно, комиссар проверяет.',
               ),
-              _Card(
+              const _Card(
                 image: A.guideDay,
                 title: 'День',
                 body: 'Ведущий объявляет, кто погиб. Дальше — обсуждение. '
                     'Это главная часть игры: ночные роли слабее умения '
                     'слушать и замечать противоречия.',
               ),
-              _Card(
+              const _Card(
                 image: A.guideVote,
                 title: 'Голосование',
                 body: 'Все живые выбирают, кого выгнать. При равенстве — '
                     'второй тур между лидерами. Если и там равенство, '
                     'никто не выбывает и наступает ночь.',
               ),
-              _Card(
+              const _Card(
                 image: A.guideWin,
                 title: 'Конец партии',
                 body: 'Город побеждает, когда не осталось ни мафии, '
@@ -77,9 +77,9 @@ class RulesScreen extends StatelessWidget {
               for (final type in RoleType.values) _RoleCard(type: type),
             ],
           ),
-          _Section(
+          const _Section(
             title: 'Правила, о которых спорят',
-            cards: const [
+            cards: [
               _Card(
                 title: 'Слова не доказывают роль',
                 body: '«Я же мирный» — не аргумент. Доказательство только '
