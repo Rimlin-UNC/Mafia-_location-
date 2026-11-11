@@ -198,7 +198,7 @@ jobs:
           mkdir -p dist
           cp build/app/outputs/flutter-apk/app-release.apk "dist/MafiaOffline-${VERSION}-arm64-ci.apk"
           ls -lh dist/
-          # Пустой или обрезанный файл — не сборка. Настоящий APK — около 24 МБ.
+          # Пустой или обрезанный файл — не сборка. Настоящий APK весит десятки мегабайт.
           SIZE=$(stat -c%s "dist/MafiaOffline-${VERSION}-arm64-ci.apk")
           if [ "$SIZE" -lt 10000000 ]; then
             echo "::error::APK подозрительно мал: $SIZE байт"
