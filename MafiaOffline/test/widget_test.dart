@@ -33,10 +33,18 @@ void main() {
 
       expect(find.text('Правила'), findsOneWidget);
       expect(find.text('Ведущий и его телефон'), findsOneWidget);
-      // Разделы ниже по списку — в дереве, даже если за экраном.
-      expect(find.text('Ночь', skipOffstage: false), findsOneWidget);
-      expect(find.text('Голосование', skipOffstage: false), findsOneWidget);
-      expect(find.text('🔪 Маньяк', skipOffstage: false), findsOneWidget);
+
+      // ListView строит детей лениво: дальние разделы в дереве ещё не
+      // созданы, поэтому до них надо доскроллить, а не искать в дереве.
+      await tester.scrollUntilVisible(find.text('Ночь'), 600,
+          scrollable: find.byType(Scrollable).first, maxScrolls: 100);
+      expect(find.text('Ночь'), findsOneWidget);
+
+      // Карточка роли 2:3 на тестовом экране занимает ~700 px,
+      // до маньяка (6-я роль) — несколько тысяч пикселей.
+      await tester.scrollUntilVisible(find.text('🔪 Маньяк'), 600,
+          scrollable: find.byType(Scrollable).first, maxScrolls: 100);
+      expect(find.text('🔪 Маньяк'), findsOneWidget);
     });
 
     testWidgets('у каждой роли есть карточка в наборе правил',
