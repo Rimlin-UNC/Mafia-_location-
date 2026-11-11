@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../core/constants.dart';
 import '../core/game_engine.dart';
+import '../core/story_deck.dart';
 import '../models/game_event.dart';
 import '../models/game_phase.dart';
 import '../models/game_state.dart';
@@ -908,6 +909,11 @@ class HostController extends ChangeNotifier {
       );
     }
 
+    // Сюжетная карточка момента: первая смерть в партии, тихая ночь
+    // или «мафия сравнялась». Показ не блокирует фазу: если ведущий
+    // не нажмёт «Дальше», день начнётся сам по таймеру.
+    _maybeShowStory();
+
     if (_checkGameOver()) return;
     startDay();
   }
@@ -988,8 +994,12 @@ class HostController extends ChangeNotifier {
 
     if (playerId == null) {
       _addLog(EventType.info, 'Голосование: никто не выбывает');
+      // Счётчик «город не может решить»: две ничьи подряд включают
+      // сюжетную карточку тупика. Сбрасывается, как только кого-то выгнали.
+      _state = s.copyWith(noDeathsStreak: s.noDeathsStreak + 1);
       server.broadcast(
           Envelope(Msg.voteResult, {'eliminated': null, 'tie': true}));
+      _maybeShowStory();
       startNight();
       return;
     }
@@ -1003,7 +1013,8 @@ class HostController extends ChangeNotifier {
               )
             : p)
         .toList();
-    _state = s.copyWith(players: players);
+    // Город всё-таки решил — счётчик ничьих обнуляется.
+    _state = s.copyWith(players: players, noDeathsStreak: 0);
     _persist();
 
     _addLog(EventType.elimination,
@@ -1021,6 +1032,8 @@ class HostController extends ChangeNotifier {
     }));
     server.sendTo(playerId,
         Envelope(Msg.eliminated, {'reason': 'vote', 'round': s.round}));
+
+    _maybeShowStory();
 
     if (_checkGameOver()) return;
     startNight();
@@ -1251,6 +1264,69 @@ class HostController extends ChangeNotifier {
       default:
         return '';
     }
+  }
+
+  // ==================== сюжетные карточки ====================
+
+  /// Показать одну уместную карточку. Самая приоритетная из подходящих,
+  /// и только если её ещё не показывали в этой партии.
+  void _maybeShowStory() {
+    final s = _state;
+    if (s == null) return;
+    if (s.phase == GamePhase.ended) return;
+    final card = StoryDeck.bestFor(
+      s,
+      seenIds: s.storySeen.toSet(),
+      noDeathsStreak: s.noDeathsStreak,
+    );
+    if (card == null) return;
+    _state = s.copyWith(
+      storyId: card.id,
+      storySeen: [...s.storySeen, card.id],
+    );
+    // Событие в лог: без него в протоколе не будет видно, что показывали.
+    _addLog(EventType.info, 'Кадр: ${card.title}',
+        visibleToPlayers: false);
+    _broadcastStory(card);
+    notifyListeners();
+  }
+
+  /// Показать карточку вручную — кнопкой ведущего. Полезно, когда
+  /// хочется подчеркнуть момент, а условие не совпало.
+  void showStory(String id) {
+    final s = _state;
+    if (s == null) return;
+    final card = StoryDeck.byId(id);
+    if (card == null) return;
+    _state = s.copyWith(
+      storyId: card.id,
+      storySeen: [...s.storySeen, card.id],
+    );
+    _addLog(EventType.info, 'Кадр: ${card.title}', visibleToPlayers: false);
+    notifyListeners();
+  }
+
+  /// Убрать карточку с экранов. Игрок видит её, пока ведущий не закроет.
+  void dismissStory() {
+    final s = _state;
+    if (s == null || s.storyId == null) return;
+    _state = s.copyWith(clearStory: true);
+    server.broadcast(Envelope(Msg.storyDismiss, const {}));
+    notifyListeners();
+  }
+
+  /// Разослать карточку всем: и ведущему (для превью), и игрокам.
+  /// Игроку уходит только то, что можно показать: заголовок, фраза,
+  /// подпись и путь к картинке. Никакой информации о ролях.
+  void _broadcastStory(StoryCard card) {
+    server.broadcast(Envelope(Msg.story, {
+      'id': card.id,
+      'title': card.title,
+      'line': card.line,
+      'caption': card.caption,
+      'image': card.image,
+      'phase': _state?.phase.wire,
+    }));
   }
 
   // ==================== завершение ====================

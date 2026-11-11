@@ -104,6 +104,17 @@ class GameState {
   /// раскрытая карта упрощает город, но убивает интригу первого круга.
   final bool openCards;
 
+  /// Сюжетная карточка, показанная прямо сейчас (id из StoryDeck).
+  /// null — ничего не показываем. Сбрасывается кнопкой на экране игрока.
+  final String? storyId;
+
+  /// Уже показанные в этой партии карточки: две одинаковые не показываем.
+  final List<String> storySeen;
+
+  /// Сколько голосований подряд закончилось без выбывшего.
+  /// Нужно для карточки «город не может решить».
+  final int noDeathsStreak;
+
   const GameState({
     required this.id,
     required this.name,
@@ -126,6 +137,9 @@ class GameState {
     this.winner,
     this.lastHealedId,
     this.openCards = false,
+    this.storyId,
+    this.storySeen = const [],
+    this.noDeathsStreak = 0,
   });
 
   GameState copyWith({
@@ -147,6 +161,10 @@ class GameState {
     WinnerSide? winner,
     String? lastHealedId,
     bool? openCards,
+    String? storyId,
+    List<String>? storySeen,
+    int? noDeathsStreak,
+    bool clearStory = false,
     bool clearPendingNight = false,
     bool clearLastHealed = false,
   }) {
@@ -173,6 +191,9 @@ class GameState {
       winner: winner ?? this.winner,
       lastHealedId: clearLastHealed ? null : (lastHealedId ?? this.lastHealedId),
       openCards: openCards ?? this.openCards,
+      storyId: clearStory ? null : (storyId ?? this.storyId),
+      storySeen: storySeen ?? this.storySeen,
+      noDeathsStreak: noDeathsStreak ?? this.noDeathsStreak,
     );
   }
 

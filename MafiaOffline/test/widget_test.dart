@@ -1,7 +1,13 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mafia_offline/core/assets.dart';
 import 'package:mafia_offline/core/crime_deck.dart';
+import 'package:mafia_offline/core/story_deck.dart';
+import 'package:mafia_offline/models/game_phase.dart';
+import 'package:mafia_offline/models/game_state.dart';
+import 'package:mafia_offline/models/player.dart';
 import 'package:mafia_offline/main.dart';
 import 'package:mafia_offline/models/role.dart';
 import 'package:mafia_offline/ui/rules_screen.dart';
@@ -110,6 +116,153 @@ void main() {
       expect(crimeAppliesTo(RoleType.doctor), isFalse);
       expect(crimeAppliesTo(RoleType.civilian), isFalse);
       expect(crimeAppliesTo(null), isFalse);
+    });
+  });
+
+  group('Сюжетные карточки', () {
+    Player p(String id, RoleType role, {bool alive = true}) => Player(
+          id: id,
+          name: id,
+          colorHex: '#FFFFFF',
+          role: Role.fromType(role),
+          isAlive: alive,
+        );
+
+    GameState st({
+      required List<Player> players,
+      GamePhase phase = GamePhase.night,
+      List<String> runoff = const [],
+      int round = 2,
+    }) =>
+        GameState(
+          id: 'g',
+          name: 't',
+          code: '000000',
+          createdAt: DateTime(2026),
+          players: players,
+          phase: phase,
+          round: round,
+          runoffCandidates: runoff,
+        );
+
+    test('в колоде девять карточек, id уникальны', () {
+      expect(StoryDeck.all.length, 9);
+      expect(StoryDeck.all.map((c) => c.id).toSet().length, 9);
+      for (final c in StoryDeck.all) {
+        expect(c.title, isNotEmpty, reason: c.id);
+        expect(c.line, isNotEmpty, reason: c.id);
+        expect(c.caption, isNotEmpty, reason: c.id);
+      }
+    });
+
+    test('первая ночь: показываем «Город засыпает»', () {
+      final s = st(
+        players: [p('a', RoleType.mafia), p('b', RoleType.civilian)],
+        round: 1,
+      );
+      final best = StoryDeck.bestFor(s);
+      expect(best?.id, 'first_night');
+    });
+
+    test('есть погибший — «Первая кровь» приоритетнее прочего', () {
+      final s = st(players: [
+        p('a', RoleType.mafia),
+        p('b', RoleType.civilian, alive: false),
+        p('c', RoleType.civilian),
+        p('d', RoleType.doctor),
+      ]);
+      expect(StoryDeck.bestFor(s)?.id, 'first_blood');
+    });
+
+    test('трое живых — карточка «Трое»', () {
+      final s = st(players: [
+        p('a', RoleType.mafia),
+        p('b', RoleType.civilian),
+        p('c', RoleType.doctor),
+        p('d', RoleType.civilian, alive: false),
+      ]);
+      expect(StoryDeck.bestFor(s)?.id, 'last_three');
+    });
+
+    test('мафия выбита, маньяк жив — «Одиночка»', () {
+      final s = st(players: [
+        p('m', RoleType.mafia, alive: false),
+        p('x', RoleType.maniac),
+        p('b', RoleType.civilian),
+        p('c', RoleType.doctor),
+      ]);
+      expect(StoryDeck.bestFor(s)?.id, 'maniac_alone');
+    });
+
+    test('две ничьи подряд — «Город не может решить»', () {
+      final s = st(players: [
+        p('a', RoleType.mafia),
+        p('b', RoleType.civilian),
+        p('c', RoleType.doctor),
+        p('d', RoleType.commissioner),
+        p('e', RoleType.civilian, alive: false),
+      ]);
+      expect(StoryDeck.bestFor(s, noDeathsStreak: 2)?.id, 'deadlock');
+    });
+
+    test('показанное не показывается второй раз', () {
+      final s = st(players: [
+        p('a', RoleType.mafia),
+        p('b', RoleType.civilian, alive: false),
+        p('c', RoleType.civilian),
+        p('d', RoleType.doctor),
+      ]);
+      final best = StoryDeck.bestFor(s, seenIds: {'first_blood'});
+      expect(best?.id, isNot('first_blood'));
+    });
+
+    test('в спокойной партии карточек может не быть вовсе', () {
+      // Пять живых, никто не выбывал: нет ни первой ночи, ни крови,
+      // ни трёх, ни раскола — показывать нечего, и это нормально.
+      final s = st(players: [
+        p('a', RoleType.mafia),
+        p('b', RoleType.civilian),
+        p('c', RoleType.doctor),
+        p('d', RoleType.commissioner),
+        p('e', RoleType.civilian),
+      ]);
+      expect(StoryDeck.bestFor(s), isNull);
+    });
+
+    test('карты суда привязаны к своим id', () {
+      expect(StoryDeck.courtIds, containsAll(['runoff', 'deadlock', 'exile']));
+      for (final id in StoryDeck.courtIds) {
+        expect(StoryDeck.byId(id), isNotNull, reason: id);
+      }
+    });
+  });
+
+  group('Файлы карточек существуют', () {
+    // Смысл в том, что путь в коде и файл на диске легко разъедутся:
+    // переименовали картинку — приложение покажет заглушку, и никто
+    // не заметит до партии. Тест проходит по реальной файловой системе.
+    test('все карточки колоды злодеяний на месте', () {
+      for (final c in Crime.all) {
+        if (c.image == null) continue;
+        expect(File(c.image!).existsSync(), isTrue, reason: c.image);
+      }
+    });
+
+    test('все карточки сюжета на месте', () {
+      for (final c in StoryDeck.all) {
+        if (c.image == null) continue;
+        expect(File(c.image!).existsSync(), isTrue, reason: c.image);
+      }
+    });
+
+    test('карты ролей и фаз из инструкций на месте', () {
+      for (final type in RoleType.values) {
+        expect(File(A.guideRole(type)).existsSync(), isTrue,
+            reason: A.guideRole(type));
+      }
+      for (final path in [A.guideHost, A.guideNight, A.guideDay, A.guideVote, A.guideWin]) {
+        expect(File(path).existsSync(), isTrue, reason: path);
+      }
     });
   });
 }

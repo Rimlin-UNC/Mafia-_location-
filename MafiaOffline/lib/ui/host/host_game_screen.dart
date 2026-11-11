@@ -224,6 +224,22 @@ class _HostGameScreenState extends State<HostGameScreen> {
                 color: AppColors.accent,
               ),
 
+              // Сюжетная карточка момента: автоматически в переломные
+              // моменты, либо вручную кнопкой ниже.
+              if (StoryDeck.byId(s.storyId) != null) ...[
+                const SizedBox(height: 8),
+                _StoryBanner(
+                  card: StoryDeck.byId(s.storyId)!,
+                  onShow: () => _openStory(StoryDeck.byId(s.storyId)!),
+                  onClose: c.dismissStory,
+                ),
+              ],
+              const SizedBox(height: 8),
+              _MiniButton(
+                label: '🎬 Кадр партии',
+                onTap: () => _pickStory(s),
+              ),
+
               // ---- Зона 2: игроки ----
               Row(
                 children: [
@@ -453,6 +469,62 @@ class _HostGameScreenState extends State<HostGameScreen> {
           : const StatusDot(AppColors.warn);
     }
     return const StatusDot(AppColors.ok);
+  }
+
+  /// Полноэкранный показ карточки ведущему. У игроков она появляется
+  /// сама — сервер рассылает её отдельным пакетом.
+  void _openStory(StoryCard card) {
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        opaque: false,
+        barrierColor: Colors.black87,
+        pageBuilder: (_, __, ___) => StoryCardView(
+          card: card,
+          onClose: () => Navigator.of(context).pop(),
+        ),
+      ),
+    );
+  }
+
+  /// Ручной выбор карточки: список всех, с пометкой уже показанных.
+  /// Нужен, когда ведущий хочет подчеркнуть момент, а условие не совпало.
+  void _pickStory(GameState s) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.panel,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) => ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Text('Кадр партии',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          const Text(
+            'Показать всем игрокам карточку момента. Правила не меняет.',
+            style: TextStyle(fontSize: 12.5, color: AppColors.dim),
+          ),
+          const SizedBox(height: 12),
+          for (final card in StoryDeck.all)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.movie_outlined),
+              title: Text(card.title,
+                  style: const TextStyle(fontSize: 14.5)),
+              subtitle: Text(card.caption,
+                  style: const TextStyle(fontSize: 12)),
+              trailing: s.storySeen.contains(card.id)
+                  ? const Icon(Icons.done, size: 18, color: AppColors.ok)
+                  : null,
+              onTap: () {
+                Navigator.pop(ctx);
+                c.showStory(card.id);
+              },
+            ),
+        ],
+      ),
+    );
   }
 
   void _showFullLog(GameState s) {
@@ -742,6 +814,47 @@ class _GameOverView extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Полоска «показана карточка» на экране ведущего: напоминает, что кадр
+/// до сих пор висит у игроков, и даёт две кнопки — открыть и убрать.
+class _StoryBanner extends StatelessWidget {
+  final StoryCard card;
+  final VoidCallback onShow;
+  final VoidCallback onClose;
+
+  const _StoryBanner({
+    required this.card,
+    required this.onShow,
+    required this.onClose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.accent.withAlpha(24),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.accent.withAlpha(110)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.movie_outlined, size: 18, color: AppColors.accent2),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Кадр: ${card.title}',
+              style: const TextStyle(fontSize: 13),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          TextButton(onPressed: onShow, child: const Text('Открыть')),
+          TextButton(onPressed: onClose, child: const Text('Убрать')),
+        ],
       ),
     );
   }
