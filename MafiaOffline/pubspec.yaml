@@ -55,3 +55,4 @@ flutter:
     # и будут использоваться на экране «Правила» внутри приложения.
     - assets/instructions/roles/
     - assets/instructions/phases/
+    - assets/instructions/guides/

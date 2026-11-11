@@ -63,4 +63,35 @@ class A {
   /// Карта-обманка. Если игрок включил маскировку, экран показывает
   /// мирного жителя — как бы кто ни подсмотрел.
   static const decoyCard = 'assets/cards/civilian.jpg';
+
+  // ---------- карточки-инструкции (экран «Правила») ----------
+  //
+  // Отдельный набор от игровых карт: здесь крупные иллюстрации с подписями,
+  // их можно листать и читать до партии. Лежат в assets/instructions/.
+
+  /// Карточка роли для раздела «Роли».
+  static String guideRole(RoleType type) {
+    switch (type) {
+      case RoleType.mafia:
+        return 'assets/instructions/roles/01_mafia.jpg';
+      case RoleType.don:
+        return 'assets/instructions/roles/02_don.jpg';
+      case RoleType.doctor:
+        return 'assets/instructions/roles/03_doctor.jpg';
+      case RoleType.commissioner:
+        return 'assets/instructions/roles/04_commissioner.jpg';
+      case RoleType.prostitute:
+        return 'assets/instructions/roles/05_prostitute.jpg';
+      case RoleType.maniac:
+        return 'assets/instructions/roles/06_maniac.jpg';
+      case RoleType.civilian:
+        return 'assets/instructions/roles/07_civilian.jpg';
+    }
+  }
+
+  static const guideHost = 'assets/instructions/guides/01_host.jpg';
+  static const guideNight = 'assets/instructions/phases/01_night.jpg';
+  static const guideDay = 'assets/instructions/phases/02_day.jpg';
+  static const guideVote = 'assets/instructions/phases/03_vote.jpg';
+  static const guideWin = 'assets/instructions/phases/04_win.jpg';
 }
