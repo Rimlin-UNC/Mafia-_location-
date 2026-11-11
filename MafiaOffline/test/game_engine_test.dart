@@ -241,7 +241,10 @@ void main() {
       expect(s.checkWinner(), WinnerSide.mafia);
     });
 
-    test('состав 3 на 3 — партия продолжается', () {
+    test('состав 3 на 3 — победа мафии', () {
+      // В 1.0.x этот расклад продолжался до последнего игрока. В классике
+      // равенство уже победа мафии: город не может переголосовать.
+      // Такой состав ловится предупреждением баланса на экране настройки.
       final s = buildState(spec: [
         (id: 'don', role: RoleType.don, alive: true),
         (id: 'm1', role: RoleType.mafia, alive: true),
@@ -250,7 +253,7 @@ void main() {
         (id: 'com', role: RoleType.commissioner, alive: true),
         (id: 'pro', role: RoleType.prostitute, alive: true),
       ]);
-      expect(s.checkWinner(), isNull);
+      expect(s.checkWinner(), WinnerSide.mafia);
     });
 
     test('2 мафии на 3 мирных — партия продолжается', () {
@@ -455,12 +458,14 @@ void main() {
           contains('мирного'));
     });
 
-    test('маньяк побеждает вместе с городом, а не в одиночку', () {
+    test('маньяку честно сказано: он побеждает только один', () {
+      // Правило вернулось к классике в 1.1.0: раньше памятка обещала
+      // ему победу вместе с городом, и игрок играл по неверным правилам.
       final g = RoleGuide.of(RoleType.maniac);
-      expect(g.winCondition.toLowerCase(), contains('город'));
-      expect(g.winCondition.toLowerCase(), isNot(contains('один на один')));
-      // Днём он такой же житель: голосует и ищет мафию.
-      expect(g.atDay.toLowerCase(), contains('голосуе'));
+      expect(g.winCondition.toLowerCase(), contains('единственным'));
+      expect(g.goal.toLowerCase(), contains('за себя'));
+      // Днём он маскируется под горожанина, а не «ищет мафию за город».
+      expect(g.atDay.toLowerCase(), contains('обычный житель'));
     });
   });
 
