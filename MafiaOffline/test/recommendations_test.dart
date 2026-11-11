@@ -392,4 +392,101 @@ void main() {
       expect(decoded.get<String>('deviceId'), isNull);
     });
   });
+
+  group('§3.1 — правило «свой слот» (GameEngine.resolveRegister)', () {
+    // Правило вынесено из HostController после релиза 1.0.6: там оно занимало
+    // ~90 строк внутри сетевого обработчика и не было покрыто ни одним тестом.
+    // Ошибка в порядке проверок стоит игроку роли посреди партии.
+
+    Player named(String id, {String? device}) => Player(
+          id: id,
+          name: id,
+          colorHex: '#FFFFFF',
+          deviceId: device,
+        );
+
+    RegisterVerdict ask(
+      GameState s, {
+      required String name,
+      String? deviceId,
+      Set<String> online = const {},
+    }) =>
+        resolveRegister(
+          name: name,
+          deviceId: deviceId,
+          state: s,
+          isOnline: online.contains,
+        );
+
+    test('новое имя в лобби — создаём', () {
+      final s = state(phase: GamePhase.waiting, players: [named('p1')]);
+      expect(ask(s, name: 'Аня', online: {'p1'}), RegisterVerdict.create);
+    });
+
+    test('имя занято живым игроком с другого устройства — отказ', () {
+      final s = state(phase: GamePhase.waiting, players: [named('Аня')]);
+      expect(
+        ask(s, name: 'Аня', deviceId: 'dev-2', online: {'Аня'}),
+        RegisterVerdict.denyNameTaken,
+      );
+    });
+
+    test('имя занято, но связи нет — это он вернулся, отдаём слот', () {
+      final s = state(phase: GamePhase.waiting, players: [named('Аня')]);
+      expect(ask(s, name: 'Аня', online: {}), RegisterVerdict.reclaim);
+    });
+
+    test('тот же deviceId с другого устройства — слот его же', () {
+      final s = state(
+          phase: GamePhase.waiting, players: [named('Аня', device: 'dev-1')]);
+      expect(
+        ask(s, name: 'Аня', deviceId: 'dev-1', online: {'Аня'}),
+        RegisterVerdict.reclaimOtherDevice,
+      );
+    });
+
+    test('другой deviceId при живой связи — отказ, а не захват слота', () {
+      final s = state(
+          phase: GamePhase.waiting, players: [named('Аня', device: 'dev-1')]);
+      expect(
+        ask(s, name: 'Аня', deviceId: 'dev-2', online: {'Аня'}),
+        RegisterVerdict.denyNameTaken,
+      );
+    });
+
+    test('РЕГРЕССИЯ: посреди партии своё имя не блокируется фазой', () {
+      // Главный смысл правила: возврат в свой слот проверяется ДО фазы.
+      // Если порядок перепутать, игрок с разрядившимся телефоном получит
+      // «игра уже началась» и потеряет роль.
+      final s = state(phase: GamePhase.night, players: [named('Аня')]);
+      expect(ask(s, name: 'Аня', online: {}), RegisterVerdict.reclaim);
+    });
+
+    test('чужое имя посреди партии — «игра уже началась»', () {
+      final s = state(phase: GamePhase.night, players: [named('Аня')]);
+      expect(ask(s, name: 'Боря', online: {'Аня'}),
+          RegisterVerdict.denyGameStarted);
+    });
+
+    test('фаза проверки ролей уже не пускает новых', () {
+      final s = state(phase: GamePhase.rolesCheck, players: [named('Аня')]);
+      expect(ask(s, name: 'Боря'), RegisterVerdict.denyGameStarted);
+    });
+
+    test('мест нет — game_full (а не nameTaken)', () {
+      final s = state(
+        phase: GamePhase.waiting,
+        players: [for (var i = 0; i < Rules.maxPlayers; i++) named('p$i')],
+      );
+      expect(ask(s, name: 'Новый'), RegisterVerdict.denyGameFull);
+    });
+
+    test('имя сравнивается без учёта регистра и пробелов', () {
+      final s = state(phase: GamePhase.waiting, players: [named('Аня')]);
+      expect(
+        ask(s, name: '  аня ', deviceId: 'x', online: {'Аня'}),
+        RegisterVerdict.denyNameTaken,
+      );
+    });
+  });
 }
