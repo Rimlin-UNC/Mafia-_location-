@@ -81,7 +81,7 @@ void main() {
       ]);
       final r = GameEngine.applyRoleAck(s, 'p1');
       expect(r.accepted, isFalse);
-      expect(r.reason, contains('роли'));
+      expect(r.reason!.toLowerCase(), contains('роли'));
     });
 
     test('ночь начинается только в фазе раздачи и при 100%', () {
