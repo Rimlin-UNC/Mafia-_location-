@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0e0f14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Мафия Offline</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/images/icon-192.png">
+<link rel="icon" href="/images/icon-192.png">
+<meta name="apple-mobile-web-app-title" content="Мафия">
+<!-- Никаких внешних адресов: страница обязана открываться без интернета -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data:; media-src 'self';
+               script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';
+               connect-src 'self' ws: wss:">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- ============ 1. ПОДКЛЮЧЕНИЕ ============ -->
+<section id="scr-join" class="screen active">
+  <div class="wrap">
+    <div class="hero">
+      <div class="emoji">🎭</div>
+      <h1>Мафия Offline</h1>
+      <p class="dim">Игра по локальной сети</p>
+    </div>
+
+    <div id="join-form">
+      <div id="code-row">
+        <label class="lbl">Код игры</label>
+        <input id="in-code" class="input code-input" inputmode="numeric" maxlength="6"
+               placeholder="000000" autocomplete="off">
+      </div>
+
+      <label class="lbl" style="margin-top:14px">Ваше имя</label>
+      <input id="in-name" class="input" maxlength="20" placeholder="Как вас звать?"
+             autocomplete="off">
+
+      <div id="join-error" class="alert bad hidden"></div>
+
+      <button id="btn-join" class="btn">Подключиться</button>
+      <div id="join-status" class="dim center hidden" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card info" style="margin-top:22px">
+      <span class="ico">📶</span>
+      <span>Вы уже в сети ведущего — код подставлен автоматически.
+            Осталось ввести имя.</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 2. ЛОББИ ============ -->
+<section id="scr-lobby" class="screen">
+  <header class="bar">
+    <b id="lobby-title">Ожидание игры</b>
+    <span id="lobby-count" class="dim"></span>
+  </header>
+  <div class="wrap">
+    <div class="hero small">
+      <div class="emoji spin">⏳</div>
+      <h2>Ожидание начала игры…</h2>
+    </div>
+    <div id="me-badge" class="card me"></div>
+    <div id="lobby-list" class="list"></div>
+  </div>
+</section>
+
+<!-- ============ 3. ПРЕДУПРЕЖДЕНИЕ О РОЛИ ============ -->
+<section id="scr-reveal" class="screen">
+  <div class="wrap center-v">
+    <div class="card warn-card">
+      <div class="emoji">🤫</div>
+      <h2>Сейчас вы увидите свою роль</h2>
+      <p class="dim">Убедитесь, что никто не смотрит в ваш экран.
+         Роль знаете только вы и ведущий.</p>
+      <div class="hint-box">
+        🛡️ Боитесь, что подсмотрят? На следующем экране включите
+        маскировку — карта будет показывать мирного жителя.
+      </div>
+    </div>
+    <button id="btn-reveal" class="btn">👁 Я один — показать роль</button>
+    <p class="dim center tiny">Ведущий видит, что вы получили роль</p>
+  </div>
+</section>
+
+<!-- ============ 4. ИГРА ============ -->
+<section id="scr-game" class="screen">
+  <header class="bar">
+    <b id="game-title">Мафия</b>
+    <div class="bar-right">
+      <button id="btn-mute" class="chip icon" title="Звук">🔊</button>
+      <button id="btn-myrole" class="chip">Моя роль</button>
+    </div>
+  </header>
+
+  <div class="wrap" id="game-body">
+    <div id="phase-bar" class="phase night">
+      <span id="phase-ico">🌙</span>
+      <b id="phase-name">Ночь</b>
+      <span id="phase-timer" class="timer">--:--</span>
+    </div>
+
+    <div id="banner" class="alert hidden"></div>
+
+    <!-- Компактная полоса роли: показывается вместо большой карты,
+         когда от игрока ждут выбора. Иначе карта съедает пол-экрана
+         и список целей уезжает под сгиб — на маленьком телефоне
+         человек голосует вслепую. -->
+    <div id="role-strip" class="hidden">
+      <div class="rs-face">
+        <img id="rs-img" alt="">
+      </div>
+      <div class="rs-txt">
+        <b><span id="rs-emoji"></span> <span id="rs-name"></span></b>
+        <span id="rs-mates" class="sub"></span>
+      </div>
+      <button id="rs-expand" class="chip icon" title="Показать карту">⤢</button>
+    </div>
+
+    <!-- карта роли -->
+    <div id="card-area" class="hidden">
+      <div id="role-card" class="rolecard">
+        <img id="role-img" alt="">
+        <div class="rc-shade"></div>
+        <div class="rc-text">
+          <div class="rc-name"><span id="role-emoji"></span> <span id="role-name"></span></div>
+          <div id="role-mates" class="rc-sub"></div>
+        </div>
+        <div id="rc-back" class="rc-back">
+          <div class="rc-lock">🙈</div>
+          <div>Нажмите, чтобы<br>посмотреть роль</div>
+        </div>
+        <div id="rc-disguise" class="rc-badge hidden">🛡️ Маскировка — показан мирный</div>
+      </div>
+      <button id="btn-disguise" class="btn ghost small">🛡️ Скрыть настоящую роль</button>
+    </div>
+
+    <!-- действие -->
+    <div id="action-area" class="hidden">
+      <h3 id="prompt" class="prompt"></h3>
+      <div id="targets" class="list"></div>
+    </div>
+
+    <!-- пассивное состояние -->
+    <div id="idle-area" class="hidden idle">
+      <div id="idle-emoji" class="emoji">😴</div>
+      <h2 id="idle-text">Спите</h2>
+      <p id="idle-sub" class="dim"></p>
+    </div>
+
+    <!-- зритель -->
+    <div id="dead-area" class="hidden">
+      <div class="card dead-card">
+        <div class="emoji">☠️</div>
+        <h2>Вы выбыли из игры</h2>
+        <p id="dead-role" class="dim"></p>
+      </div>
+      <h3 class="prompt">Лог событий</h3>
+      <div id="log" class="log"></div>
+    </div>
+  </div>
+
+  <footer id="game-foot" class="foot hidden">
+    <button id="btn-send" class="btn" disabled>Отправить выбор</button>
+    <button id="btn-skip" class="btn ghost">Пропустить ход</button>
+  </footer>
+
+  <div class="conn" id="conn">
+    <span id="conn-dot" class="dot"></span>
+    <span id="conn-text" class="dim tiny">Подключение…</span>
+  </div>
+</section>
+
+<!-- ============ 6. ФАТАЛЬНОЕ СОСТОЯНИЕ ============ -->
+<!-- Исключение ведущим или вторая вкладка: связь восстанавливать
+     не нужно и вредно — объясняем и предлагаем начать заново. -->
+<section id="scr-fatal" class="screen">
+  <div class="wrap center-v">
+    <div class="card warn-card">
+      <div class="emoji">🚪</div>
+      <h2 id="fatal-title">Игра недоступна</h2>
+      <p id="fatal-sub" class="dim"></p>
+    </div>
+    <button id="btn-fatal-again" class="btn">Начать заново</button>
+  </div>
+</section>
+
+<!-- ============ 5. ИТОГИ ============ -->
+<section id="scr-over" class="screen">
+  <div class="wrap">
+    <div class="hero"><div class="emoji">🎉</div><h1 id="over-title">Игра окончена</h1></div>
+    <h3 class="prompt">Расклад ролей</h3>
+    <div id="reveal-list" class="list"></div>
+    <button id="btn-again" class="btn" style="margin-top:18px">В начало</button>
+  </div>
+</section>
+
+<!-- шторка «Моя роль» -->
+<div id="sheet" class="sheet-bg hidden">
+  <div class="sheet">
+    <div class="grabber"></div>
+    <div id="sheet-body"></div>
+    <button id="sheet-close" class="btn ghost">Закрыть</button>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

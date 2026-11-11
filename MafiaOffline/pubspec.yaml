@@ -1,0 +1,53 @@
+name: mafia_offline
+description: "Мафия Offline — игра по локальной сети. Ведущий поднимает сервер прямо на телефоне."
+publish_to: 'none'
+version: 1.0.6+6
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # QR-код для быстрого подключения игроков
+  qr_flutter: ^4.1.0
+  # Локальная история партий
+  sqflite: ^2.3.0
+  path: ^1.8.3
+  # Настройки (звук, таймеры, тема)
+  shared_preferences: ^2.2.2
+  # Звуковое сопровождение фаз
+  audioplayers: ^6.1.0
+  # Запрос разрешения камеры перед сканером
+  permission_handler: 11.3.1
+  # Сканирование QR-кода игроком
+  mobile_scanner: 5.2.3
+  # Не гасить экран ведущего во время партии
+  wakelock_plus: 1.2.8
+  # Служба переднего плана: сервер ведущего живёт при выключенном экране
+  flutter_foreground_task: 8.17.0
+
+# Транзитивная зависимость wakelock_plus. Версия 9.x объявляет
+# совместимость с Flutter 3.24, но её build.gradle обращается к
+# android.flutter — свойству, которого в этой версии AGP ещё нет.
+dependency_overrides:
+  package_info_plus: 8.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/web/
+    - assets/sounds/
+    # Облегчённые фоновые лупы для браузерных игроков: 16 кГц вместо 22 кГц,
+    # 12 секунд вместо 30. Втрое меньше трафика через точку доступа ведущего.
+    - assets/sounds/web/
+    - assets/cards/
+    # Карты 560×840 для браузера: вдвое легче, на экране телефона
+    # отличий не видно. Нативное приложение берёт полноразмерные.
+    - assets/cards/web/
+    - assets/images/

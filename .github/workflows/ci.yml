@@ -1,0 +1,133 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Нужно, чтобы job мог отписать вывод анализатора в PR, если он красный.
+permissions:
+  contents: read
+  pull-requests: write
+
+# Корень Flutter-проекта — папка MafiaOffline/
+defaults:
+  run:
+    working-directory: MafiaOffline
+
+jobs:
+  flutter:
+    name: Flutter analyze + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter 3.24.5
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Вывод анализатора сохраняем в файл: если job упадёт, следующий шаг
+      # выложит его в PR — иначе в логах GitHub видно только «exit code 1».
+      - name: Static analysis
+        id: analyze
+        run: |
+          set -o pipefail
+          flutter analyze 2>&1 | tee analyze.log
+
+      - name: Unit tests
+        id: tests
+        run: |
+          set -o pipefail
+          flutter test 2>&1 | tee test.log
+
+      # Одна публикация на оба шага: в логах GitHub при падении видно только
+      # «exit code 1», а по комментарию в PR сразу понятно, что именно упало.
+      - name: Publish failure details to PR
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo '### ❌ CI: подробности падения'
+            echo ''
+            if [ -s analyze.log ]; then
+              echo '#### flutter analyze'
+              echo ''
+              echo '```'
+              # Хвост важнее начала: ошибки печатаются в конце.
+              tail -n 200 analyze.log
+              echo '```'
+              echo ''
+            fi
+            if [ -s test.log ]; then
+              echo '#### flutter test'
+              echo ''
+              echo '```'
+              grep -E "^(  |✓|✗|[0-9]+:[0-9]+)" test.log | tail -n 200 || tail -n 200 test.log
+              echo '```'
+            fi
+          } > /tmp/ci_comment.md
+          # Один и тот же комментарий редактируем, а не плодим новые.
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --edit-last --create-if-none --body-file /tmp/ci_comment.md \
+            || gh pr comment "${{ github.event.pull_request.number }}" \
+                 --body-file /tmp/ci_comment.md
+
+  python-tools:
+    name: Python game-logic stands
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Demo party (20 players)
+        run: python3 tools/demo20.py
+
+      - name: Stress (400 parties)
+        run: python3 tools/stress.py
+
+      - name: Win rule
+        run: python3 tools/winrule.py
+
+      - name: Edge cases
+        run: python3 tools/edge.py
+
+      - name: Forced start
+        run: python3 tools/forcestart.py
+
+  web-check:
+    name: Web client syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check JS syntax
+        run: |
+          node --check assets/web/app.js
+          node --check assets/web/sw.js
+          echo "Web client JS syntax OK"
