@@ -134,6 +134,7 @@ UDP :45455 — автопоиск ведущего
 | [`MafiaOffline/docs/ТЗ_Мафия_Offline_v1.0.docx`](MafiaOffline/docs/ТЗ_Мафия_Offline_v1.0.docx) | техническое задание |
 | [`MafiaOffline/docs/ТРАССИРУЕМОСТЬ.md`](MafiaOffline/docs/ТРАССИРУЕМОСТЬ.md) | матрица «требование ТЗ → реализация → тесты» |
 | [`MafiaOffline/docs/РАЗРАБОТКА.md`](MafiaOffline/docs/РАЗРАБОТКА.md) | руководство разработчика: CI, релизы, регламент |
+| [`MafiaOffline/docs/РЕКОМЕНДАЦИИ_РАЗРАБОТЧИКА.md`](MafiaOffline/docs/РЕКОМЕНДАЦИИ_РАЗРАБОТЧИКА.md) | план работ: приоритеты, оценки, чего делать не стоит |
 | [`MafiaOffline/ИНВЕНТАРЬ.md`](MafiaOffline/ИНВЕНТАРЬ.md) | сверка Google Диск ↔ локальные файлы |
 
 ---

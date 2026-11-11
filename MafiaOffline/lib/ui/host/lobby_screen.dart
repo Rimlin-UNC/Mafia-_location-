@@ -112,7 +112,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
               ),
               const SizedBox(height: 6),
               const Text(
-                'Игрок увидит новое имя сразу. Сам менять имя он не может.',
+                'Игрок увидит новое имя сразу. Сам менять имя он не может. '
+                'В лобби смена имени никому не видна — партия ещё не началась.',
                 style: TextStyle(fontSize: 11.5, color: AppColors.dim),
               ),
             ],
@@ -148,6 +149,13 @@ class _LobbyScreenState extends State<LobbyScreen> {
     final connected = s.players.length;
     final enough = connected >= Rules.minPlayers;
     final full = connected >= s.plannedPlayers;
+
+    // Вопрос 1 из OPEN_QUESTIONS: старт не блокируем, но показываем имена,
+    // которые за столом невозможно различить. Решение остаётся за ведущим.
+    final shortNames = s.players
+        .where((p) => p.name.trim().length < 2)
+        .map((p) => '«${p.name}»')
+        .toList();
 
     return PopScope(
       canPop: false,
@@ -284,6 +292,27 @@ class _LobbyScreenState extends State<LobbyScreen> {
                           'Минимум 6 игроков для старта',
                           style:
                               TextStyle(fontSize: 12, color: AppColors.dim),
+                        ),
+                      ),
+                    if (enough && shortNames.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 10),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(Icons.warning_amber_rounded,
+                                size: 16, color: AppColors.warn),
+                            const SizedBox(width: 7),
+                            Expanded(
+                              child: Text(
+                                'Слишком короткие имена: '
+                                '${shortNames.join(', ')}. Переименуйте '
+                                'карандашом — за столом их не различить.',
+                                style: const TextStyle(
+                                    fontSize: 12, color: AppColors.warn),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                   ],

@@ -138,10 +138,22 @@ class _HostGameScreenState extends State<HostGameScreen> {
               // ---- Зона 1: фаза и таймер ----
               PhaseBanner(
                 title: s.phase.title,
-                right: 'Раунд ${s.round} · живых ${s.alive.length}'
-                    '/${s.players.length}',
+                right: s.phase == GamePhase.rolesCheck
+                    ? '${s.players.length - s.unacknowledged.length}'
+                        ' из ${s.players.length} готовы'
+                    : 'Раунд ${s.round} · живых ${s.alive.length}'
+                        '/${s.players.length}',
                 isNight: isNight,
               ),
+              // ---- Гейт раздачи ролей: первая ночь ждёт всех ----
+              if (c.waitingForRoleCheck) ...[
+                const SizedBox(height: 10),
+                _RoleCheckCard(controller: c),
+              ],
+              // Таймер в фазе раздачи ролей не имеет смысла: ночь ещё
+              // не началась, время не идёт. Показываем вместо него
+              // панель готовности (выше).
+              if (s.phase != GamePhase.rolesCheck) ...[
               const SizedBox(height: 10),
               PanelCard(
                 child: Padding(
@@ -202,6 +214,7 @@ class _HostGameScreenState extends State<HostGameScreen> {
                   ),
                 ),
               ),
+              ],
 
               // ---- Зона 3 (подсказка) ----
               const SizedBox(height: 4),
@@ -218,10 +231,11 @@ class _HostGameScreenState extends State<HostGameScreen> {
                       style: TextStyle(
                           fontWeight: FontWeight.bold, fontSize: 15)),
                   const Spacer(),
-                  _MiniButton(
-                    label: _revealRoles ? '🙈 Скрыть роли' : '👁 Показать роли',
-                    onTap: () => setState(() => _revealRoles = !_revealRoles),
-                  ),
+                  if (s.players.any((p) => p.role != null))
+                    _MiniButton(
+                      label: _revealRoles ? '🙈 Скрыть роли' : '👁 Показать роли',
+                      onTap: () => setState(() => _revealRoles = !_revealRoles),
+                    ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -237,11 +251,31 @@ class _HostGameScreenState extends State<HostGameScreen> {
                         (p.role?.isActiveAtNight ?? false),
                     subtitle: _revealRoles && p.role != null
                         ? '${p.role!.emoji} ${p.role!.name}'
-                        : (p.isAlive
-                            ? (p.roleAcknowledged ? 'в игре' : 'изучает роль')
-                            : 'выбыл'),
+                        : (!p.isAlive
+                            ? 'выбыл'
+                            : p.role == null
+                                ? 'в лобби'
+                                : (p.roleAcknowledged
+                                    ? 'роль прочитана'
+                                    : 'изучает роль')),
                     onTap: () => _renameDialog(p.id, p.name),
-                    trailing: _playerTrailing(s, p.id),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Повторный показ роли (вопрос 4 из OPEN_QUESTIONS).
+                        if (p.role != null)
+                          IconButton(
+                            tooltip: 'Показать роль ещё раз',
+                            icon: const Icon(Icons.visibility_outlined,
+                                size: 18),
+                            color: AppColors.dim,
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () => _reshareRole(p.id, p.name),
+                          ),
+                        _playerTrailing(s, p.id) ??
+                            const SizedBox.shrink(),
+                      ],
+                    ),
                   ),
                 ),
 
@@ -288,6 +322,21 @@ class _HostGameScreenState extends State<HostGameScreen> {
     );
   }
 
+  /// Повторно отправить игроку его роль. Ошибки — снекбаром, чтобы
+  /// ведущий понимал, почему ничего не произошло.
+  Future<void> _reshareRole(String playerId, String name) async {
+    final err = c.reshareRole(playerId);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: err == null ? AppColors.panel2 : AppColors.bad,
+        content: Text(err ??
+            'Роль отправлена повторно: $name. Экран-предупреждение '
+                'появится у него заново.'),
+      ),
+    );
+  }
+
   /// Переименование прямо во время партии — тапом по игроку.
   Future<void> _renameDialog(String playerId, String current) async {
     final ctrl = TextEditingController(text: current);
@@ -298,15 +347,45 @@ class _HostGameScreenState extends State<HostGameScreen> {
         builder: (ctx, setDialog) => AlertDialog(
           backgroundColor: AppColors.panel,
           title: const Text('Изменить имя', style: TextStyle(fontSize: 17)),
-          content: TextField(
-            controller: ctrl,
-            autofocus: true,
-            maxLength: 20,
-            decoration: InputDecoration(
-              labelText: 'Имя игрока',
-              counterText: '',
-              errorText: error,
-            ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: ctrl,
+                autofocus: true,
+                maxLength: 20,
+                decoration: InputDecoration(
+                  labelText: 'Имя игрока',
+                  counterText: '',
+                  errorText: error,
+                ),
+              ),
+              if (c.state?.phase != GamePhase.waiting &&
+                  c.state?.phase != GamePhase.rolesCheck)
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        c.allowRenameInGame
+                            ? 'Имя видно всем: смена имени посреди партии — '
+                                'подсказка столу.'
+                            : 'Посреди партии имена менять нельзя. '
+                                'Можно разрешить для этой партии.',
+                        style: const TextStyle(
+                            fontSize: 11.5, color: AppColors.dim),
+                      ),
+                    ),
+                    Switch(
+                      value: c.allowRenameInGame,
+                      activeColor: AppColors.accent,
+                      onChanged: (v) {
+                        c.setAllowRenameInGame(v);
+                        setDialog(() {});
+                      },
+                    ),
+                  ],
+                ),
+            ],
           ),
           actions: [
             TextButton(
@@ -315,7 +394,11 @@ class _HostGameScreenState extends State<HostGameScreen> {
             ),
             TextButton(
               onPressed: () {
-                final err = c.renamePlayer(playerId, ctrl.text);
+                final err = c.renamePlayer(
+                  playerId,
+                  ctrl.text,
+                  allowDuringGame: c.allowRenameInGame,
+                );
                 if (err == null) {
                   Navigator.pop(ctx);
                 } else {
@@ -333,6 +416,8 @@ class _HostGameScreenState extends State<HostGameScreen> {
 
   String _forceLabel(GameState s) {
     switch (s.phase) {
+      case GamePhase.rolesCheck:
+        return 'Начать ночь, не дожидаясь';
       case GamePhase.night:
         return 'Завершить ночь → рассвет';
       case GamePhase.day:
@@ -350,6 +435,13 @@ class _HostGameScreenState extends State<HostGameScreen> {
     if (!p.isAlive) return const Text('☠', style: TextStyle(fontSize: 14));
     if (!p.isConnected) return const StatusDot(AppColors.bad);
 
+    if (s.phase == GamePhase.rolesCheck && p.role != null) {
+      return Icon(
+        p.roleAcknowledged ? Icons.check_circle : Icons.hourglass_top,
+        color: p.roleAcknowledged ? AppColors.ok : AppColors.warn,
+        size: 20,
+      );
+    }
     if (s.phase == GamePhase.night && (p.role?.isActiveAtNight ?? false)) {
       return s.nightActions.containsKey(p.id)
           ? const Icon(Icons.check, color: AppColors.ok, size: 20)
@@ -408,6 +500,134 @@ class _HostGameScreenState extends State<HostGameScreen> {
         ),
       ),
     );
+  }
+}
+
+/// Панель фазы раздачи ролей.
+///
+/// Ведущий видит прогресс «N из M» и поимённо тех, кто ещё читает.
+/// Первая ночь начнётся сама, когда последний нажмёт «Понятно»; кнопка
+/// ниже — аварийный выход для случая «человек отошёл».
+class _RoleCheckCard extends StatelessWidget {
+  final HostController controller;
+  const _RoleCheckCard({required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = controller.state;
+    if (s == null) return const SizedBox.shrink();
+    final total = s.players.length;
+    final waiting = s.unacknowledged;
+    final ready = controller.roleAckCount;
+    final done = waiting.isEmpty;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: done ? AppColors.ok.withAlpha(26) : AppColors.accent.withAlpha(26),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: done ? AppColors.ok.withAlpha(120) : AppColors.accent.withAlpha(120),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(done ? '✅' : '🎴', style: const TextStyle(fontSize: 20)),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  done ? 'Все прочитали роль' : 'Роли розданы — ждём игроков',
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.bold),
+                ),
+              ),
+              Text('$ready / $total',
+                  style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      fontFeatures: [FontFeature.tabularFigures()])),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: total == 0 ? 0 : ready / total,
+              minHeight: 6,
+              backgroundColor: AppColors.line,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                  done ? AppColors.ok : AppColors.accent2),
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (!done) ...[
+            const Text(
+              'Первая ночь начнётся автоматически, когда все нажмут '
+              '«Понятно, я готов». Не начинайте вслух, пока не увидите 100%.',
+              style: TextStyle(fontSize: 12, color: AppColors.dim),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Читают: ${waiting.map((p) => p.name).join(', ')}',
+              style: const TextStyle(fontSize: 12.5, color: Color(0xFFF8C778)),
+            ),
+          ] else
+            const Text(
+              'Начинаем ночь…',
+              style: TextStyle(fontSize: 12, color: AppColors.dim),
+            ),
+          if (!done) ...[
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerRight,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.fast_forward, size: 17),
+                label: const Text('Начать ночь не дожидаясь',
+                    style: TextStyle(fontSize: 12.5)),
+                onPressed: () => _confirmSkip(context, waiting.length),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _confirmSkip(BuildContext context, int waitingCount) async {
+    final names = controller.state?.unacknowledged
+            .map((p) => p.name)
+            .join(', ') ??
+        '';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.panel,
+        title: const Text('Начать ночь?', style: TextStyle(fontSize: 17)),
+        content: Text(
+          waitingCount == 1
+              ? 'Свою роль ещё не подтвердил: $names.\n\n'
+                  'Он рискует пропустить свой первый ночной ход.'
+              : 'Свою роль ещё не подтвердили: $names.\n\n'
+                  'Они рискуют пропустить свой первый ночной ход.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Подождать'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Начать ночь',
+                style: TextStyle(color: AppColors.warn)),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) controller.skipRoleCheck();
   }
 }
 

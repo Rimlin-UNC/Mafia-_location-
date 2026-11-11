@@ -75,7 +75,8 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
           _ => A.bgDay,
         },
         child: SafeArea(
-          child: c.phase == GamePhase.waiting
+          child: c.phase == GamePhase.waiting ||
+                  c.phase == GamePhase.rolesCheck
               ? _buildWaiting()
               : (!c.isAlive ? _buildSpectator() : _buildActive()),
         ),
@@ -108,6 +109,40 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
             text: c.banner!,
             color: AppColors.accent,
           ),
+
+        // Фаза раздачи ролей: партия уже идёт, но ночь ждёт, пока все
+        // прочитают роль. Игроку важно понимать, чего именно ждут.
+        if (c.phase == GamePhase.rolesCheck) ...[
+          const SizedBox(height: 4),
+          const Center(child: Text('🎴', style: TextStyle(fontSize: 34))),
+          const SizedBox(height: 8),
+          const Center(
+            child: Text(
+              'Ведущий раздал роли',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Center(
+            child: Text(
+              'Ночь начнётся, когда все прочитают свою роль.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.dim, fontSize: 12.5),
+            ),
+          ),
+          if (c.roleName != null) ...[
+            const SizedBox(height: 14),
+            Center(
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.badge_outlined, size: 18),
+                label: const Text('Открыть мою роль'),
+                onPressed: _showRole,
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+        ],
+
         // Имя видно игроку, но менять его может только ведущий —
         // иначе в списке возникнет путаница посреди партии.
         Container(

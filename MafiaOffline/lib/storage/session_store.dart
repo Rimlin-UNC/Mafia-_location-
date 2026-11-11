@@ -77,6 +77,8 @@ class SessionStore {
         'createdAt': s.createdAt.millisecondsSinceEpoch,
         'plannedPlayers': s.plannedPlayers,
         'phase': s.phase.name,
+        // Фаза rolesCheck сохраняется как есть: партия уже не в лобби,
+        // но первая ночь ещё не началась.
         'round': s.round,
         'timeLeft': s.timeLeft,
         'lastHealedId': s.lastHealedId,

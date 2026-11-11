@@ -313,6 +313,16 @@ class PlayerController extends ChangeNotifier {
     roleName = msg.get<String>('roleName') ?? roleName;
     roleEmoji = msg.get<String>('roleEmoji') ?? roleEmoji;
     roleDescription = msg.get<String>('roleDescription') ?? roleDescription;
+
+    // ВАЖНО: проверяем ПОСЛЕ присвоения roleName. Иначе на перезагруженном
+    // клиенте роль ещё null, и экран-предупреждение не покажется — а без
+    // подтверждения первая ночь будет ждать этого игрока вечно.
+    final syncAck = msg.get<bool>('roleAck');
+    if (syncAck != null) {
+      roleAcknowledged = syncAck;
+      if (!syncAck && roleName != null) awaitingRoleReveal = true;
+    }
+
     final mates = msg.get<List>('teammates');
     if (mates != null && mates.isNotEmpty) {
       teammates = mates
@@ -349,6 +359,11 @@ class PlayerController extends ChangeNotifier {
         AudioService.instance.playAmbient(A.ambVote);
         break;
       case GamePhase.ended:
+        AudioService.instance.stopAmbient();
+        break;
+      case GamePhase.rolesCheck:
+        // Партия уже идёт, но ночь ещё не объявлена: атмосферу ночи
+        // не включаем, иначе за столом решат, что город уже заснул.
         AudioService.instance.stopAmbient();
         break;
       case GamePhase.waiting:

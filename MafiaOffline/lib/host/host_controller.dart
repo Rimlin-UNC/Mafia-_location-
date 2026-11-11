@@ -40,6 +40,9 @@ class HostController extends ChangeNotifier {
 
   String? hostAddress;
 
+  /// Ведущий разрешил править имена посреди партии (по умолчанию — нет).
+  bool _allowRenameInGame = false;
+
   /// Создание партии и запуск локального сервера.
   Future<bool> createGame({
     required String name,
@@ -137,6 +140,10 @@ class HostController extends ChangeNotifier {
 
     // Фон текущей фазы возвращаем сразу, чтобы атмосфера не пропала.
     switch (saved.phase) {
+      case GamePhase.rolesCheck:
+        // Партия восстановлена на раздаче: роли у игроков уже есть,
+        // ночь начнётся сама, когда все подтвердят.
+        break;
       case GamePhase.night:
         _ambient(A.ambNight);
         break;
@@ -153,6 +160,14 @@ class HostController extends ChangeNotifier {
     // Таймер запускаем — но состояние paused держит его на месте,
     // пока ведущий не нажмёт «Продолжить».
     _startTimer();
+
+    // Ловушка восстановления: приложение могло упасть между последним
+    // «Понятно» и стартом ночи. Тогда все уже подтвердили, а фаза осталась
+    // rolesCheck — и партия застыла бы без таймера и без кнопки. Догоняем.
+    if (saved.phase == GamePhase.rolesCheck && saved.allRolesAcknowledged) {
+      startNight();
+    }
+
     notifyListeners();
     return true;
   }
@@ -199,11 +214,7 @@ class HostController extends ChangeNotifier {
         _handleVote(msg);
         break;
       case Msg.roleAck:
-        final ackId = msg.get<String>('playerId');
-        if (ackId != null) {
-          _updatePlayer(ackId, (p) => p.copyWith(roleAcknowledged: true));
-          notifyListeners();
-        }
+        _handleRoleAck(msg);
         break;
 
       case Msg.leave:
@@ -259,6 +270,7 @@ class HostController extends ChangeNotifier {
     }
 
     // Новых игроков пускаем только в лобби и только если есть места.
+    // Фаза проверки ролей — формально уже игра: состав зафиксирован.
     if (s.phase != GamePhase.waiting) {
       server.sendToConn(conn,
           Envelope(Msg.registerDenied, {'reason': DenyReason.gameStarted}));
@@ -270,11 +282,18 @@ class HostController extends ChangeNotifier {
       return;
     }
 
+    // Цвет привязан к номеру слота, а не к «первому свободному»: тогда
+    // игрок всегда возвращается в свой цвет и никто не перекрашивается
+    // после исключения соседа (вопрос 5 из OPEN_QUESTIONS).
     final usedColors = s.players.map((p) => p.colorHex).toSet();
-    final color = kPlayerColors.firstWhere(
-      (c) => !usedColors.contains(c),
-      orElse: () => kPlayerColors[s.players.length % kPlayerColors.length],
-    );
+    var color = colorForSlot(s.players.length);
+    // Страховка на случай переселения из старого сохранения.
+    if (usedColors.contains(color)) {
+      color = kPlayerColors.firstWhere(
+        (c) => !usedColors.contains(c),
+        orElse: () => colorForSlot(s.players.length),
+      );
+    }
 
     final player = Player(
       id: 'p${DateTime.now().microsecondsSinceEpoch}',
@@ -358,6 +377,10 @@ class HostController extends ChangeNotifier {
       'roleEmoji': player.role?.emoji,
       'roleDescription': player.role?.description,
       'teammates': _teammatesFor(player),
+      // Клиент мог перезагрузиться до того, как нажал «Понятно».
+      // Без этого флага он решил бы, что уже подтвердил, и первая ночь
+      // ждала бы его вечно (гейт раздачи ролей).
+      'roleAck': player.roleAcknowledged,
       'targets': canAct ? _targetsFor(player) : <Map<String, dynamic>>[],
       'gameName': s.name,
     });
@@ -466,9 +489,23 @@ class HostController extends ChangeNotifier {
   /// расхождений между экранами не возникает.
   ///
   /// Возвращает текст ошибки или null при успехе.
-  String? renamePlayer(String playerId, String rawName) {
+  ///
+  /// [allowDuringGame] — «аварийный» режим ведущего. По умолчанию имя
+  /// правится только в лобби и в момент раздачи ролей: смена имени
+  /// посреди партии видна всем (пакет `lobby` идёт каждому) и служит
+  /// подсказкой столу, что у этого игрока ведущий что-то поправил.
+  String? renamePlayer(
+    String playerId,
+    String rawName, {
+    bool allowDuringGame = false,
+  }) {
     final s = _state;
     if (s == null) return 'Партия не запущена';
+    if (!allowDuringGame &&
+        s.phase != GamePhase.waiting &&
+        s.phase != GamePhase.rolesCheck) {
+      return 'Во время партии имя менять нельзя';
+    }
 
     final name = rawName.trim();
     if (name.isEmpty) return 'Имя не может быть пустым';
@@ -496,16 +533,104 @@ class HostController extends ChangeNotifier {
   }
 
   /// Сколько игроков уже подтвердили, что прочитали свою роль.
-  int get roleAckCount =>
-      _state?.players.where((p) => p.roleAcknowledged).length ?? 0;
+  int get roleAckCount => _state?.players.where((p) => p.roleAcknowledged).length ?? 0;
 
-  /// Все ли ознакомились с ролями — по этому признаку ведущий понимает,
-  /// что можно спокойно начинать первую ночь.
-  bool get allRolesAcknowledged {
+  /// Все ли ознакомились с ролями.
+  bool get allRolesAcknowledged => _state?.allRolesAcknowledged ?? false;
+
+  /// Кто ещё не подтвердил роль — ведущему показываем имена, а не только число.
+  List<Player> get unacknowledgedPlayers => _state?.unacknowledged ?? const [];
+
+  /// Партия раздала роли и ждёт, пока все прочитают.
+  bool get waitingForRoleCheck =>
+      _state?.phase == GamePhase.rolesCheck && !allRolesAcknowledged;
+
+  void _handleRoleAck(Envelope msg) {
     final s = _state;
-    if (s == null || s.players.isEmpty) return false;
-    return s.players.every((p) => p.roleAcknowledged);
+    if (s == null) return;
+    final ackId = msg.get<String>('playerId');
+    if (ackId == null) return;
+
+    final player = s.byId(ackId);
+    if (player == null || player.role == null) return;
+    // Повторное нажатие не должно ни менять счётчик, ни писать лог заново.
+    if (player.roleAcknowledged) return;
+
+    _updatePlayer(ackId, (p) => p.copyWith(roleAcknowledged: true));
+    _addLog(EventType.info, '${player.name} прочитал роль',
+        visibleToPlayers: false);
+    _persist();
+    notifyListeners();
+
+    // Гейт первой ночи (вопрос 2 из OPEN_QUESTIONS): ночь начинается сама,
+    // как только последний подтвердил. Ведущему не нужно ничего нажимать
+    // и невозможно случайно начать ночь «мимо» ожидающих.
+    if (_state!.phase == GamePhase.rolesCheck &&
+        _state!.allRolesAcknowledged) {
+      _addLog(EventType.info, 'Все ознакомились с ролями — начинаем ночь');
+      startNight();
+      return;
+    }
+    _broadcastLobby();
   }
+
+  /// Аварийный запуск ночи, когда кто-то так и не подтвердил роль
+  /// (отошёл, разрядился телефон). Ведущий берёт это решение на себя.
+  void skipRoleCheck() {
+    final s = _state;
+    if (s == null || s.phase != GamePhase.rolesCheck) return;
+    final missing = s.unacknowledged.map((p) => p.name).join(', ');
+    _addLog(
+      EventType.info,
+      missing.isEmpty
+          ? 'Ведущий начал первую ночь'
+          : 'Ведущий начал ночь, не дождавшись: $missing',
+      visibleToPlayers: false,
+    );
+    startNight();
+  }
+
+  /// Повторно показать игроку его роль (вопрос 4 из OPEN_QUESTIONS).
+  ///
+  /// Сценарий: человек случайно нажал «Понятно», не прочитав, или вернулся
+  /// из фона уже после раздачи. Отправляем тот же пакет, что и при раздаче,
+  /// и снимаем отметку «прочитал», чтобы экран-предупреждение показался
+  /// снова — иначе роль молча всплывёт поверх стола.
+  String? reshareRole(String playerId) {
+    final s = _state;
+    if (s == null) return 'Партия не запущена';
+    final p = s.byId(playerId);
+    if (p == null) return 'Игрок не найден';
+    if (p.role == null) return 'Роли ещё не розданы';
+    if (!server.isOnline(p.id)) return 'Игрок не на связи';
+
+    _updatePlayer(p.id, (x) => x.copyWith(roleAcknowledged: false));
+    server.sendTo(
+      p.id,
+      Envelope(Msg.roleAssign, {
+        'role': p.role!.type.name,
+        'roleName': p.role!.name,
+        'roleEmoji': p.role!.emoji,
+        'roleDescription': p.role!.description,
+        'teammates': _teammatesFor(p),
+      }),
+    );
+    _addLog(EventType.info, '${p.name} показана роль повторно',
+        visibleToPlayers: false);
+    _broadcastLobby();
+    _persist();
+    notifyListeners();
+    return null;
+  }
+
+  /// Разрешить/запретить переименование во время партии.
+  void setAllowRenameInGame(bool value) {
+    if (_allowRenameInGame == value) return;
+    _allowRenameInGame = value;
+    notifyListeners();
+  }
+
+  bool get allowRenameInGame => _allowRenameInGame;
 
   Future<void> kickPlayer(String playerId) async {
     final s = _state;
@@ -518,7 +643,12 @@ class HostController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Старт партии: раздача ролей и первая ночь.
+  /// Старт партии: раздача ролей.
+  ///
+  /// Первая ночь НЕ начинается сразу: партия переходит в фазу [rolesCheck],
+  /// пока каждый игрок не нажмёт «Понятно» на своей карте. Раздать роль
+  /// и тут же увести стол в ночь — значит потерять первый ход половины
+  /// игроков, которые ещё читают памятку.
   void startGame() {
     final s = _state;
     if (s == null || s.players.isEmpty) return;
@@ -529,7 +659,13 @@ class HostController extends ChangeNotifier {
       random: _rnd,
     );
 
-    _state = s.copyWith(players: withRoles, round: 0);
+    _state = s.copyWith(
+      players: withRoles,
+      round: 0,
+      phase: GamePhase.rolesCheck,
+      paused: true,
+      timeLeft: 0,
+    );
 
     // Каждому — только его роль. Мафии дополнительно состав команды.
     for (final p in withRoles) {
@@ -548,7 +684,8 @@ class HostController extends ChangeNotifier {
     _addLog(EventType.info, 'Игра началась. Игроков: ${withRoles.length}');
     _persist();
     _playEverywhere(A.rolesDealt);
-    startNight();
+    _broadcastPhase();
+    notifyListeners();
   }
 
   List<Map<String, dynamic>> _teammatesFor(Player p) {
@@ -891,6 +1028,9 @@ class HostController extends ChangeNotifier {
     final s = _state;
     if (s == null) return;
     switch (s.phase) {
+      case GamePhase.rolesCheck:
+        skipRoleCheck();
+        break;
       case GamePhase.night:
         finishNight();
         break;
@@ -976,6 +1116,8 @@ class HostController extends ChangeNotifier {
     final s = _state!;
     if (!p.isAlive) return 'Вы выбыли из игры';
     switch (s.phase) {
+      case GamePhase.rolesCheck:
+        return 'Прочитайте свою роль';
       case GamePhase.night:
         if (!(p.role?.isActiveAtNight ?? false)) return 'Спите';
         switch (p.role?.type) {
@@ -1007,6 +1149,11 @@ class HostController extends ChangeNotifier {
     final s = _state;
     if (s == null) return '';
     switch (s.phase) {
+      case GamePhase.rolesCheck:
+        final waiting = s.unacknowledged;
+        if (waiting.isEmpty) return 'Все прочитали роль — начинаем ночь.';
+        return 'Роли изучают (${s.players.length - waiting.length} '
+            'из ${s.players.length}): ${waiting.map((p) => p.name).join(', ')}';
       case GamePhase.night:
         final waiting = s.pendingActors;
         if (waiting.isEmpty) return 'Все действия собраны. Можно завершать ночь.';

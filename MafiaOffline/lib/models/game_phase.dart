@@ -3,7 +3,7 @@
 /// источником ошибок сериализации.)
 library;
 
-enum GamePhase { waiting, night, day, voting, ended }
+enum GamePhase { waiting, rolesCheck, night, day, voting, ended }
 
 extension GamePhaseX on GamePhase {
   String get wire => name;
@@ -12,6 +12,8 @@ extension GamePhaseX on GamePhase {
     switch (this) {
       case GamePhase.waiting:
         return 'Ожидание';
+      case GamePhase.rolesCheck:
+        return 'Раздача ролей';
       case GamePhase.night:
         return 'Ночь';
       case GamePhase.day:

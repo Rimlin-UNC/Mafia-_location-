@@ -215,6 +215,15 @@ class GameState {
 
   bool get allNightActionsIn => pendingActors.isEmpty;
 
+  /// Кто из игроков ещё не подтвердил, что прочитал свою роль.
+  List<Player> get unacknowledged =>
+      players.where((p) => !p.roleAcknowledged).toList();
+
+  /// Все ли прочитали роль. Пустой список игроков готовым не считается:
+  /// раздавать роли некому.
+  bool get allRolesAcknowledged =>
+      players.isNotEmpty && unacknowledged.isEmpty;
+
   /// Кто из живых ещё не проголосовал.
   List<Player> get pendingVoters =>
       alive.where((p) => !votes.containsKey(p.id)).toList();

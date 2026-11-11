@@ -363,6 +363,9 @@ function onMessage(m) {
       break;
 
     case 'role_assign':
+      // Пакет приходит дважды: при раздаче и по кнопке ведущего
+      // «показать роль ещё раз». Во втором случае предупреждение
+      // обязательно показываем снова — иначе роль всплывёт поверх стола.
       S.role = m.role; S.roleName = m.roleName;
       S.roleEmoji = m.roleEmoji; S.roleDesc = m.roleDescription;
       S.mates = m.teammates || [];
@@ -486,6 +489,14 @@ function applyPhase(m) {
   if (m.roleDescription) S.roleDesc = m.roleDescription;
   if (m.teammates && m.teammates.length) S.mates = m.teammates;
 
+  // Проверяем ПОСЛЕ присвоения roleName: на перезагруженной странице роль
+  // приходит тем же пакетом, и раньше этой строки S.roleName ещё null.
+  if (typeof m.roleAck === 'boolean' && S.roleName && !m.roleAck) {
+    // Не подтвердил — значит, экран-предупреждение не пройден.
+    // Без этого первая ночь ждала бы игрока вечно.
+    S.awaitingReveal = true;
+  }
+
   // Смена фазы отменяет неподтверждённый ход из прошлой.
   if (prevPhase !== S.phase) S.pendingAction = null;
 
@@ -499,6 +510,9 @@ function applyPhase(m) {
   // лежит на столе экраном вниз.
   if (prevPhase !== S.phase && S.canAct && S.isAlive) buzz([50, 40, 50]);
 
+  // Перезагрузка страницы до подтверждения роли: экран-предупреждение
+  // нужно показать заново, иначе игрок останется на экране входа.
+  if (S.awaitingReveal && S.roleName) show('scr-reveal');
   if (S.phase !== 'waiting' && !S.awaitingReveal) show('scr-game');
   startTick();
 }
@@ -544,6 +558,9 @@ function renderTimer() {
 // ---------------------------------------------------------------- отрисовка
 const PHASES = {
   waiting: ['⏳', 'Ожидание', 'night'],
+  // Роли розданы, ночь ещё не началась. Отдельная фаза нужна и клиенту:
+  // показывать «Ночь» раньше времени — значит путать стол.
+  rolesCheck: ['🎴', 'Раздача ролей', 'day'],
   night:   ['🌙', 'Ночь',      'night'],
   day:     ['☀️', 'День',      'day'],
   voting:  ['🗳',  'Голосование', 'voting'],
@@ -599,6 +616,11 @@ function renderIdle() {
     $('idle-emoji').textContent = '⏳';
     $('idle-text').textContent = 'Ожидание';
     $('idle-sub').textContent = 'Ведущий скоро начнёт партию.';
+  } else if (S.phase === 'rolesCheck') {
+    $('idle-emoji').textContent = '🎴';
+    $('idle-text').textContent = 'Роли розданы';
+    $('idle-sub').textContent =
+      'Ночь начнётся, когда все прочитают свою роль.';
   } else if (night) {
     $('idle-emoji').textContent = '😴';
     $('idle-text').textContent = 'Спите';

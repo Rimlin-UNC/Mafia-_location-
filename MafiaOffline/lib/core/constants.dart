@@ -62,6 +62,12 @@ class Rules {
   static const int runoffPerPlayerSeconds = 3;
 }
 
+/// Цвет по порядковому номеру слота. Фиксированная привязка, а не «первый
+/// свободный»: иначе вернувшийся в свой слот игрок получал бы другой цвет,
+/// если его прежний успел занять новый человек. Слотов ровно столько же,
+/// сколько цветов (в партии не больше [Rules.maxPlayers]).
+String colorForSlot(int slot) => kPlayerColors[slot % kPlayerColors.length];
+
 /// Палитра цветов игроков. Цвета не повторяются в рамках партии.
 const List<String> kPlayerColors = [
   '#FF5733', '#33FF57', '#3357FF', '#FF33A1', '#FFD733',
