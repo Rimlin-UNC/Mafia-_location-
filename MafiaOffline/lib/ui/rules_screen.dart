@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../core/assets.dart';
 import '../core/crime_deck.dart';
 import '../core/role_guide.dart';
-import '../core/story_deck.dart';
 import '../models/role.dart';
 import 'card_gallery_screen.dart';
 import 'theme.dart';
