@@ -299,3 +299,61 @@ class GameEngine {
     return 'Город просыпается. Этой ночью мы потеряли: $names.';
   }
 }
+
+/// Что делать с запросом регистрации. Вынесено из `HostController`, чтобы
+/// правило «свой слот» можно было проверить тестом без запуска сервера.
+enum RegisterVerdict {
+  /// Игрок новый — создаём.
+  create,
+
+  /// Имя занято живым игроком с другого устройства — отказ.
+  denyNameTaken,
+
+  /// Это тот же игрок: вернуть его в слот (роль и голоса сохраняются).
+  reclaim,
+
+  /// Вернулся в свой слот, придя с другого устройства (deviceId совпал) —
+  /// отличить в логе: «открыл игру на другом устройстве».
+  reclaimOtherDevice,
+
+  /// Партия уже началась, состав зафиксирован.
+  denyGameStarted,
+
+  /// Мест нет.
+  denyGameFull,
+}
+
+/// Разбор запроса на регистрацию. [isOnline] — занят ли слот живым сокетом.
+///
+/// Порядок проверок существенный и он же — найденный ранее баг:
+/// возврат в свой слот проверяется ДО «игра уже началась». Иначе игрок,
+/// у которого разрядился телефон посреди партии, получает отказ и теряет роль.
+RegisterVerdict resolveRegister({
+  required String name,
+  required String? deviceId,
+  required GameState state,
+  required bool Function(String playerId) isOnline,
+}) {
+  final lower = name.trim().toLowerCase();
+  final index = state.players
+      .indexWhere((p) => p.name.trim().toLowerCase() == lower);
+
+  if (index != -1) {
+    final existing = state.players[index];
+    final online = isOnline(existing.id);
+    final sameDevice = deviceId != null &&
+        existing.deviceId != null &&
+        deviceId == existing.deviceId;
+    // Тот же человек с планшета: слот его, даже если телефон ещё в сети.
+    if (online && !sameDevice) return RegisterVerdict.denyNameTaken;
+    if (sameDevice && online) return RegisterVerdict.reclaimOtherDevice;
+    return RegisterVerdict.reclaim;
+  }
+
+  // Новых пускаем только в лобби: фаза проверки ролей — уже игра.
+  if (state.phase != GamePhase.waiting) return RegisterVerdict.denyGameStarted;
+  if (state.players.length >= Rules.maxPlayers) {
+    return RegisterVerdict.denyGameFull;
+  }
+  return RegisterVerdict.create;
+}

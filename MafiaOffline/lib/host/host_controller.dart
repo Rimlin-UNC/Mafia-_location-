@@ -273,24 +273,26 @@ class HostController extends ChangeNotifier {
     //  * он сейчас на связи  -> имя действительно занято, отказ;
     //  * связи с ним нет     -> это он сам вернулся после перезапуска
     //                            приложения, пускаем в его же слот.
+    final verdict = resolveRegister(
+      name: name,
+      deviceId: deviceId,
+      state: s,
+      isOnline: (id) => server.isOnline(id),
+    );
+    // Решение принимает чистая функция (её покрывают тесты); здесь —
+    // только побочные эффекты: закрыть старые сокеты, отправить пакеты.
     final existingIndex = s.players.indexWhere(
         (p) => p.name.toLowerCase() == name.toLowerCase());
-    if (existingIndex != -1) {
+    if (existingIndex != -1 && verdict != RegisterVerdict.denyNameTaken) {
       final existing = s.players[existingIndex];
       // Тот же человек с другого устройства (планшет, вторая вкладка):
       // deviceId совпал — отдаём слот ему и выкидываем старый сокет.
       // Без этой проверки человек, открывший игру на планшете, получал
       // «имя занято» от собственного телефона.
-      final sameDevice =
-          deviceId != null && existing.deviceId != null && deviceId == existing.deviceId;
-      if (server.isOnline(existing.id) && !sameDevice) {
-        server.sendToConn(conn,
-            Envelope(Msg.registerDenied, {'reason': DenyReason.nameTaken}));
-        return;
-      }
+      final sameDevice = verdict == RegisterVerdict.reclaimOtherDevice;
       // Возврат в собственный слот: роль, статус и голоса сохраняются.
       conn.playerId = existing.id;
-      if (sameDevice && server.isOnline(existing.id)) {
+      if (sameDevice) {
         _addLog(EventType.reconnect,
             '${existing.name} открыл игру на другом устройстве',
             visibleToPlayers: false);
@@ -325,13 +327,18 @@ class HostController extends ChangeNotifier {
     }
 
     // Новых игроков пускаем только в лобби и только если есть места.
-    // Фаза проверки ролей — формально уже игра: состав зафиксирован.
-    if (s.phase != GamePhase.waiting) {
+    // Решение — из resolveRegister; здесь только ответ клиенту.
+    if (verdict == RegisterVerdict.denyNameTaken) {
+      server.sendToConn(
+          conn, Envelope(Msg.registerDenied, {'reason': DenyReason.nameTaken}));
+      return;
+    }
+    if (verdict == RegisterVerdict.denyGameStarted) {
       server.sendToConn(conn,
           Envelope(Msg.registerDenied, {'reason': DenyReason.gameStarted}));
       return;
     }
-    if (s.players.length >= Rules.maxPlayers) {
+    if (verdict == RegisterVerdict.denyGameFull) {
       server.sendToConn(
           conn, Envelope(Msg.registerDenied, {'reason': DenyReason.gameFull}));
       return;
