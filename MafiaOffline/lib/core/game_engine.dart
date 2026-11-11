@@ -102,7 +102,7 @@ class GameEngine {
     }
     // Повторное нажатие не должно ни менять счётчик, ни писать лог заново.
     if (player.roleAcknowledged) {
-      return RoleCheckResult(accepted: false, already: true);
+      return const RoleCheckResult(accepted: false, already: true);
     }
 
     final updated = state.copyWith(

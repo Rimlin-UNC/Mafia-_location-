@@ -370,6 +370,10 @@ class _MenuScreenState extends State<MenuScreen> {
                     // Раньше об этом нигде не говорилось — ведущий узнавал
                     // постфактум, когда «Продолжить» пропадало.
                     if (_hasSession) {
+                      // Навигатор берём до await: после диалога context
+                      // может уже не принадлежать живому виджету, а
+                      // анализатор справедливо требует mounted у State.
+                      final nav = Navigator.of(context);
                       final go = await showDialog<bool>(
                         context: context,
                         builder: (ctx) => AlertDialog(
@@ -395,6 +399,11 @@ class _MenuScreenState extends State<MenuScreen> {
                       );
                       if (go != true) return;
                       if (!mounted) return;
+                      await nav.push(
+                        MaterialPageRoute(builder: (_) => const SetupScreen()),
+                      );
+                      await _checkSession();
+                      return;
                     }
                     await Navigator.push(
                       context,
