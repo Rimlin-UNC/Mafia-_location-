@@ -1,5 +1,6 @@
 import '../models/game_state.dart';
 import '../models/game_phase.dart';
+import '../models/player.dart';
 import '../models/role.dart';
 
 /// Сюжетная карточка: кадр, который ведущий показывает за столом в
@@ -188,10 +189,17 @@ class StoryDeck {
   /// [seenIds] — уже показанные в этой партии: одну и ту же карточку
   /// дважды не показываем, иначе приём превращается в назойливость.
   /// [noDeathsStreak] — сколько голосований подряд закончилось ничем.
+  ///
+  /// [quietNight] и [exile] — события, которых не видно по состоянию:
+  /// «этой ночью никто не погиб» и «только что выгнали голосованием».
+  /// Их сообщает вызывающий. До 1.2.0 эти две карточки были в колоде,
+  /// но условия для них никто не проверял — сами они не показывались.
   static List<StoryCard> candidatesFor(
     GameState s, {
     Set<String> seenIds = const {},
     int noDeathsStreak = 0,
+    bool quietNight = false,
+    bool exile = false,
   }) {
     final alive = s.alive;
     final out = <StoryCard>[];
@@ -207,7 +215,15 @@ class StoryDeck {
       add(StoryTrigger.firstNight);
     }
 
-    if (s.dead.isNotEmpty) add(StoryTrigger.firstBlood);
+    // «Первая кровь» — про ночное убийство («этой ночью город потерял
+    // первого»). Если первым выбыл изгнанный голосованием, карточка уже
+    // не к месту: с ночью знакомства это обычный ход партии, и до 1.2.0
+    // после первого же голосования читали бы текст про ночь.
+    final someoneExiled =
+        s.dead.any((p) => p.eliminationReason == EliminationReason.voted);
+    if (s.dead.isNotEmpty && !exile && !someoneExiled) {
+      add(StoryTrigger.firstBlood);
+    }
     if (alive.length == 3) add(StoryTrigger.lastThree);
     if (s.runoffCandidates.isNotEmpty) add(StoryTrigger.runoff);
     if (noDeathsStreak >= 2) add(StoryTrigger.deadlock);
@@ -224,6 +240,9 @@ class StoryDeck {
     }
     if (mafiaAlive > 0 && mafiaAlive == civilians) add(StoryTrigger.mafiaSurge);
 
+    if (quietNight) add(StoryTrigger.quietNight);
+    if (exile) add(StoryTrigger.exile);
+
     out.sort((a, b) => b.priority.compareTo(a.priority));
     return out;
   }
@@ -233,9 +252,16 @@ class StoryDeck {
     GameState s, {
     Set<String> seenIds = const {},
     int noDeathsStreak = 0,
+    bool quietNight = false,
+    bool exile = false,
   }) {
-    final list = candidatesFor(s,
-        seenIds: seenIds, noDeathsStreak: noDeathsStreak);
+    final list = candidatesFor(
+      s,
+      seenIds: seenIds,
+      noDeathsStreak: noDeathsStreak,
+      quietNight: quietNight,
+      exile: exile,
+    );
     return list.isEmpty ? null : list.first;
   }
 }

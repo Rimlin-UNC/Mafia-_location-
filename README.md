@@ -1,6 +1,6 @@
 # Mafia — офлайн-игра «Мафия» (локальный сервер на телефоне ведущего)
 
-Репозиторий содержит проект **«Мафия Offline» (v1.0.6+6)** — игру, которая работает
+Репозиторий содержит проект **«Мафия Offline» (код — v1.4.0+10, последний выпущенный APK — v1.0.6)** — игру, которая работает
 **полностью без интернета**: ведущий разворачивает сервер на своём Android-телефоне
 (точка доступа Wi-Fi), а игроки заходят **в обычном браузере** по QR-коду — устанавливать
 им ничего не нужно.
@@ -105,7 +105,10 @@ UDP :45455 — автопоиск ведущего
 | `MafiaOffline-1.0.4-arm64.apk` | 24 МБ | архив |
 | `MafiaOffline-1.0.4-universal.apk` | 37 МБ | архив |
 
-- Готовые сборки публикуются в **GitHub Releases**: актуальный —
+- **Версии 1.1.0–1.4.0 в виде APK не выпущены**: в релизах последняя
+  сборка — 1.0.6, код новее. Чтобы выпустить, после слияния в `main` поставьте
+  тег `v1.4.0` на коммит слияния — сборку сделает `release.yml`.
+- Готовые сборки публикуются в **GitHub Releases**: последний выпущенный —
   [v1.0.6](https://github.com/Rimlin-UNC/Mafia-_location-/releases/tag/v1.0.6),
   собирается автоматически по тегу `v*` (`.github/workflows/release.yml`).
   В git APK не коммитятся (`.gitignore`: `*.apk`).
@@ -129,6 +132,12 @@ UDP :45455 — автопоиск ведущего
 | [`MafiaOffline/README.md`](MafiaOffline/README.md) | краткая памятка проекта |
 | [`MafiaOffline/docs/ВЕДУЩЕМУ.md`](MafiaOffline/docs/ВЕДУЩЕМУ.md) | как провести партию |
 | [`MafiaOffline/docs/УСТАНОВКА.md`](MafiaOffline/docs/УСТАНОВКА.md) | установка и первый запуск |
+| [`MafiaOffline/docs/ИГРОКАМ.md`](MafiaOffline/docs/ИГРОКАМ.md) | инструкция для игроков |
+| [`MafiaOffline/docs/CHANGELOG_1.3.0.md`](MafiaOffline/docs/CHANGELOG_1.3.0.md) | изменения 1.3.0 (комиссар видит ответ сразу; последнее слово и повторное голосование — игрок может остаться) |
+| [`MafiaOffline/docs/CHANGELOG_1.2.0.md`](MafiaOffline/docs/CHANGELOG_1.2.0.md) | изменения 1.2.0 (правила стола: ночь знакомства, последнее слово, проверка комиссара; экран игрока) |
+| [`MafiaOffline/docs/CHANGELOG_1.1.0.md`](MafiaOffline/docs/CHANGELOG_1.1.0.md) | изменения 1.1.0 (классические правила победы) |
+| [`MafiaOffline/docs/ЧЕГО_НЕ_ХВАТАЕТ.md`](MafiaOffline/docs/ЧЕГО_НЕ_ХВАТАЕТ.md) | что сделано из списка недостающего и что осталось |
+| [`MafiaOffline/docs/CHANGELOG_1.0.6.md`](MafiaOffline/docs/CHANGELOG_1.0.6.md) | изменения 1.0.6 |
 | [`MafiaOffline/docs/CHANGELOG_1.0.5.md`](MafiaOffline/docs/CHANGELOG_1.0.5.md) | изменения 1.0.5 (веб-режим, устойчивость) |
 | [`MafiaOffline/docs/CHANGELOG_1.0.4.md`](MafiaOffline/docs/CHANGELOG_1.0.4.md) | изменения 1.0.4 |
 | [`MafiaOffline/docs/CHANGELOG_1.0.3.md`](MafiaOffline/docs/CHANGELOG_1.0.3.md) | изменения 1.0.3 |

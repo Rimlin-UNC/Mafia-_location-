@@ -62,12 +62,19 @@ class WifiConfig {
   /// Спецсимволы `\ ; , : "` внутри имени и пароля обязаны экранироваться
   /// обратным слешем — иначе точка с запятой в пароле разорвёт строку
   /// и телефон прочитает мусор.
-  String toQrPayload() {
+  ///
+  /// [game] — необязательное поле `G:` «единого кода» (см. `JoinCode`):
+  /// номер игры и адрес ведущего. Оно всегда идёт ПОСЛЕДНИМ, после
+  /// стандартных полей: разборщики вроде ZXing ищут `S:` / `P:` / `T:`
+  /// по первому вхождению в строке, и чужое поле не должно их опередить.
+  /// Камера телефона неизвестное поле пропускает и видит обычную сеть.
+  String toQrPayload({String? game}) {
     final s = _escape(ssid);
     final p = security == WifiSecurity.open ? '' : _escape(password);
     final buf = StringBuffer('WIFI:T:${security.wire};S:$s;');
     if (p.isNotEmpty) buf.write('P:$p;');
     if (hidden) buf.write('H:true;');
+    if (game != null && game.isNotEmpty) buf.write('G:${_escape(game)};');
     buf.write(';');
     return buf.toString();
   }
@@ -99,6 +106,11 @@ class WifiStore {
   /// ведущий может не знать пароль — тогда шаг просто скрыт.
   static const _kEnabled = 'wifi_qr_enabled';
 
+  /// «Единый код»: в код сети добавляется номер игры. Включено по умолчанию;
+  /// выключатель оставлен на случай, если чья-то камера не примет код
+  /// с дополнительным полем.
+  static const _kCombined = 'wifi_qr_combined';
+
   Future<WifiConfig> load() async {
     final p = await SharedPreferences.getInstance();
     return WifiConfig(
@@ -125,6 +137,16 @@ class WifiStore {
   Future<void> setEnabled(bool v) async {
     final p = await SharedPreferences.getInstance();
     await p.setBool(_kEnabled, v);
+  }
+
+  Future<bool> isCombined() async {
+    final p = await SharedPreferences.getInstance();
+    return p.getBool(_kCombined) ?? true;
+  }
+
+  Future<void> setCombined(bool v) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_kCombined, v);
   }
 
   Future<void> clear() async {

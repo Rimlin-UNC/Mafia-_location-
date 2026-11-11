@@ -115,6 +115,20 @@ jobs:
       - name: Forced start
         run: python3 tools/forcestart.py
 
+      - name: Table rules 1.2.0 / 1.3.0 (intro night, last word + re-vote, instant check)
+        run: python3 tools/rules120.py
+
+      # Версия в pubspec обязана иметь свой CHANGELOG: release.yml берёт
+      # номер версии оттуда же, и релиз без описания выпускать нельзя.
+      - name: Version has a changelog
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: *//' | cut -d+ -f1)
+          echo "pubspec version: $VERSION"
+          if [ ! -s "docs/CHANGELOG_${VERSION}.md" ]; then
+            echo "::error::нет docs/CHANGELOG_${VERSION}.md для версии из pubspec.yaml"
+            exit 1
+          fi
+
   web-check:
     name: Web client syntax check
     runs-on: ubuntu-latest
@@ -124,10 +138,79 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Check JS syntax
         run: |
           node --check assets/web/app.js
           node --check assets/web/sw.js
           echo "Web client JS syntax OK"
+
+      # Синтаксиса мало: обработчик пакетов в app.js глотает исключения,
+      # и опечатка в id элемента даёт игроку пустой экран без единой ошибки.
+      # Тест загружает настоящие index.html и app.js в jsdom и проходит
+      # партию пакет за пакетом.
+      - name: Web client smoke test (jsdom)
+        run: |
+          npm install --no-save --no-audit --no-fund jsdom@31.0.0
+          node tools/web_smoke.js
+
+  # Сборка APK на каждый PR. До 1.3.0 приложение собиралось только по тегу
+  # (release.yml): «анализ и тесты зелёные» не значило «APK собирается»,
+  # и сломанную сборку находили уже после слияния. Шаги повторяют release.yml,
+  # чтобы проверялось ровно то, что потом уйдёт в релиз.
+  build-apk:
+    name: Build release APK (arm64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter 3.24.5
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Speed up Gradle in CI
+        run: |
+          sed -i 's/org.gradle.jvmargs=.*/org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g/' android/gradle.properties
+          sed -i 's/org.gradle.daemon=false/org.gradle.daemon=true/' android/gradle.properties
+          sed -i 's/org.gradle.parallel=false/org.gradle.parallel=true/' android/gradle.properties
+          sed -i 's/org.gradle.workers.max=1/org.gradle.workers.max=4/' android/gradle.properties
+          sed -i 's/kotlin.compiler.execution.strategy=in-process/kotlin.compiler.execution.strategy=daemon/' android/gradle.properties
+          sed -i 's/kotlin.incremental=false/kotlin.incremental=true/' android/gradle.properties
+
+      - name: Build arm64 APK
+        run: |
+          flutter build apk --release --target-platform android-arm64
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: *//' | cut -d+ -f1)
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/MafiaOffline-${VERSION}-arm64-ci.apk"
+          ls -lh dist/
+          # Пустой или обрезанный файл — не сборка. Настоящий APK весит десятки мегабайт.
+          SIZE=$(stat -c%s "dist/MafiaOffline-${VERSION}-arm64-ci.apk")
+          if [ "$SIZE" -lt 10000000 ]; then
+            echo "::error::APK подозрительно мал: $SIZE байт"
+            exit 1
+          fi
+
+      # Сборку можно скачать со страницы запуска и поставить на телефон
+      # до слияния. Подпись — debug-ключ, как и у релизов.
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MafiaOffline-${{ env.VERSION }}-arm64-ci
+          path: MafiaOffline/dist/*.apk
+          retention-days: 14
+          if-no-files-found: error

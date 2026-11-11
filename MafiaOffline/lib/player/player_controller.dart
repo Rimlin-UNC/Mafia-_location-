@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../core/assets.dart';
 import '../models/game_phase.dart';
@@ -22,6 +23,22 @@ class TargetInfo {
   final String name;
   final String color;
   const TargetInfo(this.id, this.name, this.color);
+}
+
+/// Одна проверка комиссара, как её прислал ведущий.
+///
+/// [blocked] — проверка не состоялась: комиссара в эту ночь заблокировали.
+class CheckInfo {
+  final int round;
+  final String name;
+  final bool isMafia;
+  final bool blocked;
+  const CheckInfo(this.round, this.name, this.isMafia, {this.blocked = false});
+
+  /// Строка для списка «Ваши проверки».
+  String get line => blocked
+      ? 'Ночь $round: проверка не состоялась — вас заблокировали'
+      : 'Ночь $round: $name — ${isMafia ? 'МАФИЯ' : 'не мафия'}';
 }
 
 /// Состояние клиента-игрока. Тонкий: не содержит игровой логики,
@@ -85,6 +102,48 @@ class PlayerController extends ChangeNotifier {
   String? banner;
   String? deniedReason;
   String? gameOverTitle;
+
+  // ---------- v1.2.0 ----------
+
+  /// Сколько игроков живо и сколько всего (0 — ведущий ещё не прислал).
+  int aliveCount = 0;
+  int totalCount = 0;
+
+  /// Идёт ночь знакомства: убийств не будет.
+  bool introNight = false;
+
+  /// Кто говорит последнее слово (null — никто) и я ли это.
+  String? lastWordName;
+  bool lastWordIsMe = false;
+
+  /// Повторное голосование после последнего слова: о ком оно (null — идёт
+  /// обычное голосование или не голосование вовсе) и обо мне ли.
+  String? verdictName;
+  bool verdictIsMe = false;
+
+  /// Проверки комиссара. Пусто у всех остальных ролей.
+  ///
+  /// Ответ на проверку этой ночи виден на ночном экране — сразу после
+  /// выбора и только до рассвета (см. [nightCheck]). Днём он остаётся
+  /// ТОЛЬКО внутри «Моя роль»: телефон лежит на столе экраном вверх,
+  /// и любая отметка, которая бывает только у комиссара, выдала бы его.
+  List<CheckInfo> checks = const [];
+
+  /// Ответ на проверку текущей ночи — для ночного экрана комиссара.
+  /// null — не ночь, ответа ещё нет или включена маскировка карты.
+  CheckInfo? get nightCheck {
+    if (phase != GamePhase.night || disguised) return null;
+    for (final c in checks) {
+      if (c.round == round) return c;
+    }
+    return null;
+  }
+
+  /// Правила стола из пакета лобби (null — ведущий старой версии).
+  Map<String, dynamic>? tableRules;
+
+  /// Сюжетная карточка, которую сейчас показывает ведущий.
+  String? storyId;
   List<({String name, String role, String emoji, bool alive})> reveal = const [];
 
   ConnStatus get status => conn.status;
@@ -149,6 +208,39 @@ class PlayerController extends ChangeNotifier {
                   online: p['isConnected'] as bool? ?? true,
                 ))
             .toList();
+        final rules = msg.get<Map>('rules');
+        if (rules != null) tableRules = Map<String, dynamic>.from(rules);
+        // Счётчик живых держим свежим и между сменами фаз.
+        if (lobby.isNotEmpty) {
+          totalCount = lobby.length;
+          aliveCount = lobby.where((p) => p.alive).length;
+        }
+        break;
+
+      case Msg.checkResult:
+        // Приходит ночью, сразу после выбора. Баннера нет: ответ рисует
+        // ночной экран (nightCheck), а с рассветом он уходит в «Моя роль».
+        final target = msg.get<String>('name');
+        if (target != null) {
+          final r = msg.get<int>('round') ?? round;
+          checks = [
+            ...checks.where((c) => c.round != r),
+            CheckInfo(
+              r,
+              target,
+              msg.get<bool>('isMafia') ?? false,
+              blocked: msg.get<bool>('blocked') ?? false,
+            ),
+          ];
+        }
+        break;
+
+      case Msg.story:
+        storyId = msg.get<String>('id');
+        break;
+
+      case Msg.storyDismiss:
+        storyId = null;
         break;
 
       case Msg.roleAssign:
@@ -182,7 +274,25 @@ class PlayerController extends ChangeNotifier {
         break;
 
       case Msg.nightResult:
-        final text = msg.get<String>('text') ?? '';
+        var text = msg.get<String>('text') ?? '';
+        // Открытая карта: роли погибших приходят отдельным полем.
+        // До 1.2.0 приложение-игрок его не читало — в браузере роль
+        // видели, а в приложении нет.
+        // Формат: {id погибшего: wire-имя роли}; имена — в killedNames,
+        // в том же порядке, что и killed.
+        final revealed = msg.get<Map>('revealed');
+        if (revealed != null) {
+          final ids = msg.get<List>('killed') ?? const [];
+          final names = msg.get<List>('killedNames') ?? const [];
+          final parts = <String>[];
+          for (var i = 0; i < ids.length && i < names.length; i++) {
+            final wire = revealed[ids[i]];
+            if (wire is! String) continue;
+            parts.add(
+                '${names[i]} — ${Role.fromType(_roleTypeFromWire(wire)).name}');
+          }
+          if (parts.isNotEmpty) text = '$text (${parts.join(', ')})';
+        }
         banner = text;
         if (text.isNotEmpty) eventLog.insert(0, text);
         break;
@@ -205,9 +315,15 @@ class PlayerController extends ChangeNotifier {
 
       case Msg.voteResult:
         final name = msg.get<String>('eliminatedName');
+        final shownRole = msg.get<String>('revealedRole');
+        final pardoned = msg.get<String>('pardonedName');
         final text = name == null
-            ? 'Голосование: никто не выбывает'
-            : 'Голосованием выбыл $name';
+            ? (pardoned == null
+                ? 'Голосование: никто не выбывает'
+                : 'Стол передумал: $pardoned остаётся в игре')
+            : shownRole == null
+                ? 'Голосованием выбыл $name'
+                : 'Голосованием выбыл $name — $shownRole';
         banner = text;
         eventLog.insert(0, text);
         break;
@@ -297,6 +413,9 @@ class PlayerController extends ChangeNotifier {
   }
 
   void _applyPhase(Envelope msg) {
+    final prevPhase = phase;
+    final prevSpeaker = lastWordName;
+    final prevVerdict = verdictName;
     phase = GamePhaseX.parse(msg.get<String>('phase'));
     round = msg.get<int>('round') ?? round;
     timeLeft = msg.get<int>('time') ?? 0;
@@ -306,6 +425,41 @@ class PlayerController extends ChangeNotifier {
     actionSent = msg.get<bool>('alreadyActed') ?? false;
     prompt = msg.get<String>('prompt') ?? prompt;
     gameName = msg.get<String>('gameName') ?? gameName;
+
+    // Поля 1.2.0. Все необязательные: ведущий на 1.1.x их не пришлёт,
+    // и экран просто не покажет счётчик.
+    aliveCount = msg.get<int>('alive') ?? aliveCount;
+    totalCount = msg.get<int>('total') ?? totalCount;
+    introNight = msg.get<bool>('intro') ?? false;
+    final speaker = msg.get<Map>('lastWord');
+    lastWordName = speaker?['name'] as String?;
+    lastWordIsMe = speaker != null && speaker['id'] == playerId;
+    final accused = msg.get<Map>('verdict');
+    verdictName = accused?['name'] as String?;
+    verdictIsMe = accused != null && accused['id'] == playerId;
+
+    // Сигнал «фаза сменилась» — тем, кто смотрит не в экран. Одинаковый
+    // у всех: вибрация только у активных ролей выдавала бы их соседям.
+    // Ошибку платформы игнорируем: на планшете без мотора это не сбой.
+    if (phase != prevPhase ||
+        lastWordName != prevSpeaker ||
+        verdictName != prevVerdict) {
+      HapticFeedback.vibrate().catchError((Object _) {});
+    }
+
+    // sync приносит комиссару все его проверки заново.
+    final syncChecks = msg.get<List>('checks');
+    if (syncChecks != null) {
+      checks = syncChecks
+          .whereType<Map>()
+          .map((c) => CheckInfo(
+                c['round'] as int? ?? 0,
+                c['name'] as String? ?? '',
+                c['isMafia'] as bool? ?? false,
+                blocked: c['blocked'] == true,
+              ))
+          .toList();
+    }
 
     // sync после переподключения приносит роль заново.
     final syncRole = msg.get<String>('role');
@@ -447,6 +601,21 @@ class PlayerController extends ChangeNotifier {
     actionSent = true;
     canAct = false;
     notifyListeners();
+  }
+
+  /// Голос в повторном голосовании: выгнать или оставить.
+  ///
+  /// По сети это обычный голос: «выгнать» — голос за единственного
+  /// кандидата, «оставить» — голос без кандидата.
+  void submitVerdict({required bool exile}) {
+    if (!canAct || actionSent) return;
+    if (exile) {
+      if (targets.isEmpty) return;
+      selectedTargetId = targets.first.id;
+      submit();
+    } else {
+      submit(skip: true);
+    }
   }
 
   Future<void> retry() async {

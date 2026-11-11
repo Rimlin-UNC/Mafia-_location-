@@ -26,6 +26,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
   WifiSecurity _security = WifiSecurity.wpa;
   bool _hidden = false;
   bool _enabled = true;
+  bool _combined = true;
   bool _showPass = false;
   bool _loading = true;
 
@@ -38,8 +39,10 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
   Future<void> _load() async {
     final cfg = await _store.load();
     final on = await _store.isEnabled();
+    final combined = await _store.isCombined();
     if (!mounted) return;
     setState(() {
+      _combined = combined;
       _ssidCtrl.text = cfg.ssid;
       _passCtrl.text = cfg.password;
       _security = cfg.security;
@@ -66,6 +69,7 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
   Future<void> _save() async {
     await _store.save(_config);
     await _store.setEnabled(_enabled);
+    await _store.setCombined(_combined);
     if (!mounted) return;
     Navigator.pop(context, true);
   }
@@ -101,6 +105,19 @@ class _WifiSetupScreenState extends State<WifiSetupScreen> {
                   ),
 
                   if (_enabled) ...[
+                    SwitchListTile(
+                      value: _combined,
+                      onChanged: (v) => setState(() => _combined = v),
+                      title: const Text('Единый код: сеть и вход в игру'),
+                      subtitle: const Text(
+                        'В код сети добавляется номер игры. Приложение '
+                        '«Мафия» по нему и подключается к Wi-Fi, и входит '
+                        'в игру. Выключите, если чья-то камера такой код '
+                        'не читает',
+                        style: TextStyle(fontSize: 12, color: AppColors.dim),
+                      ),
+                      contentPadding: EdgeInsets.zero,
+                    ),
                     const SizedBox(height: 8),
                     const Text('Имя сети (SSID)',
                         style: TextStyle(fontSize: 12.5, color: AppColors.dim)),

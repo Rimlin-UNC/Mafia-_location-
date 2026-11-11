@@ -3,6 +3,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/constants.dart';
 import '../../host/host_controller.dart';
+import '../../net/join_code.dart';
 import '../../storage/wifi_store.dart';
 import '../theme.dart';
 import '../widgets.dart';
@@ -24,6 +25,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
   final _wifiStore = WifiStore();
   WifiConfig _wifi = const WifiConfig();
   bool _wifiEnabled = true;
+  bool _wifiCombined = true;
 
   @override
   void initState() {
@@ -35,10 +37,12 @@ class _LobbyScreenState extends State<LobbyScreen> {
   Future<void> _loadWifi() async {
     final cfg = await _wifiStore.load();
     final on = await _wifiStore.isEnabled();
+    final combined = await _wifiStore.isCombined();
     if (!mounted) return;
     setState(() {
       _wifi = cfg;
       _wifiEnabled = on;
+      _wifiCombined = combined;
     });
   }
 
@@ -196,6 +200,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                       hostAddress: c.hostAddress,
                       wifi: _wifi,
                       wifiEnabled: _wifiEnabled,
+                      combined: _wifiCombined,
                       onEditWifi: _openWifiSetup,
                     ),
                     const SizedBox(height: 4),
@@ -326,9 +331,16 @@ class _LobbyScreenState extends State<LobbyScreen> {
   }
 }
 
-/// Мастер подключения: два шага с QR-кодами.
+/// Мастер подключения.
 ///
-/// Почему именно мастер, а не два кода рядом: люди сканируют то, что видят,
+/// Первым показывается ЕДИНЫЙ КОД: сеть Wi-Fi и вход в игру в одном QR
+/// (см. `JoinCode`). Приложению «Мафия» его хватает целиком — одно
+/// сканирование, и игрок за столом. Камера телефона видит в нём обычный
+/// код сети и подключает к Wi-Fi; войти в игру через браузер она по нему
+/// не может — один QR для камеры означает одно действие. Для таких
+/// игроков остаётся вторая вкладка со ссылкой на игру.
+///
+/// Почему вкладки, а не два кода рядом: люди сканируют то, что видят,
 /// и не читают подписи. Два кода на одном экране гарантированно приводят
 /// к тому, что половина стола отсканирует не тот. Показываем строго один,
 /// а переход ко второму — осознанное действие ведущего.
@@ -337,6 +349,9 @@ class _JoinWizard extends StatefulWidget {
   final String? hostAddress;
   final WifiConfig wifi;
   final bool wifiEnabled;
+
+  /// Добавлять ли в код сети номер игры (единый код).
+  final bool combined;
   final VoidCallback onEditWifi;
 
   const _JoinWizard({
@@ -344,6 +359,7 @@ class _JoinWizard extends StatefulWidget {
     required this.hostAddress,
     required this.wifi,
     required this.wifiEnabled,
+    required this.combined,
     required this.onEditWifi,
   });
 
@@ -352,10 +368,22 @@ class _JoinWizard extends StatefulWidget {
 }
 
 class _JoinWizardState extends State<_JoinWizard> {
-  /// 0 — подключение к Wi-Fi, 1 — переход в игру.
+  /// 0 — единый код (или код сети), 1 — ссылка на игру для браузера.
   int _step = 0;
 
   bool get _hasWifiStep => widget.wifiEnabled && widget.wifi.isUsable;
+
+  /// Единый код показываем, только когда есть что в него положить.
+  bool get _single => _hasWifiStep && widget.combined;
+
+  /// Содержимое первого кода: сеть вместе с игрой или только сеть.
+  String get _wifiPayload => _single
+      ? JoinCode.build(
+          wifi: widget.wifi,
+          code: widget.code,
+          host: widget.hostAddress,
+        )
+      : widget.wifi.toQrPayload();
 
   String get _gameUrl =>
       'http://${widget.hostAddress ?? ''}:${Net.gamePort}/?g=${widget.code}';
@@ -422,8 +450,10 @@ class _JoinWizardState extends State<_JoinWizard> {
       ),
       child: Row(
         children: [
-          tab(0, '1. Сеть', Icons.wifi),
-          tab(1, '2. Игра', Icons.sports_esports),
+          tab(0, _single ? 'Один код' : '1. Сеть',
+              _single ? Icons.qr_code_2 : Icons.wifi),
+          tab(1, _single ? 'Для браузера' : '2. Игра',
+              _single ? Icons.public : Icons.sports_esports),
         ],
       ),
     );
@@ -433,12 +463,19 @@ class _JoinWizardState extends State<_JoinWizard> {
     final w = widget.wifi;
     return Column(
       children: [
-        const Text(
-          'Шаг 1 — подключиться к сети',
-          style: TextStyle(fontSize: 13, color: AppColors.dim),
+        Text(
+          _single
+              ? 'Один код — и сеть, и вход в игру'
+              : 'Шаг 1 — подключиться к сети',
+          style: const TextStyle(fontSize: 13, color: AppColors.dim),
         ),
         const SizedBox(height: 10),
-        _QrBox(data: w.toQrPayload(), label: 'Wi-Fi: ${w.ssid}'),
+        _QrBox(
+          data: _wifiPayload,
+          label: _single
+              ? 'Единый код: Wi-Fi ${w.ssid} и игра ${widget.code}'
+              : 'Wi-Fi: ${w.ssid}',
+        ),
         const SizedBox(height: 10),
         Text(
           w.ssid,
@@ -453,13 +490,35 @@ class _JoinWizardState extends State<_JoinWizard> {
             ),
           ),
         const SizedBox(height: 10),
-        const Text(
-          'Наведите камеру — телефон предложит подключиться.\n'
-          'Если не сработало, введите пароль вручную.',
+        Text(
+          _single
+              ? 'В приложении «Мафия»: «Я игрок» → «Сканировать QR» — '
+                  'телефон сам подключится к сети и войдёт в игру.\n'
+                  'Камерой телефона: код подключит к Wi-Fi, '
+                  'вход в игру — на вкладке «Для браузера».'
+              : 'Наведите камеру — телефон предложит подключиться.\n'
+                  'Если не сработало, введите пароль вручную.',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 11.5, color: AppColors.dim, height: 1.35),
+          style: const TextStyle(
+              fontSize: 11.5, color: AppColors.dim, height: 1.35),
         ),
         const SizedBox(height: 10),
+        if (_single) ...[
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.fullscreen, size: 18),
+              label: const Text('Показать крупно',
+                  style: TextStyle(fontSize: 12.5)),
+              onPressed: () => _showFullscreen(
+                context,
+                data: _wifiPayload,
+                note: 'Wi-Fi: ${w.ssid}',
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
         Row(
           children: [
             Expanded(
@@ -472,12 +531,19 @@ class _JoinWizardState extends State<_JoinWizard> {
             const SizedBox(width: 8),
             Expanded(
               flex: 2,
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.arrow_forward, size: 16),
-                label: const Text('Все подключились',
-                    style: TextStyle(fontSize: 12.5)),
-                onPressed: () => setState(() => _step = 1),
-              ),
+              child: _single
+                  ? OutlinedButton.icon(
+                      icon: const Icon(Icons.public, size: 16),
+                      label: const Text('Вход через браузер',
+                          style: TextStyle(fontSize: 12.5)),
+                      onPressed: () => setState(() => _step = 1),
+                    )
+                  : ElevatedButton.icon(
+                      icon: const Icon(Icons.arrow_forward, size: 16),
+                      label: const Text('Все подключились',
+                          style: TextStyle(fontSize: 12.5)),
+                      onPressed: () => setState(() => _step = 1),
+                    ),
             ),
           ],
         ),
@@ -491,7 +557,9 @@ class _JoinWizardState extends State<_JoinWizard> {
     return Column(
       children: [
         Text(
-          _hasWifiStep ? 'Шаг 2 — войти в игру' : 'Код игры',
+          _single
+              ? 'Вход через браузер — после подключения к сети'
+              : (_hasWifiStep ? 'Шаг 2 — войти в игру' : 'Код игры'),
           style: const TextStyle(fontSize: 13, color: AppColors.dim),
         ),
         const SizedBox(height: 4),
@@ -536,8 +604,8 @@ class _JoinWizardState extends State<_JoinWizard> {
                 Expanded(
                   child: OutlinedButton.icon(
                     icon: const Icon(Icons.arrow_back, size: 16),
-                    label: const Text('К сети',
-                        style: TextStyle(fontSize: 12.5)),
+                    label: Text(_single ? 'Один код' : 'К сети',
+                        style: const TextStyle(fontSize: 12.5)),
                     onPressed: () => setState(() => _step = 0),
                   ),
                 ),
@@ -548,7 +616,7 @@ class _JoinWizardState extends State<_JoinWizard> {
                   icon: const Icon(Icons.fullscreen, size: 18),
                   label: const Text('Показать крупно',
                       style: TextStyle(fontSize: 12.5)),
-                  onPressed: () => _showFullscreen(context),
+                  onPressed: () => _showFullscreen(context, data: _gameUrl),
                 ),
               ),
             ],
@@ -560,7 +628,10 @@ class _JoinWizardState extends State<_JoinWizard> {
 
   /// Крупный QR во весь экран: ведущий поднимает телефон, и код сканируют
   /// сразу несколько человек с расстояния метра-двух.
-  void _showFullscreen(BuildContext context) {
+  ///
+  /// [note] — подпись под номером игры (для единого кода — имя сети).
+  void _showFullscreen(BuildContext context,
+      {required String data, String? note}) {
     showDialog<void>(
       context: context,
       barrierColor: Colors.black,
@@ -581,9 +652,10 @@ class _JoinWizardState extends State<_JoinWizard> {
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: QrImageView(
-                      data: _gameUrl,
+                      data: data,
                       size: side,
                       backgroundColor: Colors.white,
+                      errorCorrectionLevel: QrErrorCorrectLevel.M,
                     ),
                   ),
                   const SizedBox(height: 18),
@@ -596,6 +668,14 @@ class _JoinWizardState extends State<_JoinWizard> {
                       color: Colors.white,
                     ),
                   ),
+                  if (note != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      note,
+                      style:
+                          const TextStyle(fontSize: 14, color: Colors.white70),
+                    ),
+                  ],
                   const SizedBox(height: 6),
                   const Text(
                     'нажмите, чтобы закрыть',

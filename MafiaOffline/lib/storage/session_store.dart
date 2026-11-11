@@ -83,6 +83,18 @@ class SessionStore {
         'timeLeft': s.timeLeft,
         'lastHealedId': s.lastHealedId,
         'openCards': s.openCards,
+        // Правила стола и служебное состояние 1.2.0. Без них перезапуск
+        // посреди партии молча менял бы правила на значения по умолчанию.
+        'introNight': s.introNight,
+        'lastWord': s.lastWord,
+        'privateCheck': s.privateCheck,
+        'lastWordId': s.lastWordId,
+        'verdictId': s.verdictId,
+        'checks': s.checks.map((c) => c.toJson()).toList(),
+        // Сюжетные карточки: иначе после перезапуска «Первая кровь»
+        // показалась бы второй раз.
+        'storySeen': s.storySeen,
+        'noDeathsStreak': s.noDeathsStreak,
         'roleSetup': {
           for (final e in s.roleSetup.entries) e.key.name: e.value,
         },
@@ -140,11 +152,24 @@ class SessionStore {
       return out;
     }
 
-    final rawRunoff = m['runoff'];
-    final runoff = <String>[];
-    if (rawRunoff is List) {
-      for (final e in rawRunoff) {
-        if (e is String) runoff.add(e);
+    List<String> strList(Object? raw) {
+      final out = <String>[];
+      if (raw is List) {
+        for (final e in raw) {
+          if (e is String) out.add(e);
+        }
+      }
+      return out;
+    }
+
+    final runoff = strList(m['runoff']);
+
+    final checks = <CheckRecord>[];
+    final rawChecks = m['checks'];
+    if (rawChecks is List) {
+      for (final e in rawChecks) {
+        final record = CheckRecord.tryParse(e);
+        if (record != null) checks.add(record);
       }
     }
 
@@ -164,6 +189,17 @@ class SessionStore {
       lastHealedId: m['lastHealedId'] as String?,
       // Старые сохранения поля не знают — считаем карту закрытой.
       openCards: m['openCards'] as bool? ?? false,
+      // Сохранение из 1.1.x этих полей не знает. Партия, начатая по старым
+      // правилам, по ним и доигрывается: без знакомства, без таймера
+      // последнего слова, проверку сообщает ведущий.
+      introNight: m['introNight'] as bool? ?? false,
+      lastWord: m['lastWord'] as bool? ?? false,
+      privateCheck: m['privateCheck'] as bool? ?? false,
+      lastWordId: m['lastWordId'] as String?,
+      verdictId: m['verdictId'] as String?,
+      checks: checks,
+      storySeen: strList(m['storySeen']),
+      noDeathsStreak: m['noDeathsStreak'] as int? ?? 0,
       roleSetup: setup,
       players: players,
       log: log,

@@ -7,6 +7,7 @@ name: Release
 #   2. Обновить MafiaOffline/docs/CHANGELOG_<версия>.md.
 #   3. Прогнать CI (flutter analyze + flutter test + python tools) — зелёный.
 #   4. Создать тег: git tag v1.0.6 && git push origin v1.0.6
+#      Тег должен совпадать с версией из pubspec.yaml — иначе сборка остановится.
 #
 # Подпись: сейчас сборка подписывается debug-ключом (см. android/app/build.gradle:
 # signingConfig = signingConfigs.debug). Для продакшена нужен релизный keystore:
@@ -48,6 +49,29 @@ jobs:
 
       - name: Install dependencies
         run: flutter pub get
+
+      # Тег обязан совпадать с версией в pubspec.yaml: имена файлов и заголовок
+      # релиза берутся из pubspec, и тег v1.3.0 на коде 1.2.0 выпустил бы
+      # «1.2.0» под видом новой версии. Проверяем до сборки — она идёт 10 минут.
+      - name: Check tag matches pubspec version
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: *//' | cut -d+ -f1)
+          echo "tag: $GITHUB_REF_NAME, pubspec: $VERSION"
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::тег $GITHUB_REF_NAME не совпадает с версией v$VERSION из pubspec.yaml"
+            exit 1
+          fi
+          if [ ! -s "docs/CHANGELOG_${VERSION}.md" ]; then
+            echo "::error::нет docs/CHANGELOG_${VERSION}.md"
+            exit 1
+          fi
+
+      # Релиз не должен выходить с красными тестами, даже если тег поставили
+      # на коммит, где CI не прошёл или ещё не закончился.
+      - name: Tests before release
+        run: |
+          flutter analyze
+          flutter test
 
       # В CI много памяти — отключаем ультра-экономные лимиты из gradle.properties,
       # чтобы сборка шла быстрее (локально на слабых машинах они нужны).

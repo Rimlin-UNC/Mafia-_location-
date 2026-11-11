@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/constants.dart';
 import '../../host/host_controller.dart';
 import '../../models/role.dart';
+import '../../storage/app_prefs.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'lobby_screen.dart';
@@ -25,6 +26,15 @@ class _SetupScreenState extends State<SetupScreen> {
   /// Открывать ли карту выбывшего всем. По умолчанию закрыта (классика).
   bool _openCards = false;
 
+  /// Первая ночь без убийств: мафия знакомится, комиссар проверяет.
+  bool _introNight = false;
+
+  /// Последнее слово (30 секунд) и повторное голосование перед изгнанием.
+  bool _lastWord = true;
+
+  /// Комиссар видит результат проверки на своём экране.
+  bool _privateCheck = true;
+
   final Map<RoleType, int> _setup = {
     RoleType.mafia: 2,
     RoleType.don: 1,
@@ -41,6 +51,19 @@ class _SetupScreenState extends State<SetupScreen> {
     final date = '${now.day.toString().padLeft(2, '0')}.'
         '${now.month.toString().padLeft(2, '0')}.${now.year}';
     _nameCtrl = TextEditingController(text: 'Игра от $date');
+    _loadRules();
+  }
+
+  /// Подставляем правила прошлой партии: стол обычно играет одинаково.
+  Future<void> _loadRules() async {
+    final r = await AppPrefs.tableRules();
+    if (!mounted) return;
+    setState(() {
+      _openCards = r.openCards;
+      _introNight = r.introNight;
+      _lastWord = r.lastWord;
+      _privateCheck = r.privateCheck;
+    });
   }
 
   @override
@@ -197,7 +220,18 @@ class _SetupScreenState extends State<SetupScreen> {
       plannedPlayers: _total,
       setup: _setup,
       openCards: _openCards,
+      introNight: _introNight,
+      lastWord: _lastWord,
+      privateCheck: _privateCheck,
     );
+    if (ok) {
+      await AppPrefs.setTableRules(TableRulePrefs(
+        openCards: _openCards,
+        introNight: _introNight,
+        lastWord: _lastWord,
+        privateCheck: _privateCheck,
+      ));
+    }
 
     if (!mounted) return;
     setState(() => _starting = false);
@@ -394,6 +428,14 @@ class _SetupScreenState extends State<SetupScreen> {
                     }),
                   ],
                   const SizedBox(height: 14),
+                  const Text('Правила стола',
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 14)),
+                  const Text(
+                    'Игроки увидят их у себя в «Правилах». '
+                    'Выбор запоминается до следующей партии.',
+                    style: TextStyle(fontSize: 12, color: AppColors.dim),
+                  ),
                   // Классика: карта выбывшего закрыта. Открытая карта —
                   // для новичков и коротких партий, где важно понимать,
                   // кого город только что потерял.
@@ -406,6 +448,45 @@ class _SetupScreenState extends State<SetupScreen> {
                     subtitle: const Text(
                       'Роль погибшего видна всем сразу. Выключено — '
                       'карта закрыта до конца партии.',
+                      style: TextStyle(fontSize: 12, color: AppColors.dim),
+                    ),
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: _introNight,
+                    onChanged: (v) => setState(() => _introNight = v),
+                    title: const Text('Первая ночь — знакомство',
+                        style: TextStyle(fontSize: 14)),
+                    subtitle: const Text(
+                      'В первую ночь никто не погибает: мафия узнаёт своих, '
+                      'комиссар делает проверку. Никто не вылетает из игры, '
+                      'не сказав ни слова.',
+                      style: TextStyle(fontSize: 12, color: AppColors.dim),
+                    ),
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: _lastWord,
+                    onChanged: (v) => setState(() => _lastWord = v),
+                    title: const Text('Последнее слово и повторное голосование',
+                        style: TextStyle(fontSize: 14)),
+                    subtitle: const Text(
+                      'Тот, кого выбрал стол, говорит ${Rules.lastWordSeconds} '
+                      'секунд, потом все голосуют ещё раз: выгнать или '
+                      'оставить. Поровну — остаётся. Выключено — выбывает сразу.',
+                      style: TextStyle(fontSize: 12, color: AppColors.dim),
+                    ),
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: _privateCheck,
+                    onChanged: (v) => setState(() => _privateCheck = v),
+                    title: const Text('Комиссар видит результат проверки',
+                        style: TextStyle(fontSize: 14)),
+                    subtitle: const Text(
+                      'Ответ появляется у него на экране сразу, как он '
+                      'выберет игрока, — один раз за ночь. '
+                      'Выключено — знаете только вы и сообщаете сами.',
                       style: TextStyle(fontSize: 12, color: AppColors.dim),
                     ),
                   ),

@@ -50,4 +50,50 @@ class AppPrefs {
     final p = await SharedPreferences.getInstance();
     await p.setBool(_kKeepScreenOn, v);
   }
+
+  // ---------- правила стола (v1.2.0) ----------
+
+  static const _kOpenCards = 'rule_open_cards';
+  static const _kIntroNight = 'rule_intro_night';
+  static const _kLastWord = 'rule_last_word';
+  static const _kPrivateCheck = 'rule_private_check';
+
+  /// Правила стола, выбранные в прошлый раз.
+  ///
+  /// Компания играет по одним и тем же правилам из вечера в вечер.
+  /// Заставлять ведущего каждый раз заново щёлкать четыре переключателя —
+  /// верный способ однажды забыть один из них и узнать об этом на втором
+  /// круге.
+  static Future<TableRulePrefs> tableRules() async {
+    final p = await SharedPreferences.getInstance();
+    return TableRulePrefs(
+      openCards: p.getBool(_kOpenCards) ?? false,
+      introNight: p.getBool(_kIntroNight) ?? false,
+      lastWord: p.getBool(_kLastWord) ?? true,
+      privateCheck: p.getBool(_kPrivateCheck) ?? true,
+    );
+  }
+
+  static Future<void> setTableRules(TableRulePrefs r) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_kOpenCards, r.openCards);
+    await p.setBool(_kIntroNight, r.introNight);
+    await p.setBool(_kLastWord, r.lastWord);
+    await p.setBool(_kPrivateCheck, r.privateCheck);
+  }
+}
+
+/// Четыре переключателя экрана создания партии.
+class TableRulePrefs {
+  final bool openCards;
+  final bool introNight;
+  final bool lastWord;
+  final bool privateCheck;
+
+  const TableRulePrefs({
+    this.openCards = false,
+    this.introNight = false,
+    this.lastWord = true,
+    this.privateCheck = true,
+  });
 }

@@ -22,6 +22,7 @@ class _NightResultSheetState extends State<NightResultSheet> {
     final s = c.state;
     final outcome = s?.pendingNight;
     if (s == null || outcome == null) return const SizedBox.shrink();
+    final intro = s.isIntroNight;
 
     return DraggableScrollableSheet(
       expand: false,
@@ -50,17 +51,35 @@ class _NightResultSheetState extends State<NightResultSheet> {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  Text('Итоги ночи ${s.round}',
+                  Text(
+                      intro
+                          ? 'Ночь знакомства'
+                          : 'Итоги ночи ${s.round}',
                       style: const TextStyle(
                           fontSize: 20, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
-                  const Text(
-                    'Проверьте результат. Любую строку можно изменить '
-                    'до оглашения.',
-                    style: TextStyle(fontSize: 12.5, color: AppColors.dim),
+                  Text(
+                    intro
+                        ? 'Сегодня никто не погибает. Мафия узнала своих, '
+                            'комиссар сделал первую проверку.'
+                        : 'Проверьте результат. Любую строку можно изменить '
+                            'до оглашения.',
+                    style:
+                        const TextStyle(fontSize: 12.5, color: AppColors.dim),
                   ),
                   const SizedBox(height: 16),
 
+                  // В ночь знакомства убийцы и доктор не ходят: строк
+                  // «мафия не сделала выбор» быть не должно — это не пропуск
+                  // хода, а правило.
+                  if (intro)
+                    const _OutcomeRow(
+                      emoji: '🤝',
+                      title: 'Мафия познакомилась',
+                      subtitle: 'убийств этой ночью нет',
+                    ),
+
+                  if (!intro) ...[
                   if (outcome.mafiaTargetId != null)
                     _OutcomeRow(
                       emoji: '🔫',
@@ -115,15 +134,23 @@ class _NightResultSheetState extends State<NightResultSheet> {
                       onPick: (id) => _recompute(healed: id),
                     ),
                   ),
+                  ],
 
                   if (outcome.checkedId != null)
                     _OutcomeRow(
                       emoji: '🔎',
                       title: 'Комиссар проверил: ${s.nameOf(outcome.checkedId)}',
-                      subtitle: outcome.checkResultIsMafia == true
-                          ? 'результат: МАФИЯ (видите только вы)'
-                          : 'результат: мирный (видите только вы)',
+                      subtitle: 'результат: '
+                          '${outcome.checkResultIsMafia == true ? 'МАФИЯ' : 'не мафия'}'
+                          ' · '
+                          '${s.privateCheck ? 'комиссар увидит это у себя после оглашения' : 'сообщите комиссару сами, незаметно'}',
                       warn: true,
+                    )
+                  else if (intro && s.commissioner != null)
+                    const _OutcomeRow(
+                      emoji: '🔎',
+                      title: 'Комиссар никого не проверил',
+                      subtitle: 'ход пропущен',
                     ),
 
                   if (outcome.blockedId != null)
@@ -179,13 +206,29 @@ class _NightResultSheetState extends State<NightResultSheet> {
     );
   }
 
+  /// Метка «этот параметр не трогали» для [_recompute].
+  static const Object _keep = Object();
+
   /// Пересчёт итога после ручной правки ведущим.
-  void _recompute({String? mafia, String? maniac, String? healed}) {
+  ///
+  /// Параметр не передан — строка не менялась; передан `null` — ведущий
+  /// выбрал «Никто». До 1.2.0 эти два случая не различались (`??`), и
+  /// «Никто» молча оставлял прежнюю цель.
+  void _recompute({
+    Object? mafia = _keep,
+    Object? maniac = _keep,
+    Object? healed = _keep,
+  }) {
     final s = c.state!;
     final o = s.pendingNight!;
-    final newMafia = mafia ?? o.mafiaTargetId;
-    final newManiac = maniac ?? o.maniacTargetId;
-    final newHealed = healed ?? o.healedId;
+    // В ночь знакомства править нечего: убийств нет по правилу.
+    if (s.isIntroNight) return;
+    final newMafia =
+        identical(mafia, _keep) ? o.mafiaTargetId : mafia as String?;
+    final newManiac =
+        identical(maniac, _keep) ? o.maniacTargetId : maniac as String?;
+    final newHealed =
+        identical(healed, _keep) ? o.healedId : healed as String?;
 
     final killed = <String>[];
     if (newMafia != null && newMafia != newHealed) killed.add(newMafia);

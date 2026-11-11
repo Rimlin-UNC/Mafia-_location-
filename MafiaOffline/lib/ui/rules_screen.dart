@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/assets.dart';
+import '../core/constants.dart';
 import '../core/crime_deck.dart';
 import '../core/role_guide.dart';
 import '../models/role.dart';
@@ -17,7 +18,11 @@ import 'theme.dart';
 /// формулировки живут в `docs/ИГРОКАМ.md`, чтобы не расходились в двух
 /// местах (текст берётся из тех же источников: RoleGuide и Rules).
 class RulesScreen extends StatelessWidget {
-  const RulesScreen({super.key});
+  /// Правила конкретного стола (строки из `TableRules.describeWire`).
+  /// Пусто — экран открыт из главного меню, вне партии: раздела нет.
+  final List<String> tableRules;
+
+  const RulesScreen({super.key, this.tableRules = const []});
 
   @override
   Widget build(BuildContext context) {
@@ -38,6 +43,18 @@ class RulesScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
         children: [
+          // Первым — то, о чём спорят посреди партии: «а карту открываем?»,
+          // «а слово ему дают?». Общие правила ниже, их читают до игры.
+          if (tableRules.isNotEmpty)
+            _Section(
+              title: 'Правила этого стола',
+              cards: [
+                _Card(
+                  title: 'Так играем сегодня',
+                  body: tableRules.map((l) => '• $l').join('\n'),
+                ),
+              ],
+            ),
           const _Section(
             title: 'Как это устроено',
             cards: [
@@ -60,7 +77,9 @@ class RulesScreen extends StatelessWidget {
                 body: 'Город спит, просыпаются только роли. Если у вас нет '
                     'ночного дела, экран останется пустым — это не поломка. '
                     'Порядок: проститутка блокирует, доктор лечит, мафия '
-                    'стреляет, маньяк стреляет отдельно, комиссар проверяет.',
+                    'стреляет, маньяк стреляет отдельно, комиссар проверяет. '
+                    'Комиссар видит ответ сразу, как выберет игрока, — '
+                    'одна проверка за ночь.',
               ),
               _Card(
                 image: A.guideDay,
@@ -77,11 +96,23 @@ class RulesScreen extends StatelessWidget {
                     'никто не выбывает и наступает ночь.',
               ),
               _Card(
+                title: 'Последнее слово и повторное голосование',
+                body: 'Тот, кого выбрал стол, ещё не выбыл. У него '
+                    '${Rules.lastWordSeconds} секунд на последнее слово, '
+                    'а потом все, кроме него, голосуют ещё раз: выгнать '
+                    'или оставить. Выбывает, только если «выгнать» больше, '
+                    'чем «оставить»; поровну — остаётся. Убедил стол — '
+                    'играет дальше, и наступает ночь. Если за столом играют '
+                    'без последнего слова, выбывает сразу тот, кого выбрало '
+                    'первое голосование.',
+              ),
+              _Card(
                 image: A.guideWin,
                 title: 'Конец партии',
                 body: 'Город побеждает, когда не осталось ни мафии, '
                     'ни маньяка. Мафия — когда её столько же, сколько '
-                    'горожан, или больше. Маньяк — если остался один.',
+                    'горожан, или больше. Маньяк — если остался один. '
+                    'Ничья — если не выжил никто.',
               ),
             ],
           ),

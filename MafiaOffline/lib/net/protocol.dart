@@ -28,6 +28,10 @@ class Msg {
   static const storyDismiss = 'story_dismiss';
   static const kick = 'kick';
 
+  /// Результат проверки — ТОЛЬКО комиссару, который её сделал (v1.2.0).
+  /// Никому другому пакет не уходит; в лог игроков проверка не попадает.
+  static const checkResult = 'check_result';
+
   /// Ведущий изменил имя игрока — клиент обязан его принять.
   static const rename = 'rename';
 

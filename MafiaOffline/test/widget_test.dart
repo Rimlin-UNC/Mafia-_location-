@@ -321,6 +321,29 @@ void main() {
       expect(find.text('Суд'), findsOneWidget);
     });
 
+    testWidgets('в партии первым разделом идут правила этого стола (UX-7)',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: RulesScreen(tableRules: [
+          'Карта выбывшего закрыта до конца партии',
+          'Первая ночь — знакомство: никто не погибает',
+        ]),
+      ));
+      await tester.pump();
+
+      expect(find.text('Правила этого стола'), findsOneWidget);
+      expect(find.textContaining('знакомство'), findsOneWidget);
+      // Общие правила никуда не делись — они ниже.
+      expect(find.text('Как это устроено'), findsOneWidget);
+    });
+
+    testWidgets('вне партии раздела «Правила этого стола» нет',
+        (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: RulesScreen()));
+      await tester.pump();
+      expect(find.text('Правила этого стола'), findsNothing);
+    });
+
     testWidgets('в «Правилах» есть кнопка перехода в галерею', (tester) async {
       await tester.pumpWidget(const MaterialApp(home: RulesScreen()));
       await tester.pump();

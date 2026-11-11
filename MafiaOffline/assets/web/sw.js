@@ -21,7 +21,7 @@
  */
 'use strict';
 
-const VERSION = 'mafia-v5';
+const VERSION = 'mafia-v7';
 const CORE = ['/', '/style.css', '/app.js', '/manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {

@@ -74,6 +74,11 @@ class Rules {
   static const int votingPerPlayerSeconds = 4;
   static const int runoffBaseSeconds = 15;
   static const int runoffPerPlayerSeconds = 3;
+
+  /// Последнее слово выбывшего голосованием. 30 секунд — столько держится
+  /// внимание стола; дальше «последнее слово» превращается в пересказ
+  /// партии. Ведущий может продлить (+30 с) или оборвать досрочно.
+  static const int lastWordSeconds = 30;
 }
 
 /// Цвет по порядковому номеру слота. Фиксированная привязка, а не «первый
