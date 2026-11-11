@@ -100,6 +100,10 @@ class GameState {
   /// Кого лечил доктор прошлой ночью — нельзя повторять.
   final String? lastHealedId;
 
+  /// Показывать ли всем роль выбывшего игрока. По умолчанию закрыта:
+  /// раскрытая карта упрощает город, но убивает интригу первого круга.
+  final bool openCards;
+
   const GameState({
     required this.id,
     required this.name,
@@ -121,6 +125,7 @@ class GameState {
     this.log = const [],
     this.winner,
     this.lastHealedId,
+    this.openCards = false,
   });
 
   GameState copyWith({
@@ -141,6 +146,7 @@ class GameState {
     List<GameEvent>? log,
     WinnerSide? winner,
     String? lastHealedId,
+    bool? openCards,
     bool clearPendingNight = false,
     bool clearLastHealed = false,
   }) {
@@ -166,6 +172,7 @@ class GameState {
       log: log ?? this.log,
       winner: winner ?? this.winner,
       lastHealedId: clearLastHealed ? null : (lastHealedId ?? this.lastHealedId),
+      openCards: openCards ?? this.openCards,
     );
   }
 
@@ -278,19 +285,36 @@ class GameState {
   ///
   /// Маньяк относится к мирным жителям: он тоже голосует днём и
   /// заинтересован в победе над мафией, просто по ночам убивает.
+  /// Классические условия победы (с версии 1.1.0).
+  ///
+  /// Порядок проверок определяет, кто получает победу в спорном раскладе:
+  /// если одна ночь убрала всех, победа достаётся тому, кто её устроил.
+  ///
+  /// Отличия от 1.0.4+ («играем до последнего»):
+  ///  * мафия побеждает при равенстве (`mafia >= civilians`), как за столом:
+  ///    город уже не может выгнать мафию голосованием;
+  ///  * маньяк — одиночка со своей победой, а не «городской линчеватель».
   WinnerSide? checkWinner() {
     final aliveList = alive;
     if (aliveList.isEmpty) return WinnerSide.nobody;
 
     final mafiaCount =
         aliveList.where((p) => p.role?.side == Side.mafia).length;
-    final othersCount = aliveList.length - mafiaCount;
+    final maniacCount =
+        aliveList.where((p) => p.role?.type == RoleType.maniac).length;
+    final civilianCount = aliveList.length - mafiaCount - maniacCount;
 
-    // Мафии не осталось — город выиграл.
-    if (mafiaCount == 0) return WinnerSide.civilians;
+    // Маньяк остался один — победил он. Проверяем первым: это самый
+    // редкий и самый «дорогой» исход, и он не должен утонуть в ветке города.
+    if (maniacCount > 0 && mafiaCount == 0 && civilianCount == 0) {
+      return WinnerSide.maniac;
+    }
 
-    // Против мафии остался один игрок — исход предрешён.
-    if (othersCount <= 1) return WinnerSide.mafia;
+    // Мафии не осталось, и маньяка тоже — победа города.
+    if (mafiaCount == 0 && maniacCount == 0) return WinnerSide.civilians;
+
+    // Мафия сравнялась с городом (без учёта маньяка) — исход предрешён.
+    if (mafiaCount > 0 && mafiaCount >= civilianCount) return WinnerSide.mafia;
 
     return null;
   }

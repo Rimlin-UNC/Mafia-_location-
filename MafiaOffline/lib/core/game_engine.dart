@@ -235,8 +235,11 @@ class GameEngine {
     final doc = s.doctor;
     if (doc != null && !isBlocked(doc)) {
       final target = s.nightActions[doc.id];
+      // Классика: доктор не лечит себя. В 1.0.x мог — это делало его
+      // бессмертным в партии на 6 человек и ломало баланс.
+      final selfHeal = target == doc.id;
       // Нельзя лечить одну цель две ночи подряд.
-      if (target != null && target != s.lastHealedId) {
+      if (target != null && !selfHeal && target != s.lastHealedId) {
         healedId = target;
       }
     }

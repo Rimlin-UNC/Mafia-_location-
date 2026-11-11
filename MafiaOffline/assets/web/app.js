@@ -54,6 +54,20 @@ const S = {
   reclaimShown: false,   // баннер «вы вернулись» показываем один раз за партию
 };
 
+/// Русские названия ролей по проводному имени. Нужны там, где сервер
+/// присылает только `RoleType.name` (открытая карта выбывшего), а не
+/// готовую подпись: без словаря игрок увидел бы «maniac».
+const ROLE_RU = {
+  mafia: 'Мафия',
+  don: 'Дон',
+  doctor: 'Доктор',
+  commissioner: 'Комиссар',
+  prostitute: 'Проститутка',
+  maniac: 'Маньяк',
+  civilian: 'Мирный житель',
+};
+
+
 // ------------------------------------------------------- синхронизация часов
 // Телефоны имеют разные часы (расхождение бывает в десятки секунд), поэтому
 // вычисляем смещение относительно ведущего по схеме NTP и берём медиану
@@ -417,10 +431,21 @@ function onMessage(m) {
       renderTimer();
       break;
 
-    case 'night_result':
-      if (m.text) { banner(m.text, m.killed && m.killed.length ? 'bad' : 'ok'); addLog(m.text); }
+    case 'night_result': {
+      let text = m.text || '';
+      // Настройка стола: карта выбывшего открыта — называем роль сразу.
+      // Закрытая карта (по умолчанию) не выдаёт ничего: интрига первого круга.
+      if (m.revealed) {
+        const roles = m.killedNames
+          .map((n, i) => [n, m.revealed[m.killed[i]]])
+          .filter(([, r]) => r)
+          .map(([n, r]) => `${n} — ${ROLE_RU[r] || r}`);
+        if (roles.length) text += ` (${roles.join(', ')})`;
+      }
+      if (text) { banner(text, m.killed && m.killed.length ? 'bad' : 'ok'); addLog(text); }
       if (m.killed && m.killed.length) { flash(); buzz(120); }
       break;
+    }
 
     case 'vote_runoff':
       S.targets = (m.candidates || []).map(c => ({ id: c.id, name: c.name, color: c.color || '#8d93a8' }));
@@ -432,7 +457,8 @@ function onMessage(m) {
 
     case 'vote_result': {
       const t = m.eliminatedName
-        ? `Голосованием выбыл ${m.eliminatedName}`
+        ? `Голосованием выбыл ${m.eliminatedName}` +
+          (m.revealedRole ? ` — ${m.revealedRole}` : '')
         : 'Голосование: никто не выбывает';
       banner(t, 'info'); addLog(t);
       break;

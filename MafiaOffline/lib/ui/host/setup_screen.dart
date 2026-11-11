@@ -22,6 +22,9 @@ class _SetupScreenState extends State<SetupScreen> {
   int _total = 10;
   bool _starting = false;
 
+  /// Открывать ли карту выбывшего всем. По умолчанию закрыта (классика).
+  bool _openCards = false;
+
   final Map<RoleType, int> _setup = {
     RoleType.mafia: 2,
     RoleType.don: 1,
@@ -193,6 +196,7 @@ class _SetupScreenState extends State<SetupScreen> {
       name: _nameCtrl.text.trim().isEmpty ? 'Игра' : _nameCtrl.text.trim(),
       plannedPlayers: _total,
       setup: _setup,
+      openCards: _openCards,
     );
 
     if (!mounted) return;
@@ -390,6 +394,22 @@ class _SetupScreenState extends State<SetupScreen> {
                     }),
                   ],
                   const SizedBox(height: 14),
+                  // Классика: карта выбывшего закрыта. Открытая карта —
+                  // для новичков и коротких партий, где важно понимать,
+                  // кого город только что потерял.
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: _openCards,
+                    onChanged: (v) => setState(() => _openCards = v),
+                    title: const Text('Открывать карту выбывшего',
+                        style: TextStyle(fontSize: 14)),
+                    subtitle: const Text(
+                      'Роль погибшего видна всем сразу. Выключено — '
+                      'карта закрыта до конца партии.',
+                      style: TextStyle(fontSize: 12, color: AppColors.dim),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
                   const Text('Готовые составы',
                       style: TextStyle(color: AppColors.dim, fontSize: 12)),
                   const SizedBox(height: 6),
