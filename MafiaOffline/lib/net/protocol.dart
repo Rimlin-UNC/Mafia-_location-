@@ -18,6 +18,14 @@ class Msg {
   static const eliminated = 'eliminated';
   static const sync = 'sync';
   static const gameOver = 'game_over';
+
+  /// Сюжетная карточка: ведущий показывает кадр момента всем игрокам.
+  /// Отдельный тип, а не общий `info`: клиент показывает большую картинку,
+  /// игрок закрывает её сам, и она не должна теряться при переподключении.
+  static const story = 'story';
+
+  /// Игрок закрыл карточку (не обязательно; ведущий тоже может закрыть).
+  static const storyDismiss = 'story_dismiss';
   static const kick = 'kick';
 
   /// Ведущий изменил имя игрока — клиент обязан его принять.

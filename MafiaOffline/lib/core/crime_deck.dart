@@ -51,8 +51,7 @@ class Crime {
       type: CrimeType.strangulation,
       name: 'Удушение',
       phrase: 'задушен в подсобке',
-      // Карточку не нарисовали: сцена с петлёй не проходит генерацию.
-      image: null,
+      image: 'assets/crimes/02_strangulation.jpg',
     ),
     Crime(
       type: CrimeType.drowning,
@@ -100,8 +99,7 @@ class Crime {
       type: CrimeType.electricity,
       name: 'Электричество',
       phrase: 'убит током в подвале',
-      // Карточку не нарисовали: кончился лимит генерации в этой сессии.
-      image: null,
+      image: 'assets/crimes/10_electricity.jpg',
     ),
   ];
 

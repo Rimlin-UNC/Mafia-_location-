@@ -496,6 +496,17 @@ function onMessage(m) {
       }
       break;
 
+    // Сюжетная карточка: ведущий показал кадр момента. Показываем
+    // поверх всего, закрыть можно и самому — чтобы не запирать экран,
+    // если ведущий забыл нажать «Убрать».
+    case 'story':
+      showStory(m);
+      break;
+
+    case 'story_dismiss':
+      hideStory();
+      break;
+
     case 'game_over':
       S.phase = 'ended';
       Sound.stopAmbient();
@@ -624,6 +635,65 @@ const PHASES = {
   voting:  ['🗳',  'Голосование', 'voting'],
   ended:   ['🏁', 'Финал',     'day'],
 };
+
+/// ---- сюжетные карточки ----
+// Карточка — это пауза в партии: ведущий читает фразу вслух. Поэтому
+// она перекрывает экран целиком, а не висит баннером в ленте.
+let _storyEl = null;
+
+function showStory(m) {
+  hideStory();
+  const el = document.createElement('div');
+  el.id = 'story-overlay';
+  el.style.cssText =
+    'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.93);' +
+    'display:flex;align-items:center;justify-content:center;padding:18px;' +
+    'overflow:auto;-webkit-overflow-scrolling:touch';
+
+  const card = document.createElement('div');
+  card.style.cssText =
+    'max-width:420px;width:100%;background:#171922;border-radius:18px;' +
+    'border:1px solid rgba(124,92,255,.45);overflow:hidden;';
+
+  // Картинка не обязательна: у части карточек её нет, текст самодостаточен.
+  if (m.image) {
+    const img = document.createElement('img');
+    img.src = '/' + m.image.replace(/^assets\//, '');
+    img.alt = m.title || '';
+    img.style.cssText = 'width:100%;display:block;aspect-ratio:2/3;object-fit:cover';
+    img.onerror = () => img.remove();
+    card.appendChild(img);
+  }
+
+  const body = document.createElement('div');
+  body.style.cssText = 'padding:18px';
+  const h = document.createElement('div');
+  h.textContent = m.title || '';
+  h.style.cssText = 'font-size:20px;font-weight:700;color:#a78bfa;margin-bottom:8px';
+  const p = document.createElement('div');
+  p.textContent = m.line || '';
+  p.style.cssText = 'font-size:15px;line-height:1.45;color:#fff';
+  const cap = document.createElement('div');
+  cap.textContent = m.caption || '';
+  cap.style.cssText = 'font-size:12px;color:#8d93a8;margin-top:10px';
+  const btn = document.createElement('button');
+  btn.textContent = 'Дальше';
+  btn.className = 'btn';
+  btn.style.cssText = 'margin-top:14px;width:100%';
+  btn.onclick = hideStory;
+
+  body.appendChild(h); body.appendChild(p); body.appendChild(cap);
+  body.appendChild(btn);
+  card.appendChild(body);
+  el.appendChild(card);
+  document.body.appendChild(el);
+  _storyEl = el;
+  buzz(80);
+}
+
+function hideStory() {
+  if (_storyEl) { _storyEl.remove(); _storyEl = null; }
+}
 
 function render() {
   const [ico, nm, cls] = PHASES[S.phase] || PHASES.waiting;

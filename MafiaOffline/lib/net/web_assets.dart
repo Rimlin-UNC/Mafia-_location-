@@ -63,11 +63,16 @@ class WebAssets {
     '/cards/': 'assets/cards/',
     '/sounds/': 'assets/sounds/',
     '/images/': 'assets/images/',
+    // Сюжетные карточки и кадры суда: игроки видят их в браузере,
+    // поэтому папки обязаны отдаваться тем же путём, что в приложении.
+    '/crimes/': 'assets/crimes/',
+    '/court/': 'assets/court/',
+    '/story/': 'assets/story/',
   };
 
   /// Версия набора ассетов. Входит в ETag: подняли версию приложения —
   /// у всех игроков автоматически обновится кеш браузера.
-  static const String assetVersion = 'v5';
+  static const String assetVersion = 'v6';
 
   static String contentTypeFor(String path) {
     if (path.endsWith('.html') || path == '/') return 'text/html; charset=utf-8';
