@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import '../core/constants.dart';
+import '../storage/device_id.dart';
 import 'discovery.dart';
 import 'protocol.dart';
 
@@ -23,6 +25,18 @@ class ClientConnection {
 
   bool _manualClose = false;
   int _attempt = 0;
+  final Random _rnd = Random();
+
+  /// Пауза перед следующей попыткой: 400 мс × 1.6^n, но не больше 8 с,
+  /// плюс случайный разброс до 600 мс. Ровно та же формула, что в app.js —
+  /// иначе браузерный и нативный игроки ведут себя по-разному в одном зале.
+  Duration _retryDelay(int attempt) {
+    final base = Net.reconnectBaseDelay.inMilliseconds *
+        pow(1.6, min(attempt, 8)).toDouble();
+    final capped = min(base, Net.reconnectMaxDelay.inMilliseconds.toDouble());
+    final jitter = (_rnd.nextDouble() * Net.reconnectJitter.inMilliseconds);
+    return Duration(milliseconds: (capped + jitter).round());
+  }
 
   final _messages = StreamController<Envelope>.broadcast();
   Stream<Envelope> get messages => _messages.stream;
@@ -45,6 +59,7 @@ class ClientConnection {
     String? manualHost,
   }) async {
     _manualClose = false;
+    _attempt = 0;
     _code = code;
     _playerName = playerName;
 
@@ -90,7 +105,14 @@ class ClientConnection {
       );
 
       if (register) {
-        send(Envelope(Msg.register, {'name': _playerName, 'code': _code}));
+        // deviceId позволяет серверу отличить «он пришёл с планшета»
+        // от «кто-то занял его имя». Пустая строка допустима: сервер
+        // тогда работает по-старому (только по имени).
+        send(Envelope(Msg.register, {
+          'name': _playerName,
+          'code': _code,
+          'deviceId': await DeviceId.get(),
+        }));
       } else {
         // Переподключение: просим актуальное состояние.
         send(Envelope(Msg.resyncRequest, {'playerId': playerId, 'name': _playerName}));
@@ -127,7 +149,14 @@ class ClientConnection {
     }));
   }
 
-  /// Обрыв связи: до 3 автоматических попыток с интервалом 2 секунды.
+  /// Обрыв связи: переподключаемся, пока не получится или пока игрок
+  /// сам не выйдет.
+  ///
+  /// Сдаваться через N попыток нельзя: телефон игрока засыпает, экран
+  /// гаснет, Wi-Fi моргает — за столом это норма, а не сбой. Пока клиент
+  /// «жив», он обязан вернуться в партию сам. Статус [ConnStatus.failed]
+  /// больше не выставляется автоматически — он остался только для ручного
+  /// выхода и для случая, когда хост не найден при первом входе.
   Future<void> _handleDrop() async {
     _pingTimer?.cancel();
     _socket = null;
@@ -137,30 +166,35 @@ class ClientConnection {
     }
 
     _setStatus(ConnStatus.reconnecting);
-    while (_attempt < Net.reconnectAttempts && !_manualClose) {
+    while (!_manualClose) {
       _attempt++;
-      await Future<void>.delayed(Net.reconnectDelay);
+      await Future<void>.delayed(_retryDelay(_attempt));
       if (_manualClose) return;
 
-      // Адрес мог смениться — пробуем найти хост заново.
+      // Адрес мог смениться (роуминг, новый день, другая точка доступа) —
+      // пробуем найти хост заново по коду игры.
       if (_code != null) {
         final found = await DiscoveryService.findHost(
           code: _code!,
           timeout: const Duration(seconds: 3),
         );
+        if (_manualClose) return;
         if (found != null) {
           _host = found.address;
           _port = found.port;
         }
       }
+      // Хост не нашли — это не повод сдаваться: следующий круг попробует
+      // снова (ведущий мог ещё не поднять сеть после перезапуска).
+      if (_host == null) continue;
 
       final ok = await _openSocket(register: false);
       if (ok) return;
     }
-    _setStatus(ConnStatus.failed);
   }
 
-  /// Ручной повтор подключения.
+  /// Ручной повтор подключения: сбрасывает паузу, чтобы не ждать
+  /// очередные 8 секунд после нажатия «Повторить».
   Future<bool> retry() async {
     _attempt = 0;
     _manualClose = false;
@@ -169,6 +203,11 @@ class ClientConnection {
     }
     return false;
   }
+
+  /// Сколько всего было попыток переподключения подряд.
+  /// Нужно экрану игрока: там теперь не «попытка N из 3», а честное
+  /// «пробуем снова» без верхней границы.
+  int get attemptsInARow => _attempt;
 
   int get attempt => _attempt;
 

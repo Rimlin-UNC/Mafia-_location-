@@ -592,6 +592,15 @@ class _RoleCheckCard extends StatelessWidget {
               ),
             ),
           ],
+          // Все готовы, но автозапуск выключен — решение за ведущим.
+          if (done && !controller.autoStartFirstNight) ...[
+            const SizedBox(height: 10),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.play_arrow, size: 18),
+              label: const Text('Начать первую ночь'),
+              onPressed: controller.startNight,
+            ),
+          ],
         ],
       ),
     );

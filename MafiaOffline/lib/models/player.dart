@@ -17,6 +17,14 @@ class Player {
   final int? eliminatedRound;
   final EliminationReason? eliminationReason;
 
+  /// Постоянный идентификатор устройства игрока.
+  ///
+  /// Позволяет отличить «он вернулся со второго телефона» от «кто-то ввёл
+  /// то же имя»: при совпадении `deviceId` слот можно отдать новому
+  /// подключению, даже если старый сокет ещё считается живым.
+  /// Хранится только в памяти партии и в локальном сохранении.
+  final String? deviceId;
+
   /// Время последнего ping — по нему ведущий определяет обрыв связи.
   final DateTime? lastSeen;
 
@@ -30,6 +38,7 @@ class Player {
     this.roleAcknowledged = false,
     this.eliminatedRound,
     this.eliminationReason,
+    this.deviceId,
     this.lastSeen,
   });
 
@@ -42,6 +51,7 @@ class Player {
     bool? roleAcknowledged,
     int? eliminatedRound,
     EliminationReason? eliminationReason,
+    String? deviceId,
     DateTime? lastSeen,
     bool clearRole = false,
   }) {
@@ -55,6 +65,7 @@ class Player {
       roleAcknowledged: roleAcknowledged ?? this.roleAcknowledged,
       eliminatedRound: eliminatedRound ?? this.eliminatedRound,
       eliminationReason: eliminationReason ?? this.eliminationReason,
+      deviceId: deviceId ?? this.deviceId,
       lastSeen: lastSeen ?? this.lastSeen,
     );
   }
@@ -77,6 +88,7 @@ class Player {
         'role': role?.type.name,
         'isAlive': isAlive,
         'roleAck': roleAcknowledged,
+        'deviceId': deviceId,
         'eliminatedRound': eliminatedRound,
         'reason': eliminationReason?.name,
       };
@@ -96,6 +108,7 @@ class Player {
         role: Role.tryParse(j['role'] as String?),
         isAlive: j['isAlive'] as bool? ?? true,
         roleAcknowledged: j['roleAck'] as bool? ?? false,
+        deviceId: j['deviceId'] as String?,
         eliminatedRound: j['eliminatedRound'] as int?,
         eliminationReason: _parseReason(j['reason']),
       );

@@ -477,8 +477,9 @@ class _DisconnectedView extends StatelessWidget {
               Text(
                 failed
                     ? 'Проверьте, что вы подключены к сети ведущего.'
-                    : 'Автоматическое переподключение… '
-                        'попытка ${controller.reconnectAttempt} из 3',
+                    : 'Переподключаемся автоматически. '
+                        'Попытка ${controller.reconnectAttempt} — '
+                        'сдаваться не будем, пока вы не выйдете сами.',
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 13, color: AppColors.dim),
               ),
@@ -490,16 +491,19 @@ class _DisconnectedView extends StatelessWidget {
                 ),
               const SizedBox(height: 20),
               const Text(
-                'Ваши ходы за это время будут пропущены',
+                'Партия продолжается без вас: ходы за это время пропускаются. '
+                'Когда связь вернётся, вы получите текущее состояние.',
+                textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 12, color: AppColors.dim),
               ),
               const SizedBox(height: 24),
-              if (failed)
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Повторить подключение'),
-                  onPressed: controller.retry,
-                ),
+              // Кнопка полезна и во время бесконечных попыток: она сбрасывает
+              // накопленную паузу (до 8 с) и пробует прямо сейчас.
+              ElevatedButton.icon(
+                icon: const Icon(Icons.refresh),
+                label: const Text('Подключиться сейчас'),
+                onPressed: controller.retry,
+              ),
               const SizedBox(height: 10),
               TextButton(
                 onPressed: () async {

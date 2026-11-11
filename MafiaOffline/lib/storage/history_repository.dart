@@ -88,6 +88,20 @@ class HistoryRepository {
     }
   }
 
+  /// Вся партия целиком: нужна для экспорта протокола (FR-7.7).
+  /// Возвращает null, если записи нет.
+  Future<GameSummary?> gameOf(String gameId) async {
+    try {
+      final db = await _open();
+      final rows = await db.query('games',
+          where: 'id = ?', whereArgs: [gameId], limit: 1);
+      if (rows.isEmpty) return null;
+      return GameSummary.fromRow(rows.first);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> deleteGame(String id) async {
     try {
       final db = await _open();
@@ -136,10 +150,12 @@ class GameSummary {
         return 'Победили мирные';
       case 'maniac':
         return 'Победил маньяк';
+      case 'nobody':
+        return 'Ничья — никто не выжил';
       case 'aborted':
         return 'Прервана';
       default:
-        return 'Ничья';
+        return 'Не завершена';
     }
   }
 }

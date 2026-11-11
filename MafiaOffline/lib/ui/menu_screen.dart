@@ -38,6 +38,9 @@ class _MenuScreenState extends State<MenuScreen> {
   /// для игроков — браузер. Включается в настройках звука/приложения.
   bool _playerModeVisible = false;
 
+  /// Автозапуск первой ночи (настройка ведущего).
+  bool _autoStartNight = true;
+
   @override
   void initState() {
     super.initState();
@@ -48,11 +51,13 @@ class _MenuScreenState extends State<MenuScreen> {
     final has = await _session.hasSession();
     final mine = await _playerSession.load();
     final showPlayer = await AppPrefs.playerModeVisible();
+    final autoNight = await AppPrefs.autoStartFirstNight();
     if (mounted) {
       setState(() {
         _hasSession = has;
         _mySession = mine;
         _playerModeVisible = showPlayer;
+        _autoStartNight = autoNight;
       });
     }
   }
@@ -166,9 +171,15 @@ class _MenuScreenState extends State<MenuScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('Звук',
+              const Text('Настройки',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 14),
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Звук',
+                    style:
+                        TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+              ),
               SwitchListTile(
                 value: AudioService.instance.soundEnabled,
                 onChanged: (v) async {
@@ -206,6 +217,23 @@ class _MenuScreenState extends State<MenuScreen> {
                 child: Text('Дополнительно',
                     style:
                         TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+              ),
+              SwitchListTile(
+                value: _autoStartNight,
+                onChanged: (v) async {
+                  await AppPrefs.setAutoStartFirstNight(v);
+                  setSheet(() {});
+                  if (mounted) setState(() => _autoStartNight = v);
+                },
+                title: const Text('Начинать первую ночь автоматически'),
+                subtitle: const Text(
+                  'Когда все прочитали роль — ночь начинается сама. '
+                  'Если выключить, ведущий нажмёт кнопку сам; ночь всё '
+                  'равно не начнётся, пока кто-то не подтвердил роль.',
+                  style: TextStyle(fontSize: 12, color: AppColors.dim),
+                ),
+                activeColor: AppColors.accent2,
+                contentPadding: EdgeInsets.zero,
               ),
               SwitchListTile(
                 value: _playerModeVisible,
@@ -289,7 +317,9 @@ class _MenuScreenState extends State<MenuScreen> {
                         const SizedBox(height: 6),
                         const Text(
                           'Можно продолжить с того же места: роли, живые '
-                          'игроки и лог сохранены. Игроки переподключатся сами.',
+                          'игроки и лог сохранены. Игроки переподключатся сами.'
+                          '\nНовая партия удалит это сохранение — сначала '
+                          'завершите или забудьте старую.',
                           style: TextStyle(fontSize: 12, color: AppColors.dim),
                         ),
                         const SizedBox(height: 12),
@@ -335,6 +365,37 @@ class _MenuScreenState extends State<MenuScreen> {
                   icon: const Icon(Icons.podcasts),
                   label: const Text('Я ведущий — создать игру'),
                   onPressed: () async {
+                    // Новая партия затирает сохранение старой (SessionStore
+                    // перезапишется при первом же изменении состояния).
+                    // Раньше об этом нигде не говорилось — ведущий узнавал
+                    // постфактум, когда «Продолжить» пропадало.
+                    if (_hasSession) {
+                      final go = await showDialog<bool>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          backgroundColor: AppColors.panel,
+                          title: const Text('Начать новую партию?',
+                              style: TextStyle(fontSize: 17)),
+                          content: const Text(
+                            'Незавершённая партия будет удалена. Если она '
+                            'нужна — сначала нажмите «Продолжить».',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx, false),
+                              child: const Text('Остаться'),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx, true),
+                              child: const Text('Удалить и начать',
+                                  style: TextStyle(color: AppColors.warn)),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (go != true) return;
+                      if (!mounted) return;
+                    }
                     await Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => const SetupScreen()),

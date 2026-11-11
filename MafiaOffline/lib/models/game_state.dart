@@ -232,8 +232,19 @@ class GameState {
 
   // ---------- длительности фаз ----------
 
-  int get nightDuration =>
-      Rules.nightBaseSeconds + Rules.nightPerActiveSeconds * nightActive.length;
+  /// Длительность ночи.
+  ///
+  /// Первая ночь длиннее: люди ещё читают памятку, ищут кнопку и выбирают
+  /// цель впервые. 20 базовых секунд хороши для третьего раунда и мало
+  /// для первого — за столом это выглядит как «не дали даже подумать».
+  int get nightDuration {
+    final base =
+        Rules.nightBaseSeconds + Rules.nightPerActiveSeconds * nightActive.length;
+    if (round <= 1) {
+      return (base * Rules.firstNightFactor).round();
+    }
+    return base;
+  }
 
   int get dayDuration {
     final raw = Rules.dayPerPlayerSeconds * alive.length;

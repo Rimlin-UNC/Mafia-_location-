@@ -30,9 +30,19 @@ class Net {
   /// без попытки попасть в общий момент.
   static const Duration soundMaxLateness = Duration(milliseconds: 1200);
 
-  /// Попытки автоматического переподключения на клиенте.
-  static const int reconnectAttempts = 3;
-  static const Duration reconnectDelay = Duration(seconds: 2);
+  /// Переподключение на клиенте: попытки НЕ ограничены.
+  ///
+  /// Раньше было 3 попытки по 2 секунды — клиент сдавался через 6 секунд.
+  /// На точке доступа ведущего это означало «игрок вылетел» при обычном
+  /// засыпании экрана или роуминге. Теперь, как в веб-клиенте: пауза
+  /// растёт экспоненциально до [reconnectMaxDelay] и к ней добавляется
+  /// случайный разброс, чтобы 20 телефонов не стучались одновременно.
+  static const Duration reconnectBaseDelay = Duration(milliseconds: 400);
+  static const Duration reconnectMaxDelay = Duration(seconds: 8);
+
+  /// Разброс паузы: 20 телефонов после общего Wi-Fi-сбоя не должны
+  /// ломиться в сокет в одну миллисекунду.
+  static const Duration reconnectJitter = Duration(milliseconds: 600);
 }
 
 class Rules {
@@ -48,6 +58,10 @@ class Rules {
   /// Ночь = base + perActive * (число активных ночью живых игроков)
   static const int nightBaseSeconds = 20;
   static const int nightPerActiveSeconds = 10;
+
+  /// Множитель для первой ночи: людям нужно время прочитать памятку
+  /// и найти кнопку. При 3 активных ролях это 75 с вместо 50.
+  static const double firstNightFactor = 1.5;
 
   /// День = perPlayer * (число живых), но не дольше [dayMaxSeconds]:
   /// 20 минут обсуждения одной фазой — слишком много, ведущий всё равно

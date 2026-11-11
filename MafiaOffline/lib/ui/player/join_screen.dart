@@ -137,6 +137,9 @@ class _JoinScreenState extends State<JoinScreen> {
         return 'В игре нет свободных мест';
       case DenyReason.gameStarted:
         return 'Игра уже началась';
+      case DenyReason.badVersion:
+        return 'Версия игры не совпадает с ведущим. Обновите страницу '
+            'или приложение — и подключитесь снова.';
       default:
         return 'Не удалось подключиться';
     }

@@ -187,6 +187,8 @@ class _SetupScreenState extends State<SetupScreen> {
     setState(() => _starting = true);
 
     final controller = HostController();
+    // Настройки ведущего (автозапуск ночи) нужны до раздачи ролей.
+    await controller.loadPrefs();
     final ok = await controller.createGame(
       name: _nameCtrl.text.trim().isEmpty ? 'Игра' : _nameCtrl.text.trim(),
       plannedPlayers: _total,

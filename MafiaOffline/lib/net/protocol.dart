@@ -49,6 +49,10 @@ class DenyReason {
   static const gameFull = 'game_full';
   static const gameStarted = 'game_started';
   static const badCode = 'bad_code';
+
+  /// Версия протокола не совпала. Клиент должен сказать человеку
+  /// «обновите страницу», а не молча висеть в «Подключение…».
+  static const badVersion = 'bad_version';
 }
 
 /// Конверт сообщения: тип + версия + метка времени + полезная нагрузка.
@@ -72,16 +76,28 @@ class Envelope {
         ...data,
       });
 
+  /// Версия последнего пакета, который не подошёл по версии.
+  ///
+  /// Зачем статическое поле: [decode] — чистая функция разбора, и тащить
+  /// в неё состояние сервера некрасиво. Но серверу нужно знать, что клиент
+  /// «из прошлого», чтобы ответить `bad_version`, а не молчать. Флаг
+  /// сбрасывается при каждом вызове decode.
+  static int? lastRejectedVersion;
+
   /// Разбор входящего сообщения. Возвращает null, если пакет повреждён
-  /// или версия протокола не совпадает.
+  /// или версия протокола не совпадает (тогда смотри [lastRejectedVersion]).
   static Envelope? decode(String raw) {
+    lastRejectedVersion = null;
     try {
       final decoded = jsonDecode(raw);
       if (decoded is! Map<String, dynamic>) return null;
       final type = decoded['type'];
       if (type is! String) return null;
       final version = decoded['v'] as int? ?? 0;
-      if (version != Net.protocolVersion) return null;
+      if (version != Net.protocolVersion) {
+        lastRejectedVersion = version;
+        return null;
+      }
       final data = Map<String, dynamic>.from(decoded)
         ..remove('type')
         ..remove('v')

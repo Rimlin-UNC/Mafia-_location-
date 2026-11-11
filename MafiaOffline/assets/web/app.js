@@ -186,6 +186,24 @@ function show(id) {
 // ---------------------------------------------------------------- соединение
 let pingTimer = null, watchTimer = null, retryTimer = null, lastPing = 0;
 
+// Постоянный идентификатор этого браузера. Нужен, чтобы сервер отличал
+// «он открыл игру на втором устройстве» от «кто-то занял его имя».
+// Это случайная строка в localStorage, а не отпечаток устройства.
+function deviceId() {
+  try {
+    let id = localStorage.getItem('mafia_device');
+    if (!id || id.length < 8) {
+      const bytes = new Uint8Array(12);
+      crypto.getRandomValues(bytes);
+      id = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+      localStorage.setItem('mafia_device', id);
+    }
+    return id;
+  } catch (e) {
+    return '';
+  }
+}
+
 function connect() {
   if (S.ws && (S.ws.readyState === 0 || S.ws.readyState === 1)) return;
   S.manualClose = false;
@@ -216,7 +234,9 @@ function connect() {
     setConn(true);
     // Повторный вход после обрыва — сервер вернёт нас в свой слот
     // по имени (см. reclaim в host_controller.dart).
-    send('register', { name: S.name, code: S.code });
+    send('register', {
+      name: S.name, code: S.code, deviceId: deviceId(),
+    });
     startPing();
     startWatchdog();
   };
@@ -341,6 +361,9 @@ function onMessage(m) {
         game_full: 'В игре нет свободных мест',
         game_started: 'Игра уже началась, дождитесь следующей партии',
         bad_code: 'Неверный код игры',
+        // Старая страница из кэша после обновления игры на телефоне ведущего.
+        bad_version: 'Версия страницы устарела. Закройте вкладку, '
+          + 'откройте её заново (или обновите) и подключитесь снова.',
       }[m.reason] || 'Не удалось подключиться';
 
       // Отказ — это ответ хоста, а не сбой связи: перестаём ломиться.
@@ -350,6 +373,15 @@ function onMessage(m) {
       if (S.ws) { try { S.ws.close(); } catch (e) {} }
       // Имя занято — сессия неверна, иначе застрянем в цикле отказов.
       if (m.reason === 'name_taken') localStorage.removeItem('mafia_session');
+      if (m.reason === 'bad_version') {
+        // Переподключение не поможет: страница сама устарела.
+        // Показываем большой экран «обновите», а не форму входа.
+        showFatal('Нужно обновить страницу',
+          'Ведущий обновил игру, и ваш браузер держит старую версию '
+          + 'из кэша. Нажмите «Попробовать снова» — страница '
+          + 'перезагрузится и подтянет новую версию.');
+        break;
+      }
       showJoinError(why);
       show('scr-join');
       break;

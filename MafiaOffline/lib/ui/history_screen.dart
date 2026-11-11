@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../core/protocol_export.dart';
 import '../models/game_event.dart';
 import '../storage/history_repository.dart';
 import 'theme.dart';
@@ -80,6 +82,33 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 
+  /// Протокол партии в буфер обмена.
+  ///
+  /// Специально без share_plus: лишняя зависимость ради одного действия,
+  /// а на Android «Поделиться» из буфера доступно в любом мессенджере.
+  /// Если понадобится прямая отправка в Telegram/WhatsApp — это отдельный PR.
+  Future<void> _copyProtocol(GameSummary g, List<GameEvent> log) async {
+    final text = ProtocolExport.build(
+      name: g.name,
+      createdAt: g.createdAt,
+      rounds: g.rounds,
+      winnerTitle: g.winnerTitle,
+      players: g.players,
+      log: log,
+    );
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: AppColors.panel2,
+        content: Text(
+          'Протокол скопирован (${text.length} символов). '
+          'Вставьте его в чат или заметки.',
+        ),
+      ),
+    );
+  }
+
   Future<void> _openDetails(GameSummary g) async {
     final log = await _repo.logOf(g.id);
     if (!mounted) return;
@@ -138,6 +167,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       style: const TextStyle(fontSize: 12.5)),
                 ),
             const SizedBox(height: 20),
+            // FR-7.7: выгрузка протокола текстом.
+            OutlinedButton.icon(
+              icon: const Icon(Icons.copy_all),
+              label: const Text('Поделиться протоколом'),
+              onPressed: () => _copyProtocol(g, log),
+            ),
+            const SizedBox(height: 8),
             OutlinedButton.icon(
               icon: const Icon(Icons.delete_outline, color: AppColors.bad),
               label: const Text('Удалить партию',

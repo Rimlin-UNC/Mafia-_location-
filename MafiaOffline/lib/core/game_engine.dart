@@ -1,14 +1,127 @@
 import 'dart:math';
 
+import '../core/constants.dart';
+import '../models/game_phase.dart';
 import '../models/game_state.dart';
 import '../models/player.dart';
 import '../models/role.dart';
+
+/// Итог обработки `role_ack`. Отдельный тип вместо `String?`-ошибки:
+/// вызывающему нужно различать «приняли», «уже подтверждено» и «нельзя».
+class RoleCheckResult {
+  /// Флаг изменился — состояние в [state] новое.
+  final bool accepted;
+
+  /// Игрок нажал «Понятно» повторно: ничего не меняем, но это не ошибка.
+  final bool already;
+
+  final String? reason;
+
+  /// Новое состояние (только при [accepted]).
+  final GameState? state;
+
+  const RoleCheckResult({
+    required this.accepted,
+    this.already = false,
+    this.reason,
+    this.state,
+  });
+}
 
 /// Чистая игровая логика без UI и сети. Легко покрывается тестами.
 class GameEngine {
   /// Раздача ролей по заданному составу.
   /// Если игроков меньше, чем заявлено, лишние специальные роли
   /// отбрасываются по приоритету (маньяк → проститутка → комиссар → доктор).
+  /// Проверка состава перед созданием партии (FR-1.5, BR-2).
+  ///
+  /// Раньше правило жило только в `setup_screen.dart` — то есть состав,
+  /// загруженный из пользовательского пресета или пришедший из старой
+  /// версии, мог проскочить мимо проверки. Один источник истины.
+  ///
+  /// Возвращает null, если состав корректен, иначе — текст причины.
+  static String? validateSetup({
+    required Map<RoleType, int> setup,
+    required int players,
+  }) {
+    if (players < Rules.minPlayers || players > Rules.maxPlayers) {
+      return 'Игроков должно быть от ${Rules.minPlayers} до ${Rules.maxPlayers}';
+    }
+    var special = 0;
+    for (final entry in setup.entries) {
+      if (entry.value < 0) return 'Число ролей не может быть отрицательным';
+      if (entry.key == RoleType.civilian) {
+        return 'Мирных не задают вручную — они считаются автоматически';
+      }
+      special += entry.value;
+    }
+    if (special > players) {
+      return 'Специальных ролей ($special) больше, чем игроков ($players)';
+    }
+    // Мафия без единого мафиози — играть не с кем.
+    final mafia = (setup[RoleType.mafia] ?? 0) + (setup[RoleType.don] ?? 0);
+    if (mafia == 0) return 'Не назначено ни одного мафиози';
+    return null;
+  }
+
+  /// Баланс состава: предупреждение, а не запрет.
+  ///
+  /// Возвращает null, если перевес в пределах разумного, иначе текст
+  /// предупреждения. Пороги — из симуляции (см. `setup_screen.dart`):
+  /// мафия против одного игрока проигрывает, сразу после первой ночи
+  /// большинство голосов уже у мафии.
+  static String? balanceWarning({
+    required Map<RoleType, int> setup,
+    required int players,
+  }) {
+    final mafia = (setup[RoleType.mafia] ?? 0) + (setup[RoleType.don] ?? 0);
+    if (mafia == 0) return 'Мафии нет — играть не с кем';
+    final others = players - mafia;
+    if (others <= 1) {
+      return 'Против мафии меньше двух игроков — город проиграет сразу';
+    }
+    if (mafia >= others - 1) {
+      return 'Мафия $mafia против $others: уже после первой ночи у мафии '
+          'будет большинство голосов — город почти обречён.';
+    }
+    return null;
+  }
+
+  /// Результат «прочитать роль»: кто подтвердил и кто ещё нет.
+  ///
+  /// Чистая функция — её можно проверить без сервера и без виджетов,
+  /// и именно она решает, начнётся ли первая ночь (FR-3.6). Раньше эта
+  /// логика жила в `HostController` и не была покрыта ничем.
+  static RoleCheckResult applyRoleAck(GameState state, String playerId) {
+    final player = state.byId(playerId);
+    if (player == null) {
+      return const RoleCheckResult(accepted: false, reason: 'Игрок не найден');
+    }
+    if (player.role == null) {
+      return const RoleCheckResult(accepted: false, reason: 'Роли ещё не розданы');
+    }
+    // Повторное нажатие не должно ни менять счётчик, ни писать лог заново.
+    if (player.roleAcknowledged) {
+      return RoleCheckResult(accepted: false, already: true);
+    }
+
+    final updated = state.copyWith(
+      players: state.players
+          .map((p) =>
+              p.id == playerId ? p.copyWith(roleAcknowledged: true) : p)
+          .toList(),
+    );
+    return RoleCheckResult(accepted: true, state: updated);
+  }
+
+  /// Готова ли партия начать первую ночь: все роли прочитаны.
+  static bool canStartNight(GameState state) =>
+      state.phase == GamePhase.rolesCheck && state.allRolesAcknowledged;
+
+  /// Кого ведущий оставляет позади, если запускает ночь не дожидаясь.
+  static List<String> pendingRoleNames(GameState state) =>
+      state.unacknowledged.map((p) => p.name).toList();
+
   static List<Player> assignRoles({
     required List<Player> players,
     required Map<RoleType, int> setup,

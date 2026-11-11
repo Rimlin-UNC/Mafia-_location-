@@ -184,7 +184,23 @@ class HostServer {
           if (conn.isFlooding) return;
 
           final msg = Envelope.decode(raw);
-          if (msg == null) return;
+          if (msg == null) {
+            // Версия не совпала — это не «битый пакет», а старый клиент
+            // (например, страница из кэша service worker после обновления).
+            // Молчать нельзя: игрок видит «Подключение…» и ждёт вечно.
+            final bad = Envelope.lastRejectedVersion;
+            if (bad != null && bad != Net.protocolVersion) {
+              _send(
+                conn,
+                Envelope(Msg.registerDenied, {
+                  'reason': DenyReason.badVersion,
+                  'hostVersion': Net.protocolVersion,
+                  'yourVersion': bad,
+                }),
+              );
+            }
+            return;
+          }
 
           conn.lastSeen = DateTime.now();
 

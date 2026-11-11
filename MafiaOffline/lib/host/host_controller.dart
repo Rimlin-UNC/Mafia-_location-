@@ -16,6 +16,7 @@ import '../net/protocol.dart';
 import '../services/audio_service.dart';
 import '../services/host_background.dart';
 import '../services/synced_audio.dart';
+import '../storage/app_prefs.dart';
 import '../storage/history_repository.dart';
 import '../storage/session_store.dart';
 
@@ -43,12 +44,45 @@ class HostController extends ChangeNotifier {
   /// Ведущий разрешил править имена посреди партии (по умолчанию — нет).
   bool _allowRenameInGame = false;
 
+  /// Начинать ночь автоматически, когда все прочитали роль.
+  /// По умолчанию включено; значение приходит из настроек при старте.
+  bool _autoStartFirstNight = true;
+  bool get autoStartFirstNight => _autoStartFirstNight;
+
+  /// Загрузить настройку из хранилища. Вызывается при создании и
+  /// восстановлении партии — до первой раздачи ролей.
+  Future<void> loadPrefs() async {
+    _autoStartFirstNight = await AppPrefs.autoStartFirstNight();
+    notifyListeners();
+  }
+
+  /// Переключить автозапуск ночи. Гейт «ночь только после 100%» это
+  /// НЕ отключает: меняется лишь то, кто нажимает кнопку.
+  void setAutoStartFirstNight(bool value) {
+    if (_autoStartFirstNight == value) return;
+    _autoStartFirstNight = value;
+    AppPrefs.setAutoStartFirstNight(value);
+    notifyListeners();
+  }
+
   /// Создание партии и запуск локального сервера.
   Future<bool> createGame({
     required String name,
     required int plannedPlayers,
     required Map<RoleType, int> setup,
   }) async {
+    // Состав проверяем на сервере, а не только на экране: в будущем
+    // сюда смогут прийти значения из пресета или из автоматизации.
+    final problem = GameEngine.validateSetup(
+      setup: setup,
+      players: plannedPlayers,
+    );
+    if (problem != null) {
+      _lastError = problem;
+      notifyListeners();
+      return false;
+    }
+
     final code = _generateCode();
     _state = GameState(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -165,7 +199,8 @@ class HostController extends ChangeNotifier {
     // «Понятно» и стартом ночи. Тогда все уже подтвердили, а фаза осталась
     // rolesCheck — и партия застыла бы без таймера и без кнопки. Догоняем.
     if (saved.phase == GamePhase.rolesCheck && saved.allRolesAcknowledged) {
-      startNight();
+      await loadPrefs();
+      if (_autoStartFirstNight) startNight();
     }
 
     notifyListeners();
@@ -228,6 +263,7 @@ class HostController extends ChangeNotifier {
     final s = _state!;
     final rawName = (msg.get<String>('name') ?? '').trim();
     final name = rawName.isEmpty ? 'Игрок' : rawName;
+    final deviceId = msg.get<String>('deviceId');
 
     // ВАЖНО: возврат в свой слот проверяем ПЕРВЫМ делом — раньше проверок
     // фазы и заполненности. Иначе игрок, у которого разрядился телефон
@@ -241,18 +277,37 @@ class HostController extends ChangeNotifier {
         (p) => p.name.toLowerCase() == name.toLowerCase());
     if (existingIndex != -1) {
       final existing = s.players[existingIndex];
-      if (server.isOnline(existing.id)) {
+      // Тот же человек с другого устройства (планшет, вторая вкладка):
+      // deviceId совпал — отдаём слот ему и выкидываем старый сокет.
+      // Без этой проверки человек, открывший игру на планшете, получал
+      // «имя занято» от собственного телефона.
+      final sameDevice =
+          deviceId != null && existing.deviceId != null && deviceId == existing.deviceId;
+      if (server.isOnline(existing.id) && !sameDevice) {
         server.sendToConn(conn,
             Envelope(Msg.registerDenied, {'reason': DenyReason.nameTaken}));
         return;
       }
       // Возврат в собственный слот: роль, статус и голоса сохраняются.
       conn.playerId = existing.id;
+      if (sameDevice && server.isOnline(existing.id)) {
+        _addLog(EventType.reconnect,
+            '${existing.name} открыл игру на другом устройстве',
+            visibleToPlayers: false);
+      }
       // Старая вкладка того же игрока могла остаться открытой и продолжала
       // бы получать копии сообщений. Закрываем всё, кроме текущего сокета:
       // иначе человек видит игру в двух местах и путается, где настоящая.
       server.dropDuplicates(existing.id, conn);
-      _updatePlayer(existing.id, (p) => p.copyWith(isConnected: true));
+      _updatePlayer(
+        existing.id,
+        (p) => p.copyWith(
+          isConnected: true,
+          // Старое сохранение могло не знать deviceId — запоминаем при
+          // первом же возврате, чтобы следующая попытка опознавалась.
+          deviceId: p.deviceId ?? deviceId,
+        ),
+      );
       server.sendToConn(
         conn,
         Envelope(Msg.reclaimed, {
@@ -299,6 +354,7 @@ class HostController extends ChangeNotifier {
       id: 'p${DateTime.now().microsecondsSinceEpoch}',
       name: name,
       colorHex: color,
+      deviceId: deviceId,
       lastSeen: DateTime.now(),
     );
 
@@ -551,25 +607,30 @@ class HostController extends ChangeNotifier {
     final ackId = msg.get<String>('playerId');
     if (ackId == null) return;
 
-    final player = s.byId(ackId);
-    if (player == null || player.role == null) return;
-    // Повторное нажатие не должно ни менять счётчик, ни писать лог заново.
-    if (player.roleAcknowledged) return;
+    // Само правило — в GameEngine.applyRoleAck: чистая функция, покрыта
+    // тестами, не зависит от сервера.
+    final result = GameEngine.applyRoleAck(s, ackId);
+    if (!result.accepted) return; // уже подтверждено либо роли ещё нет
 
-    _updatePlayer(ackId, (p) => p.copyWith(roleAcknowledged: true));
-    _addLog(EventType.info, '${player.name} прочитал роль',
-        visibleToPlayers: false);
+    final name = s.nameOf(ackId);
+    _state = result.state!;
+    _addLog(EventType.info, '$name прочитал роль', visibleToPlayers: false);
     _persist();
     notifyListeners();
 
     // Гейт первой ночи (вопрос 2 из OPEN_QUESTIONS): ночь начинается сама,
     // как только последний подтвердил. Ведущему не нужно ничего нажимать
     // и невозможно случайно начать ночь «мимо» ожидающих.
-    if (_state!.phase == GamePhase.rolesCheck &&
-        _state!.allRolesAcknowledged) {
+    if (GameEngine.canStartNight(_state!) && _autoStartFirstNight) {
       _addLog(EventType.info, 'Все ознакомились с ролями — начинаем ночь');
       startNight();
       return;
+    }
+    if (GameEngine.canStartNight(_state!)) {
+      // Настройка «не стартовать автоматически»: ведущий сам нажмёт
+      // «Начать ночь». Гейт при этом не снят — просто ждём ведущего.
+      _addLog(EventType.info, 'Все прочитали роль, ждём ведущего',
+          visibleToPlayers: false);
     }
     _broadcastLobby();
   }
@@ -579,7 +640,7 @@ class HostController extends ChangeNotifier {
   void skipRoleCheck() {
     final s = _state;
     if (s == null || s.phase != GamePhase.rolesCheck) return;
-    final missing = s.unacknowledged.map((p) => p.name).join(', ');
+    final missing = GameEngine.pendingRoleNames(s).join(', ');
     _addLog(
       EventType.info,
       missing.isEmpty
