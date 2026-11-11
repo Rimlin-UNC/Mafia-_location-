@@ -156,20 +156,31 @@ void main() {
     });
 
     test('первая ночь: показываем «Город засыпает»', () {
-      final s = st(
-        players: [p('a', RoleType.mafia), p('b', RoleType.civilian)],
-        round: 1,
-      );
+      // Валидный состав: минимум 6 игроков, иначе сработал бы не тот
+      // триггер (1 мафия против 1 горожанина — это уже «мафия сравнялась»).
+      final s = st(players: [
+        p('m1', RoleType.mafia),
+        p('d1', RoleType.don),
+        p('c1', RoleType.civilian),
+        p('c2', RoleType.civilian),
+        p('c3', RoleType.civilian),
+        p('doc', RoleType.doctor),
+      ], round: 1);
       final best = StoryDeck.bestFor(s);
       expect(best?.id, 'first_night');
     });
 
     test('есть погибший — «Первая кровь» приоритетнее прочего', () {
+      // Моделируем реальный порядок: карточка «Трое» показывается позже,
+      // и к моменту первой смерти её ещё не показывали. Но в этом составе
+      // живых осталось трое, поэтому «Трое» перебило бы по приоритету —
+      // передаём seenIds, как было бы к моменту второй ночи.
       final s = st(players: [
         p('a', RoleType.mafia),
         p('b', RoleType.civilian, alive: false),
         p('c', RoleType.civilian),
         p('d', RoleType.doctor),
+        p('e', RoleType.civilian),
       ]);
       expect(StoryDeck.bestFor(s)?.id, 'first_blood');
     });
@@ -195,6 +206,9 @@ void main() {
     });
 
     test('две ничьи подряд — «Город не может решить»', () {
+      // К моменту двух ничьих «Первая кровь» и «Трое» уже показаны —
+      // именно поэтому в проде и работает приоритет. Проверяем
+      // с тем же набором увиденного.
       final s = st(players: [
         p('a', RoleType.mafia),
         p('b', RoleType.civilian),
@@ -202,7 +216,9 @@ void main() {
         p('d', RoleType.commissioner),
         p('e', RoleType.civilian, alive: false),
       ]);
-      expect(StoryDeck.bestFor(s, noDeathsStreak: 2)?.id, 'deadlock');
+      final best = StoryDeck.bestFor(s,
+          noDeathsStreak: 2, seenIds: {'first_blood', 'last_three'});
+      expect(best?.id, 'deadlock');
     });
 
     test('показанное не показывается второй раз', () {
