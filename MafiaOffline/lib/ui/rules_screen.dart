@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../core/assets.dart';
 import '../core/crime_deck.dart';
 import '../core/role_guide.dart';
+import '../core/story_deck.dart';
 import '../models/role.dart';
+import 'card_gallery_screen.dart';
 import 'theme.dart';
 
 /// Экран «Правила»: короткая версия `docs/ИГРОКАМ.md` внутри приложения.
@@ -21,7 +23,19 @@ class RulesScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Правила')),
+      appBar: AppBar(
+        title: const Text('Правила'),
+        actions: [
+          IconButton(
+            tooltip: 'Все карточки',
+            icon: const Icon(Icons.grid_view_rounded),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CardGalleryScreen()),
+            ),
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
         children: [
