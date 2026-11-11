@@ -17,7 +17,11 @@ import 'theme.dart';
 /// формулировки живут в `docs/ИГРОКАМ.md`, чтобы не расходились в двух
 /// местах (текст берётся из тех же источников: RoleGuide и Rules).
 class RulesScreen extends StatelessWidget {
-  const RulesScreen({super.key});
+  /// Правила конкретного стола (строки из `TableRules.describeWire`).
+  /// Пусто — экран открыт из главного меню, вне партии: раздела нет.
+  final List<String> tableRules;
+
+  const RulesScreen({super.key, this.tableRules = const []});
 
   @override
   Widget build(BuildContext context) {
@@ -38,6 +42,18 @@ class RulesScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
         children: [
+          // Первым — то, о чём спорят посреди партии: «а карту открываем?»,
+          // «а слово ему дают?». Общие правила ниже, их читают до игры.
+          if (tableRules.isNotEmpty)
+            _Section(
+              title: 'Правила этого стола',
+              cards: [
+                _Card(
+                  title: 'Так играем сегодня',
+                  body: tableRules.map((l) => '• $l').join('\n'),
+                ),
+              ],
+            ),
           const _Section(
             title: 'Как это устроено',
             cards: [
@@ -81,7 +97,8 @@ class RulesScreen extends StatelessWidget {
                 title: 'Конец партии',
                 body: 'Город побеждает, когда не осталось ни мафии, '
                     'ни маньяка. Мафия — когда её столько же, сколько '
-                    'горожан, или больше. Маньяк — если остался один.',
+                    'горожан, или больше. Маньяк — если остался один. '
+                    'Ничья — если не выжил никто.',
               ),
             ],
           ),

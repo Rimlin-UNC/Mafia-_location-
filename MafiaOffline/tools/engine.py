@@ -1,10 +1,17 @@
 """Точный порт игровой логики из lib/ на Python для нагрузочного тестирования.
 Портированы: GameEngine.resolveNight/assignRoles, GameState.checkWinner/voteLeaders,
-HostController фазы, _handleRegister, renamePlayer, targets-фильтрация."""
+HostController фазы, _handleRegister, renamePlayer, targets-фильтрация.
+
+v1.2.0: правила стола (ночь знакомства, последнее слово), журнал проверок
+комиссара, запрет доктору лечить себя (в Dart он есть с 1.1.0, порт отстал).
+
+Осознанное упрощение: start_game() сразу начинает первую ночь, без фазы
+rolesCheck. Гейт раздачи ролей проверяет отдельный стенд forcestart.py."""
 import random
 
 MAFIA,DON,DOCTOR,COM,PROS,MANIAC,CIV='mafia','don','doctor','commissioner','prostitute','maniac','civilian'
-# Маньяк — мирный житель: голосует днём и заинтересован в победе над мафией.
+# Маньяк — одиночка ('solo'): не за город и не за мафию, побеждает только
+# оставшись последним живым (классика, v1.1.0).
 SIDE={MAFIA:'mafia',DON:'mafia',DOCTOR:'civ',COM:'civ',PROS:'civ',CIV:'civ',MANIAC:'solo'}
 NIGHT_ACTIVE={MAFIA,DON,DOCTOR,COM,PROS,MANIAC}
 WAITING,NIGHT,DAY,VOTING,ENDED='waiting','night','day','voting','ended'
@@ -20,8 +27,13 @@ class Player:
 
 class Game:
     """Порт HostController + GameState."""
-    def __init__(s,name,planned,setup,seed=0):
+    def __init__(s,name,planned,setup,seed=0,intro_night=False,last_word=False):
         s.name,s.planned,s.setup=name,planned,dict(setup)
+        # Правила стола (v1.2.0). По умолчанию выключены: старые стенды
+        # проверяют ход партии без них и должны давать прежний результат.
+        s.intro_night=intro_night; s.last_word=last_word
+        s.last_word_id=None      # кто сейчас говорит последнее слово
+        s.checks=[]              # журнал проверок: dict(round,by,target,is_mafia)
         s.rnd=random.Random(seed)
         s.players=[]; s.phase=WAITING; s.round=0; s.time_left=0; s.paused=False
         s.night_actions={}; s.votes={}; s.runoff=[]; s.pending_night=None
@@ -35,7 +47,16 @@ class Game:
     def name_of(s,pid):
         p=s.by_id(pid); return p.name if p else '—'
     @property
-    def night_active(s): return [p for p in s.players if p.alive and p.role in NIGHT_ACTIVE]
+    def is_intro_night(s):
+        """Порт GameState.isIntroNight."""
+        return s.intro_night and s.phase==NIGHT and s.round==1
+    def acts_tonight(s,p):
+        """Порт GameState.actsTonight: в ночь знакомства ходит только комиссар."""
+        if not p.alive or p.role not in NIGHT_ACTIVE: return False
+        if s.is_intro_night: return p.role==COM
+        return True
+    @property
+    def night_active(s): return [p for p in s.players if s.acts_tonight(p)]
     @property
     def mafia_team(s): return [p for p in s.players if p.alive and p.role in (MAFIA,DON)]
     def _first(s,role): return next((p for p in s.players if p.alive and p.role==role),None)
@@ -96,8 +117,9 @@ class Game:
         s.phase=NIGHT; s.round+=1
         s.night_actions={}; s.votes={}; s.runoff=[]
         s.awaiting_vote_confirm=False; s.paused=False; s.pending_night=None
+        s.last_word_id=None
         s.time_left=20+10*len(s.night_active)
-        s.log.append(f'Ночь {s.round}')
+        s.log.append(f'Ночь {s.round}' + (' — знакомство' if s.is_intro_night else ''))
         s.sounds.append('night_falls')
 
     def targets_for(s,p):
@@ -105,7 +127,7 @@ class Game:
         c=[x for x in s.alive]
         if s.phase==NIGHT:
             if p.role in (MAFIA,DON): c=[x for x in c if x.role not in (MAFIA,DON)]
-            if p.role in (PROS,COM):  c=[x for x in c if x.id!=p.id]
+            if p.role in (PROS,COM,DOCTOR): c=[x for x in c if x.id!=p.id]
             if p.role==DOCTOR and s.last_healed: c=[x for x in c if x.id!=s.last_healed]
         elif s.phase==VOTING:
             c=[x for x in c if x.id!=p.id]
@@ -116,7 +138,7 @@ class Game:
         if s.phase!=NIGHT: return 'wrong_phase'
         p=s.by_id(pid)
         if not p or not p.alive: return 'dead'
-        if p.role not in NIGHT_ACTIVE: return 'not_active'
+        if not s.acts_tonight(p): return 'not_active'
         if pid in s.night_actions: return 'already'
         s.night_actions[pid]=target
         if not s.pending_actors: s.finish_night()
@@ -140,13 +162,23 @@ class Game:
     def finish_night(s):
         if s.phase!=NIGHT or s.pending_night is not None: return
         a=s.night_actions
+        if s.is_intro_night:
+            # Ночь знакомства: считается только проверка комиссара.
+            com=s._first(COM); checked=a.get(com.id) if com else None
+            tp=s.by_id(checked) if checked is not None else None
+            s.pending_night=dict(killed=[],mafia=None,maniac=None,healed=None,
+                                 blocked=None,checked=checked,
+                                 is_mafia=(tp.role==MAFIA) if tp else None)
+            s.paused=True
+            return
         pros=s._first(PROS); blocked=a.get(pros.id) if pros else None
         blk=lambda p: p is not None and p.id==blocked
 
         doc=s._first(DOCTOR); healed=None
         if doc and not blk(doc):
             t=a.get(doc.id)
-            if t is not None and t!=s.last_healed: healed=t
+            # Доктор не лечит себя и одну цель две ночи подряд.
+            if t is not None and t!=doc.id and t!=s.last_healed: healed=t
 
         team=s.mafia_team; mafia_t=None
         team_blocked=bool(team) and all(m.id==blocked for m in team)
@@ -170,6 +202,12 @@ class Game:
     def announce_night(s):
         o=s.pending_night
         if not o: return
+        # Проверку записываем ДО применения смертей: комиссар, убитый
+        # этой же ночью, проверку всё равно сделал (порт checkRecordFor).
+        com=s._first(COM)
+        if o['checked'] is not None and com is not None:
+            s.checks.append(dict(round=s.round,by=com.id,target=o['checked'],
+                                 is_mafia=bool(o['is_mafia'])))
         for pid in o['killed']:
             p=s.by_id(pid)
             if p: p.alive=False; p.elim_round=s.round; p.elim_reason='killed'
@@ -181,13 +219,13 @@ class Game:
 
     def start_day(s):
         s.phase=DAY; s.paused=False; s.votes={}; s.runoff=[]
-        s.awaiting_vote_confirm=False
+        s.awaiting_vote_confirm=False; s.last_word_id=None
         s.time_left=min(45*len(s.alive),600)
         s.log.append(f'День {s.round}'); s.sounds.append('day_breaks')
 
     def start_voting(s,candidates=None):
         s.phase=VOTING; s.votes={}; s.runoff=candidates or []
-        s.awaiting_vote_confirm=False; s.paused=False
+        s.awaiting_vote_confirm=False; s.paused=False; s.last_word_id=None
         s.time_left=(20+4*len(s.alive)) if not s.runoff else (15+3*len(s.alive))
         s.sounds.append('vote_start')
 
@@ -225,7 +263,24 @@ class Game:
         s.log.append(f'День {s.round}: выбыл {s.name_of(pid)}')
         s.sounds.append('eliminated')
         if s.check_game_over(): return
+        # Последнее слово — только если партия продолжается
+        # (порт shouldGiveLastWord + HostController._startLastWord).
+        if s.last_word:
+            s.phase=DAY; s.last_word_id=pid; s.paused=False
+            s.votes={}; s.runoff=[]; s.awaiting_vote_confirm=False
+            s.time_left=30
+            s.log.append(f'Последнее слово: {s.name_of(pid)}')
+            return
         s.start_night()
+
+    def end_last_word(s):
+        """Порт HostController.endLastWord: таймер вышел или ведущий нажал кнопку."""
+        if s.last_word_id is None: return
+        s.start_night()
+
+    def checks_by(s,pid):
+        """Порт GameState.checksBy: проверки конкретного комиссара."""
+        return [c for c in s.checks if c['by']==pid]
 
     # ---------- победа ----------
     def check_winner(s):

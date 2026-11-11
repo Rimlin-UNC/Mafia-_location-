@@ -187,6 +187,18 @@ Future<void> showRoleSheet(
                       text: guide.winCondition,
                       color: AppColors.ok,
                     ),
+                    // Проверки комиссара. Только здесь, внутри шторки:
+                    // на игровом экране их нет, чтобы не прочли через плечо.
+                    if (type == RoleType.commissioner && c.checks.isNotEmpty)
+                      _Block(
+                        icon: Icons.search,
+                        title: 'Ваши проверки',
+                        text: c.checks
+                            .map((k) => 'Ночь ${k.round}: ${k.name} — '
+                                '${k.isMafia ? 'МАФИЯ' : 'не мафия'}')
+                            .join('\n'),
+                        color: AppColors.warn,
+                      ),
                     if (guide.tips.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       const Text('Советы',

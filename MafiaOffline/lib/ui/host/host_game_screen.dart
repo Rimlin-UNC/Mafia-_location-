@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/game_engine.dart';
 import '../../core/story_deck.dart';
 import '../../host/host_controller.dart';
 import '../../models/game_phase.dart';
@@ -139,7 +140,11 @@ class _HostGameScreenState extends State<HostGameScreen> {
             children: [
               // ---- Зона 1: фаза и таймер ----
               PhaseBanner(
-                title: s.phase.title,
+                title: s.lastWordId != null
+                    ? 'Последнее слово'
+                    : s.isIntroNight
+                        ? 'Ночь знакомства'
+                        : s.phase.title,
                 right: s.phase == GamePhase.rolesCheck
                     ? '${s.players.length - s.unacknowledged.length}'
                         ' из ${s.players.length} готовы'
@@ -264,12 +269,13 @@ class _HostGameScreenState extends State<HostGameScreen> {
                     name: p.name,
                     colorHex: p.colorHex,
                     alive: p.isAlive,
-                    highlighted: isNight &&
-                        p.isAlive &&
-                        (p.role?.isActiveAtNight ?? false),
+                    highlighted: isNight && s.actsTonight(p) ||
+                        p.id == s.lastWordId,
                     subtitle: _revealRoles && p.role != null
                         ? '${p.role!.emoji} ${p.role!.name}'
-                        : (!p.isAlive
+                        : (p.id == s.lastWordId
+                            ? 'говорит последнее слово'
+                            : !p.isAlive
                             ? 'выбыл'
                             : p.role == null
                                 ? 'в лобби'
@@ -433,6 +439,8 @@ class _HostGameScreenState extends State<HostGameScreen> {
   }
 
   String _forceLabel(GameState s) {
+    if (s.lastWordId != null) return 'Слово сказано → начать ночь';
+    if (s.isIntroNight) return 'Разбудить город';
     switch (s.phase) {
       case GamePhase.rolesCheck:
         return 'Начать ночь, не дожидаясь';
@@ -450,6 +458,9 @@ class _HostGameScreenState extends State<HostGameScreen> {
   Widget? _playerTrailing(GameState s, String playerId) {
     final p = s.byId(playerId);
     if (p == null) return null;
+    if (p.id == s.lastWordId) {
+      return const Text('🎤', style: TextStyle(fontSize: 14));
+    }
     if (!p.isAlive) return const Text('☠', style: TextStyle(fontSize: 14));
     if (!p.isConnected) return const StatusDot(AppColors.bad);
 
@@ -460,7 +471,7 @@ class _HostGameScreenState extends State<HostGameScreen> {
         size: 20,
       );
     }
-    if (s.phase == GamePhase.night && (p.role?.isActiveAtNight ?? false)) {
+    if (s.phase == GamePhase.night && s.actsTonight(p)) {
       return s.nightActions.containsKey(p.id)
           ? const Icon(Icons.check, color: AppColors.ok, size: 20)
           : const StatusDot(AppColors.warn);
@@ -547,6 +558,35 @@ class _HostGameScreenState extends State<HostGameScreen> {
             const Text('История партии',
                 style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
+            // Правила стола — перед хронологией: в споре «как мы
+            // договаривались» ведущий открывает лог и читает ответ.
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 14),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.panel2,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.line),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('ПРАВИЛА СТОЛА',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: AppColors.dim,
+                          letterSpacing: 1)),
+                  const SizedBox(height: 6),
+                  for (final line in TableRules.describe(s))
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 3),
+                      child: Text('• $line',
+                          style: const TextStyle(fontSize: 13)),
+                    ),
+                ],
+              ),
+            ),
             for (final e in s.log.reversed)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),

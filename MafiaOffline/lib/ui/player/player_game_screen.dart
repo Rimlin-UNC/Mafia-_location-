@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../../core/assets.dart';
+import '../../core/game_engine.dart';
+import '../../core/story_deck.dart';
 import '../../models/game_phase.dart';
 import '../../net/client_connection.dart';
 import '../../player/player_controller.dart';
 import '../role_card_view.dart';
 import 'role_reveal_screen.dart';
+import '../rules_screen.dart';
 import '../theme.dart';
 import '../widgets.dart';
 
@@ -60,6 +63,19 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
         title: Text(c.gameName.isEmpty ? 'Мафия' : c.gameName,
             overflow: TextOverflow.ellipsis),
         actions: [
+          // Правила — у всех и всегда: по этой кнопке нельзя понять роль.
+          IconButton(
+            tooltip: 'Правила',
+            icon: const Icon(Icons.menu_book_outlined),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => RulesScreen(
+                  tableRules: TableRules.describeWire(c.tableRules),
+                ),
+              ),
+            ),
+          ),
           if (c.roleName != null)
             IconButton(
               tooltip: 'Моя роль',
@@ -202,10 +218,11 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
             padding: const EdgeInsets.all(16),
             children: [
               PhaseBanner(
-                title: '${c.phase.title}${c.round > 0 ? ' ${c.round}' : ''}',
+                title: _phaseTitle(),
                 right: formatTime(c.timeLeft),
                 isNight: isNight,
               ),
+              ..._tableStatus(),
               const SizedBox(height: 12),
 
               if (c.banner != null)
@@ -281,6 +298,38 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
     );
   }
 
+  /// Заголовок фазы с учётом ночи знакомства и последнего слова.
+  String _phaseTitle() {
+    if (c.lastWordName != null) return 'Последнее слово';
+    if (c.introNight) return 'Ночь знакомства';
+    return '${c.phase.title}${c.round > 0 ? ' ${c.round}' : ''}';
+  }
+
+  /// Строка «живых N из M» и карточка момента от ведущего.
+  /// Одинаковы у всех игроков — по ним нельзя понять роль.
+  List<Widget> _tableStatus() {
+    final story = StoryDeck.byId(c.storyId);
+    return [
+      if (c.totalCount > 0)
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(
+            'Живых: ${c.aliveCount} из ${c.totalCount}',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 12.5, color: AppColors.dim),
+          ),
+        ),
+      if (story != null) ...[
+        const SizedBox(height: 10),
+        InfoCard(
+          icon: Icons.movie_filter_outlined,
+          text: '${story.title}. ${story.line}',
+          color: AppColors.accent2,
+        ),
+      ],
+    ];
+  }
+
   /// Экран, когда игрок в этой фазе не действует.
   Widget _buildPassive() {
     if (c.actionSent) {
@@ -306,11 +355,13 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
     }
 
     final isNight = c.phase == GamePhase.night;
+    final lastWord = c.lastWordName != null;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 40),
       child: Column(
         children: [
-          Text(isNight ? '😴' : '💬', style: const TextStyle(fontSize: 60)),
+          Text(lastWord ? '🎤' : (isNight ? '😴' : '💬'),
+              style: const TextStyle(fontSize: 60)),
           const SizedBox(height: 10),
           Text(
             c.prompt,
@@ -320,9 +371,13 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 30),
             child: Text(
-              isNight
-                  ? 'Город засыпает. Ваша роль сейчас не действует.'
-                  : 'Обсуждайте вслух. Скоро голосование.',
+              lastWord
+                  ? 'Слушайте. Обсуждение закончено — после слова наступит ночь.'
+                  : isNight
+                      ? (c.introNight
+                          ? 'Ночь знакомства: сегодня никто не погибает.'
+                          : 'Город засыпает. Ваша роль сейчас не действует.')
+                      : 'Обсуждайте вслух. Скоро голосование.',
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 13, color: AppColors.dim),
             ),
@@ -356,9 +411,21 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
             children: [
               const Text('☠️', style: TextStyle(fontSize: 42)),
               const SizedBox(height: 6),
-              const Text('Вы выбыли из игры',
-                  style:
-                      TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+              Text(
+                  c.lastWordIsMe
+                      ? 'Ваше последнее слово'
+                      : 'Вы выбыли из игры',
+                  style: const TextStyle(
+                      fontSize: 19, fontWeight: FontWeight.bold)),
+              if (c.lastWordIsMe)
+                const Padding(
+                  padding: EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Говорите, пока идёт таймер. Роль называть не обязательно.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 13),
+                  ),
+                ),
               const SizedBox(height: 4),
               Text(
                 'Ваша роль: ${c.roleEmoji ?? ''} ${c.roleName ?? '—'}',
@@ -369,10 +436,11 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
         ),
         const SizedBox(height: 12),
         PhaseBanner(
-          title: '${c.phase.title}${c.round > 0 ? ' ${c.round}' : ''}',
+          title: _phaseTitle(),
           right: formatTime(c.timeLeft),
           isNight: c.phase == GamePhase.night,
         ),
+        ..._tableStatus(),
         const SizedBox(height: 16),
         const Text('Лог событий',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),

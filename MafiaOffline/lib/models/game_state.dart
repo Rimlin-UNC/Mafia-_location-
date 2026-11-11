@@ -64,6 +64,45 @@ class NightOutcome {
   }
 }
 
+/// Одна проверка комиссара: кто проверял, кого и что получил.
+///
+/// До 1.2.0 результат жил только в логе ведущего строкой текста. Отдельная
+/// запись нужна, чтобы отдать комиссару ЕГО проверки после переподключения,
+/// не разбирая лог и не показывая чужое (если комиссаров двое).
+class CheckRecord {
+  final int round;
+  final String commissionerId;
+  final String targetId;
+  final bool isMafia;
+
+  const CheckRecord({
+    required this.round,
+    required this.commissionerId,
+    required this.targetId,
+    required this.isMafia,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'round': round,
+        'by': commissionerId,
+        'target': targetId,
+        'isMafia': isMafia,
+      };
+
+  static CheckRecord? tryParse(Object? raw) {
+    if (raw is! Map) return null;
+    final by = raw['by'];
+    final target = raw['target'];
+    if (by is! String || target is! String) return null;
+    return CheckRecord(
+      round: raw['round'] is int ? raw['round'] as int : 0,
+      commissionerId: by,
+      targetId: target,
+      isMafia: raw['isMafia'] == true,
+    );
+  }
+}
+
 /// Полное состояние партии. Неизменяемое: любое изменение — через copyWith.
 class GameState {
   final String id;
@@ -115,6 +154,29 @@ class GameState {
   /// Нужно для карточки «город не может решить».
   final int noDeathsStreak;
 
+  // ---------- правила стола (v1.2.0) ----------
+
+  /// «Первая ночь — знакомство»: в первую ночь никто не погибает.
+  /// Мафия узнаёт своих, комиссар делает первую проверку, остальные спят.
+  /// По умолчанию выключено — как играли до 1.2.0.
+  final bool introNight;
+
+  /// Давать выбывшему голосованием последнее слово
+  /// ([Rules.lastWordSeconds] секунд по таймеру).
+  final bool lastWord;
+
+  /// Комиссар видит результат своей проверки на собственном экране
+  /// (в «Моя роль»). Выключено — результат знает только ведущий и сообщает
+  /// его сам, как в 1.1.0.
+  final bool privateCheck;
+
+  /// Кто сейчас говорит последнее слово. null — никто.
+  /// Фаза при этом [GamePhase.day]: никто не голосует и не ходит.
+  final String? lastWordId;
+
+  /// Все состоявшиеся проверки комиссара за партию.
+  final List<CheckRecord> checks;
+
   const GameState({
     required this.id,
     required this.name,
@@ -140,6 +202,11 @@ class GameState {
     this.storyId,
     this.storySeen = const [],
     this.noDeathsStreak = 0,
+    this.introNight = false,
+    this.lastWord = true,
+    this.privateCheck = true,
+    this.lastWordId,
+    this.checks = const [],
   });
 
   GameState copyWith({
@@ -164,6 +231,12 @@ class GameState {
     String? storyId,
     List<String>? storySeen,
     int? noDeathsStreak,
+    bool? introNight,
+    bool? lastWord,
+    bool? privateCheck,
+    String? lastWordId,
+    List<CheckRecord>? checks,
+    bool clearLastWord = false,
     bool clearStory = false,
     bool clearPendingNight = false,
     bool clearLastHealed = false,
@@ -194,6 +267,11 @@ class GameState {
       storyId: clearStory ? null : (storyId ?? this.storyId),
       storySeen: storySeen ?? this.storySeen,
       noDeathsStreak: noDeathsStreak ?? this.noDeathsStreak,
+      introNight: introNight ?? this.introNight,
+      lastWord: lastWord ?? this.lastWord,
+      privateCheck: privateCheck ?? this.privateCheck,
+      lastWordId: clearLastWord ? null : (lastWordId ?? this.lastWordId),
+      checks: checks ?? this.checks,
     );
   }
 
@@ -213,10 +291,34 @@ class GameState {
 
   String nameOf(String? id) => byId(id)?.name ?? '—';
 
+  /// Идёт ли сейчас «ночь знакомства»: настройка включена и это первая ночь.
+  ///
+  /// Проверяем именно фазу и номер раунда, а не «ещё никто не погиб»:
+  /// во второй ночи тоже может не быть погибших, но убивать уже можно.
+  bool get isIntroNight =>
+      introNight && phase == GamePhase.night && round == 1;
+
+  /// Ходит ли этот игрок текущей ночью.
+  ///
+  /// Единственное место, где решается «кто активен»: по нему считаются
+  /// таймер ночи, список ожидаемых ходов и допуск действия на сервере.
+  /// В ночь знакомства ходит только комиссар — убийцам некого убивать,
+  /// доктору некого спасать, а блокировать единственную проверку значило
+  /// бы отнять у города то немногое, что эта ночь ему даёт.
+  bool actsTonight(Player p) {
+    if (!p.isAlive) return false;
+    final role = p.role;
+    if (role == null || !role.isActiveAtNight) return false;
+    if (isIntroNight) return role.type == RoleType.commissioner;
+    return true;
+  }
+
   /// Живые игроки, которые должны ходить этой ночью.
-  List<Player> get nightActive => players
-      .where((p) => p.isAlive && (p.role?.isActiveAtNight ?? false))
-      .toList();
+  List<Player> get nightActive => players.where(actsTonight).toList();
+
+  /// Проверки, которые сделал конкретный комиссар (для его экрана).
+  List<CheckRecord> checksBy(String playerId) =>
+      checks.where((c) => c.commissionerId == playerId).toList();
 
   List<Player> get mafiaTeam => players
       .where((p) =>
@@ -291,21 +393,6 @@ class GameState {
 
   /// Проверка победы. Возвращает null, если партия продолжается.
   ///
-  /// Правило простое — играем до последнего:
-  ///
-  ///   * **город побеждает**, когда вся мафия выбыла. Неважно, сколько
-  ///     горожан осталось и какие у них роли;
-  ///   * **мафия побеждает**, когда против неё остался один человек.
-  ///     Дальше играть бессмысленно: ночью мафия его убьёт, а днём его
-  ///     одинокого голоса не хватит, чтобы кого-то выгнать.
-  ///
-  /// Ситуация «трое на трое» победой НЕ считается: у города ещё есть
-  /// дневное голосование, и он вполне может переломить ход партии.
-  /// Именно поэтому состав на 6 игроков (дон + 2 мафии против доктора,
-  /// комиссара и проститутки) — честный, а не заведомо проигрышный.
-  ///
-  /// Маньяк относится к мирным жителям: он тоже голосует днём и
-  /// заинтересован в победе над мафией, просто по ночам убивает.
   /// Классические условия победы (с версии 1.1.0).
   ///
   /// Порядок проверок определяет, кто получает победу в спорном раскладе:

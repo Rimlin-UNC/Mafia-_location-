@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/constants.dart';
 import '../../host/host_controller.dart';
 import '../theme.dart';
 
@@ -139,6 +140,16 @@ class _VotingSheetState extends State<VotingSheet> {
                         Navigator.pop(context);
                         c.confirmElimination(leaders.first);
                       },
+                    ),
+                  if (leaders.length == 1 && s.lastWord)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 6),
+                      child: Text(
+                        'После подтверждения — последнее слово, '
+                        '${Rules.lastWordSeconds} секунд, затем ночь.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 12, color: AppColors.dim),
+                      ),
                     ),
                   const SizedBox(height: 8),
                   OutlinedButton(

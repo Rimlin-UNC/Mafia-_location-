@@ -221,6 +221,21 @@ class GameEngine {
   static NightOutcome resolveNight(GameState s, {Random? random}) {
     final rnd = random ?? Random.secure();
 
+    // Ночь знакомства (v1.2.0): никто не погибает, никого не лечат и не
+    // блокируют — считается только проверка комиссара. Правило стоит
+    // ЗДЕСЬ, а не только в списке целей на экране: даже если клиент
+    // пришлёт ход убийцы, движок его не применит.
+    if (s.isIntroNight) {
+      final com = s.commissioner;
+      final checked = com == null ? null : s.nightActions[com.id];
+      return NightOutcome(
+        checkedId: checked,
+        checkResultIsMafia: checked == null
+            ? null
+            : s.byId(checked)?.role?.type == RoleType.mafia,
+      );
+    }
+
     // 1. Проститутка блокирует цель — её ход аннулируется.
     String? blockedId;
     final pros = s.prostitute;
@@ -295,6 +310,10 @@ class GameEngine {
 
   /// Текст для оглашения ведущим вслух.
   static String announcement(GameState s, NightOutcome o) {
+    if (s.isIntroNight) {
+      return 'Город просыпается. Это была ночь знакомства: все живы. '
+          'Но мафия уже знает своих.';
+    }
     if (o.killedIds.isEmpty) {
       return 'Город просыпается. Этой ночью обошлось без жертв.';
     }
@@ -302,6 +321,88 @@ class GameEngine {
     return 'Город просыпается. Этой ночью мы потеряли: $names.';
   }
 }
+
+/// Правила стола — то, о чём ведущий договорился с игроками при создании
+/// партии. Собраны в одном месте, чтобы экран ведущего, пакет для игроков
+/// и протокол партии называли их одинаково.
+class TableRules {
+  /// Строки для показа человеку: только включённые правила плюс те,
+  /// выключение которых меняет привычный ход игры.
+  static List<String> describe(GameState s) => describeWire(toWire(s));
+
+  /// Те же строки из пакета `lobby.rules` — для экрана игрока, у которого
+  /// нет [GameState]. Один текст на обе стороны: ведущий и игрок читают
+  /// одни и те же формулировки, спорить о словах не приходится.
+  ///
+  /// Пакета нет (ведущий на 1.1.x) — список пустой, и раздел не рисуется.
+  /// Отсутствующий ключ читается как «выключено»: клиент не должен
+  /// обещать игроку правило, о котором ведущий ничего не сказал.
+  static List<String> describeWire(Map<String, dynamic>? wire) {
+    final w = wire;
+    if (w == null) return const [];
+    bool on(String key) => w[key] == true;
+    final seconds = w['lastWordSeconds'];
+    return [
+      on('openCards')
+          ? 'Карта выбывшего открывается сразу'
+          : 'Карта выбывшего закрыта до конца партии',
+      if (on('introNight')) 'Первая ночь — знакомство: никто не погибает',
+      if (on('lastWord'))
+        'Выбывшему голосованием — последнее слово, '
+            '${seconds is int ? seconds : Rules.lastWordSeconds} секунд',
+      on('privateCheck')
+          ? 'Комиссар видит результат проверки у себя в «Моя роль»'
+          : 'Результат проверки комиссару сообщает ведущий',
+    ];
+  }
+
+  /// То же самое для клиента: он сам решает, как это показать.
+  static Map<String, dynamic> toWire(GameState s) => {
+        'openCards': s.openCards,
+        'introNight': s.introNight,
+        'lastWord': s.lastWord,
+        'lastWordSeconds': Rules.lastWordSeconds,
+        'privateCheck': s.privateCheck,
+      };
+}
+
+/// Запись о проверке комиссара по итогам ночи или null, если проверки
+/// не было (комиссара нет, он заблокирован или пропустил ход).
+///
+/// [s] — состояние ДО применения смертей этой ночи: комиссар, убитый
+/// той же ночью, проверку всё равно сделал (в классике он узнаёт результат
+/// ночью, а не утром).
+CheckRecord? checkRecordFor(GameState s, NightOutcome o) {
+  final target = o.checkedId;
+  if (target == null) return null;
+  final com = s.commissioner;
+  if (com == null) return null;
+  return CheckRecord(
+    round: s.round,
+    commissionerId: com.id,
+    targetId: target,
+    isMafia: o.checkResultIsMafia == true,
+  );
+}
+
+/// Проверки комиссара в виде, готовом к отправке ему на экран.
+/// Имена подставляются в момент отправки: ведущий мог переименовать игрока.
+List<Map<String, dynamic>> checksWireFor(GameState s, String playerId) => [
+      for (final c in s.checksBy(playerId))
+        {
+          'round': c.round,
+          'name': s.nameOf(c.targetId),
+          'isMafia': c.isMafia,
+        },
+    ];
+
+/// Нужно ли давать последнее слово после голосования.
+///
+/// Только если правило включено и партия продолжается: когда изгнание
+/// решило исход, сразу показываем финал — речь «после титров» никому
+/// не нужна.
+bool shouldGiveLastWord(GameState afterElimination) =>
+    afterElimination.lastWord && afterElimination.checkWinner() == null;
 
 /// Что делать с запросом регистрации. Вынесено из `HostController`, чтобы
 /// правило «свой слот» можно было проверить тестом без запуска сервера.

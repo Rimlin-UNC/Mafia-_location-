@@ -59,6 +59,7 @@
   <header class="bar">
     <b id="lobby-title">Ожидание игры</b>
     <span id="lobby-count" class="dim"></span>
+    <button id="btn-rules-lobby" class="chip">Правила</button>
   </header>
   <div class="wrap">
     <div class="hero small">
@@ -94,6 +95,7 @@
     <b id="game-title">Мафия</b>
     <div class="bar-right">
       <button id="btn-mute" class="chip icon" title="Звук">🔊</button>
+      <button id="btn-rules" class="chip icon" title="Правила">📖</button>
       <button id="btn-myrole" class="chip">Моя роль</button>
     </div>
   </header>
@@ -104,6 +106,11 @@
       <b id="phase-name">Ночь</b>
       <span id="phase-timer" class="timer">--:--</span>
     </div>
+
+    <!-- Общая картина стола: одинакова у всех, роль по ней не понять. -->
+    <button id="table-line" class="table-line hidden" type="button">
+      <span id="table-count"></span><span class="tl-more">кто за столом ›</span>
+    </button>
 
     <div id="banner" class="alert hidden"></div>
 
@@ -157,7 +164,7 @@
     <div id="dead-area" class="hidden">
       <div class="card dead-card">
         <div class="emoji">☠️</div>
-        <h2>Вы выбыли из игры</h2>
+        <h2 id="dead-title">Вы выбыли из игры</h2>
         <p id="dead-role" class="dim"></p>
       </div>
       <h3 class="prompt">Лог событий</h3>
