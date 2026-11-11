@@ -82,6 +82,7 @@ class SessionStore {
         'round': s.round,
         'timeLeft': s.timeLeft,
         'lastHealedId': s.lastHealedId,
+        'openCards': s.openCards,
         'roleSetup': {
           for (final e in s.roleSetup.entries) e.key.name: e.value,
         },
@@ -161,6 +162,8 @@ class SessionStore {
       timeLeft: m['timeLeft'] as int? ?? 0,
       paused: true,
       lastHealedId: m['lastHealedId'] as String?,
+      // Старые сохранения поля не знают — считаем карту закрытой.
+      openCards: m['openCards'] as bool? ?? false,
       roleSetup: setup,
       players: players,
       log: log,

@@ -5,7 +5,7 @@ import random
 
 MAFIA,DON,DOCTOR,COM,PROS,MANIAC,CIV='mafia','don','doctor','commissioner','prostitute','maniac','civilian'
 # Маньяк — мирный житель: голосует днём и заинтересован в победе над мафией.
-SIDE={MAFIA:'mafia',DON:'mafia',DOCTOR:'civ',COM:'civ',PROS:'civ',CIV:'civ',MANIAC:'civ'}
+SIDE={MAFIA:'mafia',DON:'mafia',DOCTOR:'civ',COM:'civ',PROS:'civ',CIV:'civ',MANIAC:'solo'}
 NIGHT_ACTIVE={MAFIA,DON,DOCTOR,COM,PROS,MANIAC}
 WAITING,NIGHT,DAY,VOTING,ENDED='waiting','night','day','voting','ended'
 COLORS=['#FF5733','#33FF57','#3357FF','#FF33A1','#FFD733','#33FFF5','#F533FF','#F5A623',
@@ -229,14 +229,18 @@ class Game:
 
     # ---------- победа ----------
     def check_winner(s):
-        """Играем до последнего: город — пока есть мафия, мафия — пока
-        против неё больше одного игрока."""
+        """Классические условия победы (v1.1.0).
+
+        Маньяк — одиночка: побеждает, оставшись один. Мафия побеждает при
+        равенстве с городом, а не только когда против неё один игрок."""
         al = s.alive
         if not al: return 'nobody'
         m = sum(1 for p in al if SIDE[p.role] == 'mafia')
-        others = len(al) - m
-        if m == 0: return 'civilians'
-        if others <= 1: return 'mafia'
+        k = sum(1 for p in al if SIDE[p.role] == 'solo')
+        civ = len(al) - m - k
+        if k > 0 and m == 0 and civ == 0: return 'maniac'
+        if m == 0 and k == 0: return 'civilians'
+        if m > 0 and m >= civ: return 'mafia'
         return None
 
     def check_game_over(s):

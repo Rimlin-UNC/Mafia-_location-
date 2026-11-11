@@ -49,8 +49,24 @@ void main() {
         actions: {'m1': 'c1', 'd1': 'd1'},
       );
       final o = GameEngine.resolveNight(s, random: rnd);
+      // Классика (v1.1.0): доктор себя не лечит. Даже если клиент прислал
+      // себя целью, лечение не срабатывает — правило на сервере.
       expect(o.killedIds, ['c1']);
-      expect(o.healedId, 'd1');
+      expect(o.healedId, isNull);
+    });
+
+    test('доктор не спасает сам себя', () {
+      final s = buildState(
+        spec: [
+          (id: 'm1', role: RoleType.don, alive: true),
+          (id: 'd1', role: RoleType.doctor, alive: true),
+          (id: 'c1', role: RoleType.civilian, alive: true),
+        ],
+        actions: {'m1': 'd1', 'd1': 'd1'},
+      );
+      final o = GameEngine.resolveNight(s, random: rnd);
+      expect(o.healedId, isNull);
+      expect(o.killedIds, contains('d1'));
     });
 
     test('доктор спасает цель мафии', () {
@@ -169,7 +185,7 @@ void main() {
     });
   });
 
-  group('Условия победы — играем до последнего', () {
+  group('Условия победы — классические (v1.1.0)', () {
     test('город побеждает, когда мафии не осталось', () {
       final s = buildState(spec: [
         (id: 'c1', role: RoleType.civilian, alive: true),
@@ -179,28 +195,56 @@ void main() {
       expect(s.checkWinner(), WinnerSide.civilians);
     });
 
-    test('город побеждает, даже если маньяк ещё жив', () {
-      // Маньяк — мирный житель, его выживание победе города не мешает.
+    test('город НЕ победил, пока жив маньяк', () {
+      // Отличие от 1.0.4: маньяк больше не «свой». Он одиночка,
+      // и партия продолжается, пока он на столе.
       final s = buildState(spec: [
         (id: 'man', role: RoleType.maniac, alive: true),
         (id: 'c1', role: RoleType.civilian, alive: true),
         (id: 'm1', role: RoleType.don, alive: false),
       ]);
-      expect(s.checkWinner(), WinnerSide.civilians);
+      expect(s.checkWinner(), isNull);
     });
 
-    test('мафия побеждает, когда против неё остался один игрок', () {
+    test('маньяк побеждает, оставшись один', () {
+      final s = buildState(spec: [
+        (id: 'man', role: RoleType.maniac, alive: true),
+        (id: 'c1', role: RoleType.civilian, alive: false),
+        (id: 'm1', role: RoleType.don, alive: false),
+      ]);
+      expect(s.checkWinner(), WinnerSide.maniac);
+    });
+
+    test('маньяк и мирный — партия продолжается', () {
+      final s = buildState(spec: [
+        (id: 'man', role: RoleType.maniac, alive: true),
+        (id: 'c1', role: RoleType.civilian, alive: true),
+      ]);
+      expect(s.checkWinner(), isNull);
+    });
+
+    test('мафия побеждает при равенстве с городом', () {
+      // Классика: 1 мафия и 1 мирный — город уже не может выгнать мафию.
       final s = buildState(spec: [
         (id: 'm1', role: RoleType.don, alive: true),
         (id: 'c1', role: RoleType.civilian, alive: true),
-        (id: 'c2', role: RoleType.civilian, alive: false),
       ]);
       expect(s.checkWinner(), WinnerSide.mafia);
     });
 
-    test('состав 3 на 3 — партия продолжается', () {
-      // Ключевой случай: 6 игроков, дон + 2 мафии против доктора,
-      // комиссара и проститутки. Шансы равны, у города есть голосование.
+    test('мафия побеждает при перевесе', () {
+      final s = buildState(spec: [
+        (id: 'm1', role: RoleType.don, alive: true),
+        (id: 'm2', role: RoleType.mafia, alive: true),
+        (id: 'c1', role: RoleType.civilian, alive: true),
+      ]);
+      expect(s.checkWinner(), WinnerSide.mafia);
+    });
+
+    test('состав 3 на 3 — победа мафии', () {
+      // В 1.0.x этот расклад продолжался до последнего игрока. В классике
+      // равенство уже победа мафии: город не может переголосовать.
+      // Такой состав ловится предупреждением баланса на экране настройки.
       final s = buildState(spec: [
         (id: 'don', role: RoleType.don, alive: true),
         (id: 'm1', role: RoleType.mafia, alive: true),
@@ -209,35 +253,29 @@ void main() {
         (id: 'com', role: RoleType.commissioner, alive: true),
         (id: 'pro', role: RoleType.prostitute, alive: true),
       ]);
-      expect(s.checkWinner(), isNull);
+      expect(s.checkWinner(), WinnerSide.mafia);
     });
 
-    test('2 на 2 — тоже продолжается', () {
+    test('2 мафии на 3 мирных — партия продолжается', () {
       final s = buildState(spec: [
         (id: 'don', role: RoleType.don, alive: true),
         (id: 'm1', role: RoleType.mafia, alive: true),
         (id: 'doc', role: RoleType.doctor, alive: true),
         (id: 'com', role: RoleType.commissioner, alive: true),
+        (id: 'pro', role: RoleType.prostitute, alive: true),
       ]);
       expect(s.checkWinner(), isNull);
     });
 
-    test('маньяк считается мирным при подсчёте', () {
-      // 1 мафия против маньяка и мирного — двое против одного, играем.
+    test('маньяк не считается городом при подсчёте перевеса', () {
+      // 1 мафия, 1 маньяк, 1 мирный: мафия НЕ побеждает — маньяк не её
+      // противник в этом счёте, но и не союзник города.
       final s = buildState(spec: [
         (id: 'm1', role: RoleType.don, alive: true),
         (id: 'man', role: RoleType.maniac, alive: true),
         (id: 'c1', role: RoleType.civilian, alive: true),
       ]);
-      expect(s.checkWinner(), isNull);
-    });
-
-    test('маньяк один против мафии — победа мафии', () {
-      final s = buildState(spec: [
-        (id: 'm1', role: RoleType.don, alive: true),
-        (id: 'man', role: RoleType.maniac, alive: true),
-        (id: 'c1', role: RoleType.civilian, alive: false),
-      ]);
+      // mafia=1, civilians=1 -> мафия сравнялась с городом.
       expect(s.checkWinner(), WinnerSide.mafia);
     });
 
@@ -420,12 +458,14 @@ void main() {
           contains('мирного'));
     });
 
-    test('маньяк побеждает вместе с городом, а не в одиночку', () {
+    test('маньяку честно сказано: он побеждает только один', () {
+      // Правило вернулось к классике в 1.1.0: раньше памятка обещала
+      // ему победу вместе с городом, и игрок играл по неверным правилам.
       final g = RoleGuide.of(RoleType.maniac);
-      expect(g.winCondition.toLowerCase(), contains('город'));
-      expect(g.winCondition.toLowerCase(), isNot(contains('один на один')));
-      // Днём он такой же житель: голосует и ищет мафию.
-      expect(g.atDay.toLowerCase(), contains('голосуе'));
+      expect(g.winCondition.toLowerCase(), contains('единственным'));
+      expect(g.goal.toLowerCase(), contains('за себя'));
+      // Днём он маскируется под горожанина, а не «ищет мафию за город».
+      expect(g.atDay.toLowerCase(), contains('обычный житель'));
     });
   });
 

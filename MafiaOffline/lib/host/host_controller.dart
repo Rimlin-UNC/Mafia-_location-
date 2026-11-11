@@ -70,6 +70,7 @@ class HostController extends ChangeNotifier {
     required String name,
     required int plannedPlayers,
     required Map<RoleType, int> setup,
+    bool openCards = false,
   }) async {
     // Состав проверяем на сервере, а не только на экране: в будущем
     // сюда смогут прийти значения из пресета или из автоматизации.
@@ -92,6 +93,7 @@ class HostController extends ChangeNotifier {
       plannedPlayers: plannedPlayers,
       roleSetup: Map<RoleType, int>.from(setup),
       phase: GamePhase.waiting,
+      openCards: openCards,
     );
 
     try {
@@ -889,6 +891,13 @@ class HostController extends ChangeNotifier {
       'killed': outcome.killedIds,
       'killedNames': outcome.killedIds.map(s.nameOf).toList(),
       'text': GameEngine.announcement(s, outcome),
+      // Классика: при выбывании карта открывается. Настройка — на столе
+      // ведущего, по умолчанию закрыта.
+      if (s.openCards)
+        'revealed': {
+          for (final id in outcome.killedIds)
+            id: s.byId(id)?.role?.type.name,
+        },
     }));
 
     // Персональные уведомления погибшим.
@@ -1006,6 +1015,9 @@ class HostController extends ChangeNotifier {
       'eliminated': playerId,
       'eliminatedName': s.nameOf(playerId),
       'tie': false,
+      // Открытая карта: роль выбывшего видна всем сразу.
+      if (s.openCards)
+        'revealedRole': s.byId(playerId)?.role?.name,
     }));
     server.sendTo(playerId,
         Envelope(Msg.eliminated, {'reason': 'vote', 'round': s.round}));
@@ -1162,7 +1174,11 @@ class HostController extends ChangeNotifier {
         candidates = candidates.where((c) =>
             c.role?.type != RoleType.mafia && c.role?.type != RoleType.don);
       }
-      if (type == RoleType.prostitute || type == RoleType.commissioner) {
+      // Себя не выбирают: проститутка, комиссар и доктор (классика —
+      // доктор себя не лечит, см. resolveNight).
+      if (type == RoleType.prostitute ||
+          type == RoleType.commissioner ||
+          type == RoleType.doctor) {
         candidates = candidates.where((c) => c.id != p.id);
       }
       if (type == RoleType.doctor && s.lastHealedId != null) {
