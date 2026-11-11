@@ -1,7 +1,7 @@
 name: mafia_offline
 description: "Мафия Offline — игра по локальной сети. Ведущий поднимает сервер прямо на телефоне."
 publish_to: 'none'
-version: 1.3.0+9
+version: 1.4.0+10
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
