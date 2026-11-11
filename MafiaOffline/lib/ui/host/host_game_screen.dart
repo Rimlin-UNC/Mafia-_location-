@@ -142,9 +142,11 @@ class _HostGameScreenState extends State<HostGameScreen> {
               PhaseBanner(
                 title: s.lastWordId != null
                     ? 'Последнее слово'
-                    : s.isIntroNight
-                        ? 'Ночь знакомства'
-                        : s.phase.title,
+                    : s.isVerdictVote
+                        ? 'Повторное голосование'
+                        : s.isIntroNight
+                            ? 'Ночь знакомства'
+                            : s.phase.title,
                 right: s.phase == GamePhase.rolesCheck
                     ? '${s.players.length - s.unacknowledged.length}'
                         ' из ${s.players.length} готовы'
@@ -270,11 +272,14 @@ class _HostGameScreenState extends State<HostGameScreen> {
                     colorHex: p.colorHex,
                     alive: p.isAlive,
                     highlighted: isNight && s.actsTonight(p) ||
-                        p.id == s.lastWordId,
+                        p.id == s.lastWordId ||
+                        p.id == s.verdictId,
                     subtitle: _revealRoles && p.role != null
                         ? '${p.role!.emoji} ${p.role!.name}'
                         : (p.id == s.lastWordId
                             ? 'говорит последнее слово'
+                            : p.id == s.verdictId
+                            ? 'ждёт решения стола'
                             : !p.isAlive
                             ? 'выбыл'
                             : p.role == null
@@ -439,7 +444,7 @@ class _HostGameScreenState extends State<HostGameScreen> {
   }
 
   String _forceLabel(GameState s) {
-    if (s.lastWordId != null) return 'Слово сказано → начать ночь';
+    if (s.lastWordId != null) return 'Слово сказано → голосовать ещё раз';
     if (s.isIntroNight) return 'Разбудить город';
     switch (s.phase) {
       case GamePhase.rolesCheck:
@@ -460,6 +465,10 @@ class _HostGameScreenState extends State<HostGameScreen> {
     if (p == null) return null;
     if (p.id == s.lastWordId) {
       return const Text('🎤', style: TextStyle(fontSize: 14));
+    }
+    // В повторном голосовании обвиняемый не голосует — «ждём» ему не ставим.
+    if (p.id == s.verdictId) {
+      return const Text('⚖', style: TextStyle(fontSize: 14));
     }
     if (!p.isAlive) return const Text('☠', style: TextStyle(fontSize: 14));
     if (!p.isConnected) return const StatusDot(AppColors.bad);

@@ -127,6 +127,9 @@ async function dealRole(page, role, roleName) {
   check('показаны правила этого стола', rules.includes('ПРАВИЛА ЭТОГО СТОЛА'));
   check('ночь знакомства названа', rules.includes('знакомство'));
   check('последнее слово названо с длительностью', rules.includes('30 секунд'));
+  check('правило стола: повторное голосование', rules.includes('стол может оставить игрока'));
+  check('правило стола: комиссар видит ответ сразу', rules.includes('сразу, как выберет игрока'));
+  check('общие правила: поровну — остаётся', rules.includes('поровну — остаётся'));
   check('названа ничья', rules.includes('Ничья'));
   check('условие победы мафии — равенство, а не «остался один»',
     rules.includes('столько же') && !rules.includes('не больше одного'));
@@ -152,12 +155,26 @@ async function dealRole(page, role, roleName) {
   p.click('btn-send');
   check('ход ушёл хосту', p.sent.some((m) => m.type === 'night_action' && m.targetId === 'p1'));
   p.push('ack', { accepted: true });
-  check('комиссару сказано, где искать ответ', p.text('idle-sub').includes('Моя роль'));
+  check('до ответа — обычное «Ваш выбор принят»', p.text('idle-text') === 'Ваш выбор принят');
+
+  // ------------------------------------------ ответ на проверку — сразу
+  console.log('\nКомиссар видит ответ сразу, как выбрал игрока (FR-9.7)');
+  p.buzz.length = 0;
+  p.push('check_result', { round: 1, name: 'Борис', isMafia: true });
+  check('ответ на ночном экране — «Борис — МАФИЯ»', p.visible('idle-area') && p.text('idle-text') === 'Борис — МАФИЯ');
+  check('сказано, что проверка одна за ночь', p.text('idle-sub').includes('Одна проверка за ночь'));
+  check('сказано, где ответ будет утром', p.text('idle-sub').includes('Моя роль'));
+  check('ответ пришёл без вибрации', p.buzz.length === 0);
+  check('ответ пришёл без баннера', !p.text('banner').includes('Борис'));
+  check('выбрать второго игрока нельзя', !p.visible('action-area') && !p.visible('game-foot'));
+  p.click('btn-disguise');
+  check('маскировка прячет ответ с ночного экрана', !p.text('game-body').includes('МАФИЯ'));
+  p.click('btn-disguise');
+  check('без маскировки ответ снова виден', p.text('idle-text') === 'Борис — МАФИЯ');
 
   // --------------------------------------------------- результат проверки
-  console.log('\nРезультат проверки — только в «Моя роль» (FR-9.3)');
+  console.log('\nДнём результат проверки — только в «Моя роль» (FR-9.3)');
   p.push('night_result', { round: 1, killed: [], killedNames: [], text: 'Это была ночь знакомства: все живы.' });
-  p.push('check_result', { round: 1, name: 'Борис', isMafia: true });
   p.push('phase', {
     phase: 'day', round: 1, time: 180, paused: false, isAlive: true, canAct: false,
     prompt: 'Обсуждайте', alive: 4, total: 4, intro: false, lastWord: null, targets: [],
@@ -174,11 +191,22 @@ async function dealRole(page, role, roleName) {
   check('памятка: город должен убрать и маньяка', sheet.includes('ни маньяка'));
   p.click('sheet-close');
 
-  // Маскировка: шторка изображает мирного — проверок в ней быть не должно.
+  // Вторая ночь: ответ прошлой ночи на экран не возвращается.
   p.push('phase', {
-    phase: 'night', round: 2, time: 60, paused: false, isAlive: true, canAct: false,
-    prompt: 'Спите', alive: 4, total: 4, intro: false, lastWord: null, targets: [],
+    phase: 'night', round: 2, time: 60, paused: false, isAlive: true, canAct: true,
+    prompt: 'Кого проверить?', alive: 4, total: 4, intro: false, lastWord: null,
+    targets: PLAYERS.slice(1).map(({ id, name, color }) => ({ id, name, color })),
   });
+  check('новая ночь — снова выбор, старого ответа нет',
+    p.visible('action-area') && !p.text('game-body').includes('МАФИЯ'));
+  p.$('targets').children[1].click();
+  p.click('btn-send');
+  // Комиссара заблокировала проститутка.
+  p.push('check_result', { round: 2, name: 'Вика', isMafia: false, blocked: true });
+  check('заблокирован — «Проверка не состоялась»', p.text('idle-text') === 'Проверка не состоялась');
+  check('роль цели заблокированному не названа', !/мафия/i.test(p.text('idle-text') + p.text('idle-sub')));
+
+  // Маскировка: шторка изображает мирного — проверок в ней быть не должно.
   p.click('btn-disguise');
   p.click('btn-myrole');
   sheet = p.text('sheet-body');
@@ -188,16 +216,35 @@ async function dealRole(page, role, roleName) {
 
   // sync после перезагрузки страницы приносит проверки заново.
   p.push('sync', {
-    phase: 'day', round: 2, time: 100, paused: false, isAlive: true, canAct: false,
+    phase: 'day', round: 3, time: 100, paused: false, isAlive: true, canAct: false,
     alreadyActed: false, role: 'commissioner', roleName: 'Комиссар', roleEmoji: '🕵',
     roleAck: true, gameName: 'Тестовая партия', alive: 3, total: 4, intro: false,
     lastWord: null, targets: [], prompt: 'Обсуждайте',
-    checks: [{ round: 1, name: 'Борис', isMafia: true }, { round: 2, name: 'Вика', isMafia: false }],
+    checks: [
+      { round: 1, name: 'Борис', isMafia: true },
+      { round: 2, name: 'Вика', isMafia: false, blocked: true },
+      { round: 3, name: 'Вика', isMafia: false },
+    ],
   });
   p.click('btn-myrole');
   sheet = p.text('sheet-body');
-  check('после sync видны обе проверки', sheet.includes('Ночь 2: Вика') && sheet.includes('не мафия'));
+  check('после sync видны все проверки', sheet.includes('Ночь 3: Вика') && sheet.includes('не мафия'));
+  check('сорванная проверка помечена', sheet.includes('Ночь 2: вас заблокировали') && sheet.includes('не состоялась'));
   p.click('sheet-close');
+
+  // Перезагрузка страницы посреди ночи: ответ этой ночи возвращается из sync.
+  p.push('sync', {
+    phase: 'night', round: 4, time: 40, paused: false, isAlive: true, canAct: false,
+    alreadyActed: true, role: 'commissioner', roleName: 'Комиссар', roleEmoji: '🕵',
+    roleAck: true, gameName: 'Тестовая партия', alive: 3, total: 4, intro: false,
+    lastWord: null, targets: [], prompt: 'Кого проверить?',
+    checks: [{ round: 1, name: 'Борис', isMafia: true }, { round: 4, name: 'Глеб', isMafia: false }],
+  });
+  check('после перезагрузки ночью ответ на месте', p.text('idle-text') === 'Глеб — не мафия');
+  p.push('phase', {
+    phase: 'day', round: 4, time: 100, paused: false, isAlive: true, canAct: false,
+    prompt: 'Обсуждайте', alive: 3, total: 4, intro: false, lastWord: null, targets: [],
+  });
   check('счётчик обновился из sync', p.text('table-count') === 'Живых: 3 из 4');
 
   // ----------------------------------------------------------- список стола
@@ -216,37 +263,91 @@ async function dealRole(page, role, roleName) {
   // -------------------------------------------------------- последнее слово
   console.log('\nПоследнее слово (FR-9.2)');
   p.buzz.length = 0;
-  p.push('vote_result', { eliminated: 'p2', eliminatedName: 'Вика', tie: false });
+  // Стол выбрал Вику, но она ещё не выбыла: живых по-прежнему трое.
   p.push('phase', {
-    phase: 'day', round: 2, time: 30, paused: false, isAlive: true, canAct: false,
-    prompt: 'Последнее слово: Вика', alive: 2, total: 4, intro: false,
+    phase: 'day', round: 4, time: 30, paused: false, isAlive: true, canAct: false,
+    prompt: 'Последнее слово: Вика', alive: 3, total: 4, intro: false,
     lastWord: { id: 'p2', name: 'Вика' }, targets: [],
   });
   check('заголовок — «Последнее слово»', p.text('phase-name') === 'Последнее слово');
   check('названо, кто говорит', p.text('idle-sub').includes('Вика'));
+  check('сказано, что дальше — повторное голосование', p.text('idle-sub').includes('повторное голосование'));
+  check('говорящий ещё в игре: счётчик не изменился', p.text('table-count') === 'Живых: 3 из 4');
   check('голосовать и ходить нельзя', !p.visible('action-area') && !p.visible('game-foot'));
   check('вибро на начале последнего слова', p.buzz.length === 1);
   check('таймер показывает 30 секунд', p.text('phase-timer') === '00:30');
-  p.push('phase', {
-    phase: 'night', round: 3, time: 60, paused: false, isAlive: true, canAct: false,
-    prompt: 'Спите', alive: 2, total: 4, intro: false, lastWord: null, targets: [],
-  });
-  check('после слова — обычная «Ночь 3»', p.text('phase-name') === 'Ночь 3');
-  check('обычная ночь не названа знакомством', !p.text('idle-sub').includes('знакомств'));
 
-  // Выбывший говорит сам.
-  p.push('eliminated', { reason: 'vote', round: 3 });
+  // ------------------------------------------------- повторное голосование
+  console.log('\nПовторное голосование: выгнать или оставить (FR-9.8)');
+  const verdictPhase = (id, name, extra) => ({
+    phase: 'voting', round: 4, time: 30, paused: false, isAlive: true, canAct: true,
+    prompt: `Выгнать ${name} или оставить?`, alive: 3, total: 4, intro: false,
+    lastWord: null, verdict: { id, name }, targets: [{ id, name, color: '#33FF57' }],
+    ...(extra || {}),
+  });
+  p.sent.length = 0;
+  p.push('phase', verdictPhase('p2', 'Вика'));
+  check('заголовок — «Повторное голосование»', p.text('phase-name') === 'Повторное голосование');
+  check('вибро на начале повторного голосования', p.buzz.length === 2);
+  check('вопрос назван по имени', p.text('prompt').includes('Вика'));
+  check('список кандидатов скрыт — вопрос один', !p.visible('targets'));
+  check('правило подсчёта на экране', p.visible('verdict-note') && p.text('verdict-note').includes('Поровну — остаётся'));
+  check('кнопка «Выгнать: Вика» активна', p.text('btn-send') === 'Выгнать: Вика' && !p.$('btn-send').disabled);
+  check('кнопка «Оставить в игре»', p.text('btn-skip') === 'Оставить в игре');
+  p.click('btn-skip');
+  check('«оставить» — голос без кандидата', p.sent.some((m) => m.type === 'vote' && m.targetId === null));
+  check('второй раз проголосовать нельзя', !p.visible('game-foot'));
+  p.push('vote_result', { eliminated: null, tie: false, pardonedName: 'Вика' });
+  check('стол передумал — «Вика остаётся в игре»', p.text('banner').includes('Вика остаётся в игре'));
   p.push('phase', {
-    phase: 'day', round: 3, time: 30, paused: false, isAlive: false, canAct: false,
-    prompt: 'Ваше последнее слово', alive: 1, total: 4, intro: false,
+    phase: 'night', round: 5, time: 60, paused: false, isAlive: true, canAct: false,
+    prompt: 'Спите', alive: 3, total: 4, intro: false, lastWord: null, targets: [],
+  });
+  check('после помилования — обычная «Ночь 5»', p.text('phase-name') === 'Ночь 5');
+  check('обычная ночь не названа знакомством', !p.text('idle-sub').includes('знакомств'));
+  check('помилованная жива: счётчик прежний', p.text('table-count') === 'Живых: 3 из 4');
+
+  // Голос «выгнать» — обычный голос за единственного кандидата.
+  p.sent.length = 0;
+  p.push('phase', verdictPhase('p1', 'Борис', { round: 5 }));
+  p.click('btn-send');
+  check('«выгнать» — голос за обвиняемого', p.sent.some((m) => m.type === 'vote' && m.targetId === 'p1'));
+  p.push('vote_result', { eliminated: 'p1', eliminatedName: 'Борис', tie: false });
+  check('итог — «выбыл Борис»', p.text('banner').includes('выбыл Борис'));
+
+  // После повторного голосования обычное выглядит как раньше.
+  p.push('phase', {
+    phase: 'voting', round: 6, time: 60, paused: false, isAlive: true, canAct: true,
+    prompt: 'Кого отправляем из города?', alive: 2, total: 4, intro: false, lastWord: null,
+    targets: [{ id: 'p2', name: 'Вика', color: '#33FF57' }],
+  });
+  check('обычное голосование: список снова виден',
+    p.visible('targets') && !p.visible('verdict-note') && p.$('targets').children.length === 1);
+  check('обычное голосование: кнопки прежние',
+    p.text('btn-send') === 'Проголосовать' && p.$('btn-send').disabled && p.text('btn-skip') === 'Воздержаться');
+
+  // Стол выбрал меня: я говорю, а потом жду решения.
+  p.push('phase', {
+    phase: 'day', round: 6, time: 30, paused: false, isAlive: true, canAct: false,
+    prompt: 'Ваше последнее слово', alive: 2, total: 4, intro: false,
     lastWord: { id: 'p0', name: 'Аня' }, targets: [],
   });
-  check('выбывшему: «Ваше последнее слово»', p.visible('dead-area') && p.text('dead-title') === 'Ваше последнее слово');
+  check('говорящему: «Ваше последнее слово»', p.visible('idle-area') && p.text('idle-text') === 'Ваше последнее слово');
+  check('говорящий не на экране выбывшего', !p.visible('dead-area'));
+  check('говорящему сказано, что он ещё в игре', p.text('idle-sub').includes('Вы ещё в игре'));
+  p.push('phase', verdictPhase('p0', 'Аня', {
+    round: 6, canAct: false, targets: [], prompt: 'Стол решает вашу судьбу',
+  }));
+  check('обвиняемый не голосует', !p.visible('action-area') && !p.visible('game-foot'));
+  check('обвиняемому: «Стол решает вашу судьбу»', p.text('idle-text') === 'Стол решает вашу судьбу');
+  check('обвиняемому названо правило', p.text('idle-sub').includes('вы остаётесь в игре'));
+  p.push('vote_result', { eliminated: 'p0', eliminatedName: 'Аня', tie: false });
+  p.push('eliminated', { reason: 'vote', round: 6 });
   p.push('phase', {
-    phase: 'night', round: 4, time: 60, paused: false, isAlive: false, canAct: false,
+    phase: 'night', round: 7, time: 60, paused: false, isAlive: false, canAct: false,
     prompt: 'Вы выбыли из игры', alive: 1, total: 4, intro: false, lastWord: null, targets: [],
   });
-  check('после слова — обычный экран выбывшего', p.text('dead-title') === 'Вы выбыли из игры');
+  check('стол не поверил — обычный экран выбывшего', p.visible('dead-area') && p.text('dead-title') === 'Вы выбыли из игры');
 
   // ------------------------------------------------------------------ финал
   p.push('game_over', {

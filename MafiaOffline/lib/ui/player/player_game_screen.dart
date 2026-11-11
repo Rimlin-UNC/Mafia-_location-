@@ -210,6 +210,8 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
   Widget _buildActive() {
     final isNight = c.phase == GamePhase.night;
     final showTargets = c.canAct && c.targets.isNotEmpty && !c.actionSent;
+    // Повторное голосование: вопрос один — выгнать или оставить.
+    final isVerdict = c.phase == GamePhase.voting && c.verdictName != null;
 
     return Column(
       children: [
@@ -250,7 +252,9 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
 
               const SizedBox(height: 14),
 
-              if (showTargets) ...[
+              if (showTargets && isVerdict)
+                _buildVerdictQuestion()
+              else if (showTargets) ...[
                 Text(
                   c.prompt,
                   style: const TextStyle(
@@ -272,7 +276,26 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
             ],
           ),
         ),
-        if (showTargets)
+        if (showTargets && isVerdict)
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                ElevatedButton(
+                  style:
+                      ElevatedButton.styleFrom(backgroundColor: AppColors.bad),
+                  onPressed: () => c.submitVerdict(exile: true),
+                  child: Text('Выгнать: ${c.verdictName}'),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton(
+                  onPressed: () => c.submitVerdict(exile: false),
+                  child: const Text('Оставить в игре'),
+                ),
+              ],
+            ),
+          )
+        else if (showTargets)
           Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -298,9 +321,82 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
     );
   }
 
+  /// Вопрос повторного голосования. Кнопки — внизу экрана, как у обычного
+  /// голосования: палец уже знает, где они.
+  Widget _buildVerdictQuestion() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Column(
+        children: [
+          const Text('⚖️', style: TextStyle(fontSize: 54)),
+          const SizedBox(height: 10),
+          Text(
+            c.prompt,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 24),
+            child: Text(
+              'Вы слышали последнее слово. Игрок выбывает, только если '
+              'за изгнание проголосует больше, чем против. '
+              'Поровну — остаётся.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13, color: AppColors.dim),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Ответ комиссару на проверку этой ночи. Виден только до рассвета:
+  /// днём телефон лежит на столе, и ответ остаётся лишь в «Моя роль».
+  Widget _buildNightCheck(CheckInfo check) {
+    final color = check.blocked
+        ? AppColors.dim
+        : (check.isMafia ? AppColors.bad : AppColors.ok);
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: color.withAlpha(26),
+        border: Border.all(color: color.withAlpha(102)),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        children: [
+          Icon(check.blocked ? Icons.block : Icons.search,
+              color: color, size: 34),
+          const SizedBox(height: 8),
+          Text(
+            check.blocked
+                ? 'Проверка не состоялась'
+                : '${check.name} — ${check.isMafia ? 'МАФИЯ' : 'не мафия'}',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            check.blocked
+                ? 'Этой ночью вас заблокировали. Следующая проверка — '
+                    'следующей ночью.'
+                : 'Одна проверка за ночь. Утром ответ останется '
+                    'только в «Моя роль».',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 12.5, color: AppColors.dim),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Заголовок фазы с учётом ночи знакомства и последнего слова.
   String _phaseTitle() {
     if (c.lastWordName != null) return 'Последнее слово';
+    if (c.phase == GamePhase.voting && c.verdictName != null) {
+      return 'Повторное голосование';
+    }
     if (c.introNight) return 'Ночь знакомства';
     return '${c.phase.title}${c.round > 0 ? ' ${c.round}' : ''}';
   }
@@ -332,6 +428,8 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
 
   /// Экран, когда игрок в этой фазе не действует.
   Widget _buildPassive() {
+    final check = c.nightCheck;
+    if (check != null) return _buildNightCheck(check);
     if (c.actionSent) {
       return Container(
         padding: const EdgeInsets.all(20),
@@ -356,15 +454,22 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
 
     final isNight = c.phase == GamePhase.night;
     final lastWord = c.lastWordName != null;
+    final verdict = c.phase == GamePhase.voting && c.verdictName != null;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 40),
       child: Column(
         children: [
-          Text(lastWord ? '🎤' : (isNight ? '😴' : '💬'),
+          Text(
+              lastWord
+                  ? '🎤'
+                  : verdict
+                      ? '⚖️'
+                      : (isNight ? '😴' : '💬'),
               style: const TextStyle(fontSize: 60)),
           const SizedBox(height: 10),
           Text(
             c.prompt,
+            textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
@@ -372,8 +477,17 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 30),
             child: Text(
               lastWord
-                  ? 'Слушайте. Обсуждение закончено — после слова наступит ночь.'
-                  : isNight
+                  ? (c.lastWordIsMe
+                      ? 'Вы ещё в игре. Убедите стол: после вашего слова '
+                          'все голосуют ещё раз — выгнать или оставить.'
+                      : 'Слушайте. После слова — повторное голосование: '
+                          'выгнать или оставить.')
+                  : verdict
+                      ? (c.verdictIsMe
+                          ? 'Вы не голосуете. Поровну или больше «оставить» — '
+                              'вы остаётесь в игре.'
+                          : 'Ждём остальных.')
+                      : isNight
                       ? (c.introNight
                           ? 'Ночь знакомства: сегодня никто не погибает.'
                           : 'Город засыпает. Ваша роль сейчас не действует.')
@@ -411,21 +525,9 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
             children: [
               const Text('☠️', style: TextStyle(fontSize: 42)),
               const SizedBox(height: 6),
-              Text(
-                  c.lastWordIsMe
-                      ? 'Ваше последнее слово'
-                      : 'Вы выбыли из игры',
-                  style: const TextStyle(
-                      fontSize: 19, fontWeight: FontWeight.bold)),
-              if (c.lastWordIsMe)
-                const Padding(
-                  padding: EdgeInsets.only(top: 4),
-                  child: Text(
-                    'Говорите, пока идёт таймер. Роль называть не обязательно.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 13),
-                  ),
-                ),
+              const Text('Вы выбыли из игры',
+                  style:
+                      TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
               Text(
                 'Ваша роль: ${c.roleEmoji ?? ''} ${c.roleName ?? '—'}',

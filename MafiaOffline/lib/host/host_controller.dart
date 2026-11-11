@@ -474,10 +474,43 @@ class HostController extends ChangeNotifier {
 
     server.sendTo(playerId, Envelope(Msg.ack, {'accepted': true}));
     _persist();
+    // Комиссар видит ответ сразу, как выбрал игрока. Вызываем после
+    // каждого хода, а не только комиссарского: если он сходил раньше
+    // проститутки, ответ приходит в момент её хода.
+    _deliverCheck();
     notifyListeners();
 
     if (_state!.allNightActionsIn) {
       finishNight();
+    }
+  }
+
+  /// Сообщить комиссару результат проверки, как только он известен.
+  ///
+  /// Вызывается после каждого ночного хода, при закрытии ночи и перед
+  /// оглашением. Безопасно вызывать сколько угодно раз: за одну ночь
+  /// комиссар получает ровно один ответ (см. [checkKnownNow]).
+  ///
+  /// В журнал проверка пишется всегда — он нужен для `sync` и протокола.
+  /// Пакет комиссару уходит, только если стол так играет.
+  void _deliverCheck() {
+    final s = _state;
+    if (s == null) return;
+    final check = checkKnownNow(s);
+    if (check == null) return;
+    final already = s.checks.any((c) =>
+        c.round == check.round && c.commissionerId == check.commissionerId);
+    if (already) return;
+
+    _state = s.copyWith(checks: [...s.checks, check]);
+    _persist();
+    if (s.privateCheck) {
+      // Только на сокет комиссара. Клиент показывает ответ на ночном
+      // экране до рассвета, а потом — только внутри «Моя роль».
+      server.sendTo(
+        check.commissionerId,
+        Envelope(Msg.checkResult, checkWire(s, check)),
+      );
     }
   }
 
@@ -488,6 +521,8 @@ class HostController extends ChangeNotifier {
     if (voterId == null) return;
     final voter = s.byId(voterId);
     if (voter == null || !voter.isAlive) return;
+    // В повторном голосовании обвиняемый не голосует за самого себя.
+    if (s.isVerdictVote && voterId == s.verdictId) return;
     if (s.votes.containsKey(voterId)) return; // один голос за тур
 
     var target = msg.get<String>('targetId');
@@ -715,10 +750,19 @@ class HostController extends ChangeNotifier {
     final s = _state;
     if (s == null) return;
     await server.disconnectPlayer(playerId);
+    // Удалили того, о ком шла речь (последнее слово или повторное
+    // голосование), — решать больше нечего, наступает ночь.
+    final wasAccused = playerId == s.lastWordId || playerId == s.verdictId;
     _state = s.copyWith(
       players: s.players.where((p) => p.id != playerId).toList(),
     );
     _broadcastLobby();
+    if (wasAccused) {
+      _stopTimer();
+      if (_checkGameOver()) return;
+      startNight();
+      return;
+    }
     notifyListeners();
   }
 
@@ -805,6 +849,7 @@ class HostController extends ChangeNotifier {
       paused: false,
       clearPendingNight: true,
       clearLastWord: true,
+      clearVerdict: true,
     );
     _state = _state!.copyWith(timeLeft: _state!.nightDuration);
 
@@ -838,6 +883,9 @@ class HostController extends ChangeNotifier {
     final outcome = GameEngine.resolveNight(s, random: _rnd);
     _state = s.copyWith(pendingNight: outcome, paused: true);
     _persist();
+    // Ночь закрыта: если комиссар ждал хода проститутки, а она так
+    // и не сходила, ответ уходит ему сейчас — до рассвета.
+    _deliverCheck();
     notifyListeners();
   }
 
@@ -851,6 +899,12 @@ class HostController extends ChangeNotifier {
 
   /// Оглашение итогов ночи и переход ко дню.
   void announceNight() {
+    if (_state?.pendingNight == null) return;
+    // Обычно комиссар получил ответ ещё ночью (см. _deliverCheck).
+    // Здесь — страховка: например, партию восстановили после перезапуска
+    // уже на сводке ночи. Повторно ответ не уйдёт.
+    _deliverCheck();
+
     final s = _state;
     final outcome = s?.pendingNight;
     if (s == null || outcome == null) return;
@@ -869,16 +923,11 @@ class HostController extends ChangeNotifier {
           .toList();
     }
 
-    // Проверка комиссара: запоминаем всегда (нужна для sync), а самому
-    // комиссару отправляем ниже — только если стол так играет.
-    final check = checkRecordFor(s, outcome);
-
     _state = s.copyWith(
       players: players,
       lastHealedId: outcome.healedId,
       clearLastHealed: outcome.healedId == null,
       clearPendingNight: true,
-      checks: check == null ? null : [...s.checks, check],
     );
     _persist();
 
@@ -937,20 +986,6 @@ class HostController extends ChangeNotifier {
       );
     }
 
-    // Результат проверки — лично комиссару. Пакет уходит только на его
-    // сокет; клиент показывает его внутри «Моя роль», а не баннером:
-    // всплывающая строка «Вася — мафия» на столе выдала бы и роль, и итог.
-    if (check != null && s.privateCheck) {
-      server.sendTo(
-        check.commissionerId,
-        Envelope(Msg.checkResult, {
-          'round': check.round,
-          'name': s.nameOf(check.targetId),
-          'isMafia': check.isMafia,
-        }),
-      );
-    }
-
     // Список стола у игроков: кто жив, кто выбыл (счётчик «живых N из M»).
     _broadcastLobby();
 
@@ -977,6 +1012,7 @@ class HostController extends ChangeNotifier {
       runoffCandidates: const [],
       awaitingVoteConfirm: false,
       clearLastWord: true,
+      clearVerdict: true,
     );
     _state = _state!.copyWith(timeLeft: _state!.dayDuration);
     _addLog(EventType.phaseStart, 'День ${_state!.round}');
@@ -991,9 +1027,20 @@ class HostController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void startVoting({List<String> candidates = const []}) {
+  /// Начало голосования: обычного, второго тура или повторного.
+  ///
+  /// [candidates] — участники второго тура (пусто — голосуют за любого).
+  /// [verdictId] — повторное голосование после последнего слова: кандидат
+  /// один, вопрос — «выгнать или оставить». Технически это тот же тур
+  /// с одним кандидатом: голос за него — «выгнать», пропуск — «оставить».
+  /// Поэтому клиент старой версии из кэша отработает его без изменений.
+  void startVoting({
+    List<String> candidates = const [],
+    String? verdictId,
+  }) {
     final s = _state;
     if (s == null) return;
+    final isVerdict = verdictId != null;
     _state = s.copyWith(
       phase: GamePhase.voting,
       votes: <String, String?>{},
@@ -1001,6 +1048,8 @@ class HostController extends ChangeNotifier {
       awaitingVoteConfirm: false,
       paused: false,
       clearLastWord: true,
+      verdictId: verdictId,
+      clearVerdict: !isVerdict,
       timeLeft: candidates.isEmpty
           ? (s.votingDuration)
           : (s.runoffDuration),
@@ -1008,15 +1057,20 @@ class HostController extends ChangeNotifier {
     _persist();
     _addLog(
       EventType.phaseStart,
-      candidates.isEmpty
-          ? 'Начинается голосование'
-          : 'Второй тур: ${candidates.map(s.nameOf).join(', ')}',
+      isVerdict
+          ? 'Повторное голосование: выгнать ${s.nameOf(verdictId)} '
+              'или оставить'
+          : candidates.isEmpty
+              ? 'Начинается голосование'
+              : 'Второй тур: ${candidates.map(s.nameOf).join(', ')}',
     );
 
     _playEverywhere(A.voteStart);
     _ambient(A.ambVote);
 
-    if (candidates.isNotEmpty) {
+    // В повторном голосовании пакет «второй тур» не шлём: клиент показал бы
+    // «Второй тур голосования», а это другой вопрос. Всё нужное — в `phase`.
+    if (candidates.isNotEmpty && !isVerdict) {
       server.broadcast(Envelope(Msg.voteRunoff, {
         'candidates': candidates
             .map((id) => {'id': id, 'name': s.nameOf(id)})
@@ -1038,20 +1092,46 @@ class HostController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Подтверждение выбывания по итогам голосования.
+  /// Подтверждение итога голосования ведущим.
+  ///
+  /// С правилом «последнее слово» путь выбывающего — в три шага:
+  ///  1. первое голосование (и второй тур при ничьей) выбирает игрока;
+  ///  2. он говорит последнее слово — ещё живой, ещё в игре;
+  ///  3. повторное голосование решает: выгнать или оставить.
+  /// Этот метод вызывается на шаге 1 и на шаге 3; какой сейчас — видно
+  /// по [GameState.verdictId].
   void confirmElimination(String? playerId) {
     final s = _state;
     if (s == null) return;
 
     if (playerId == null) {
-      _addLog(EventType.info, 'Голосование: никто не выбывает');
+      // Никто не выбывает: ничья или стол передумал после последнего слова.
+      final pardoned = s.verdictId;
+      _addLog(
+        EventType.info,
+        pardoned == null
+            ? 'Голосование: никто не выбывает'
+            : 'Повторное голосование: ${s.nameOf(pardoned)} остаётся в игре '
+                '(выгнать — ${s.verdictExile}, оставить — ${s.verdictKeep})',
+      );
       // Счётчик «город не может решить»: две ничьи подряд включают
       // сюжетную карточку тупика. Сбрасывается, как только кого-то выгнали.
       _state = s.copyWith(noDeathsStreak: s.noDeathsStreak + 1);
-      server.broadcast(
-          Envelope(Msg.voteResult, {'eliminated': null, 'tie': true}));
+      server.broadcast(Envelope(Msg.voteResult, {
+        'eliminated': null,
+        'tie': pardoned == null,
+        // Старый клиент этого поля не знает и покажет «никто не выбывает» —
+        // что тоже правда.
+        if (pardoned != null) 'pardonedName': s.nameOf(pardoned),
+      }));
       _maybeShowStory();
       startNight();
+      return;
+    }
+
+    // Шаг 1 → шаг 2: стол выбрал игрока, но он ещё не выбыл.
+    if (shouldGiveLastWord(s)) {
+      _startLastWord(playerId);
       return;
     }
 
@@ -1088,16 +1168,11 @@ class HostController extends ChangeNotifier {
     _maybeShowStory(exile: true);
 
     if (_checkGameOver()) return;
-    // Последнее слово — только если партия продолжается (см.
-    // shouldGiveLastWord): после финала речь уже никому не нужна.
-    if (shouldGiveLastWord(_state!)) {
-      _startLastWord(playerId);
-      return;
-    }
     startNight();
   }
 
-  /// Последнее слово выбывшего: короткая фаза с таймером перед ночью.
+  /// Последнее слово того, кого выбрал стол: короткая фаза с таймером
+  /// перед повторным голосованием. Игрок ещё жив и может переубедить стол.
   ///
   /// Отдельной фазы в [GamePhase] нет намеренно: это тот же день, просто
   /// говорит один человек. Никто не ходит и не голосует, поэтому старый
@@ -1105,16 +1180,22 @@ class HostController extends ChangeNotifier {
   void _startLastWord(String playerId) {
     final s = _state;
     if (s == null) return;
+    final votesFor = s.voteTally[playerId] ?? 0;
     _state = s.copyWith(
       phase: GamePhase.day,
       lastWordId: playerId,
+      clearVerdict: true,
       paused: false,
       timeLeft: Rules.lastWordSeconds,
       votes: <String, String?>{},
       runoffCandidates: const [],
       awaitingVoteConfirm: false,
     );
-    _addLog(EventType.info, 'Последнее слово: ${s.nameOf(playerId)}');
+    _addLog(
+      EventType.info,
+      'Голосование: стол выбрал ${s.nameOf(playerId)} (голосов: $votesFor). '
+      'Последнее слово',
+    );
     HostBackground.update(
         title: 'Последнее слово · ${s.name}',
         text: '${s.nameOf(playerId)} · сервер работает');
@@ -1126,11 +1207,19 @@ class HostController extends ChangeNotifier {
   }
 
   /// Конец последнего слова: по таймеру или кнопкой ведущего.
+  /// Дальше — повторное голосование: стол решает, выгнать или оставить.
   void endLastWord() {
     final s = _state;
-    if (s == null || s.lastWordId == null) return;
+    final speaker = s?.lastWordId;
+    if (s == null || speaker == null) return;
     _stopTimer();
-    startNight();
+    // Говоривший мог исчезнуть из партии (ведущий удалил игрока) —
+    // тогда голосовать не о ком, сразу ночь.
+    if (s.byId(speaker)?.isAlive != true) {
+      startNight();
+      return;
+    }
+    startVoting(candidates: [speaker], verdictId: speaker);
   }
 
   /// Запуск второго тура между лидерами.
@@ -1173,8 +1262,8 @@ class HostController extends ChangeNotifier {
   void _onTimeout() {
     final s = _state;
     if (s == null) return;
-    // Последнее слово идёт в фазе «день», но заканчивается ночью,
-    // а не голосованием — перехватываем до общего переключателя.
+    // Последнее слово идёт в фазе «день», но заканчивается повторным
+    // голосованием, а не обычным — перехватываем до общего переключателя.
     if (s.lastWordId != null) {
       endLastWord();
       return;
@@ -1262,6 +1351,7 @@ class HostController extends ChangeNotifier {
     final s = _state!;
     final canAct = _canPlayerAct(p);
     final speaker = s.byId(s.lastWordId);
+    final accused = s.isVerdictVote ? s.byId(s.verdictId) : null;
     return {
       'phase': s.phase.wire,
       'round': s.round,
@@ -1281,6 +1371,11 @@ class HostController extends ChangeNotifier {
       'lastWord': speaker == null
           ? null
           : {'id': speaker.id, 'name': speaker.name},
+      // Повторное голосование: о ком оно (null — обычное голосование).
+      // Клиент по этому полю подписывает кнопки «Выгнать» и «Оставить».
+      'verdict': accused == null
+          ? null
+          : {'id': accused.id, 'name': accused.name},
     };
   }
 
@@ -1291,6 +1386,8 @@ class HostController extends ChangeNotifier {
       case GamePhase.night:
         return s.actsTonight(p) && !s.nightActions.containsKey(p.id);
       case GamePhase.voting:
+        // В повторном голосовании обвиняемый только ждёт решения.
+        if (s.isVerdictVote && p.id == s.verdictId) return false;
         return !s.votes.containsKey(p.id);
       default:
         return false;
@@ -1332,14 +1429,13 @@ class HostController extends ChangeNotifier {
 
   String _promptFor(Player p) {
     final s = _state!;
-    // Последнее слово — раньше проверки «выбыл»: говорящий уже выбыл,
-    // но именно ему нужно знать, что время пошло.
+    if (!p.isAlive) return 'Вы выбыли из игры';
+    // Последнее слово: говорящий ещё в игре, после него стол голосует снова.
     if (s.lastWordId != null) {
       return p.id == s.lastWordId
           ? 'Ваше последнее слово'
           : 'Последнее слово: ${s.nameOf(s.lastWordId)}';
     }
-    if (!p.isAlive) return 'Вы выбыли из игры';
     switch (s.phase) {
       case GamePhase.rolesCheck:
         return 'Прочитайте свою роль';
@@ -1367,6 +1463,11 @@ class HostController extends ChangeNotifier {
       case GamePhase.day:
         return 'Обсуждайте';
       case GamePhase.voting:
+        if (s.isVerdictVote) {
+          return p.id == s.verdictId
+              ? 'Стол решает вашу судьбу'
+              : 'Выгнать ${s.nameOf(s.verdictId)} или оставить?';
+        }
         return 'Кого отправляем из города?';
       default:
         return '';
@@ -1397,11 +1498,20 @@ class HostController extends ChangeNotifier {
       case GamePhase.day:
         if (s.lastWordId != null) {
           return 'Последнее слово: ${s.nameOf(s.lastWordId)}. '
-              'Договорил раньше — нажмите «Слово сказано».';
+              'Договорил раньше — нажмите «Слово сказано». '
+              'Дальше стол голосует ещё раз: выгнать или оставить.';
         }
         return 'Идёт обсуждение. Живых: ${s.alive.length}';
       case GamePhase.voting:
         final waiting = s.pendingVoters;
+        if (s.isVerdictVote) {
+          final name = s.nameOf(s.verdictId);
+          if (waiting.isEmpty) {
+            return 'Повторное голосование по игроку $name: все высказались.';
+          }
+          return 'Выгнать $name или оставить? Не проголосовали: '
+              '${waiting.map((p) => p.name).join(', ')}';
+        }
         if (waiting.isEmpty) return 'Все проголосовали.';
         return 'Не проголосовали: ${waiting.map((p) => p.name).join(', ')}';
       default:

@@ -29,7 +29,7 @@ class _SetupScreenState extends State<SetupScreen> {
   /// Первая ночь без убийств: мафия знакомится, комиссар проверяет.
   bool _introNight = false;
 
-  /// Последнее слово выбывшему голосованием (30 секунд по таймеру).
+  /// Последнее слово (30 секунд) и повторное голосование перед изгнанием.
   bool _lastWord = true;
 
   /// Комиссар видит результат проверки на своём экране.
@@ -468,11 +468,12 @@ class _SetupScreenState extends State<SetupScreen> {
                     contentPadding: EdgeInsets.zero,
                     value: _lastWord,
                     onChanged: (v) => setState(() => _lastWord = v),
-                    title: const Text('Последнее слово выбывшему',
+                    title: const Text('Последнее слово и повторное голосование',
                         style: TextStyle(fontSize: 14)),
                     subtitle: const Text(
-                      'После голосования — ${Rules.lastWordSeconds} секунд '
-                      'по таймеру, потом ночь. Убитым ночью слово не даётся.',
+                      'Тот, кого выбрал стол, говорит ${Rules.lastWordSeconds} '
+                      'секунд, потом все голосуют ещё раз: выгнать или '
+                      'оставить. Поровну — остаётся. Выключено — выбывает сразу.',
                       style: TextStyle(fontSize: 12, color: AppColors.dim),
                     ),
                   ),
@@ -483,7 +484,8 @@ class _SetupScreenState extends State<SetupScreen> {
                     title: const Text('Комиссар видит результат проверки',
                         style: TextStyle(fontSize: 14)),
                     subtitle: const Text(
-                      'Результат приходит ему на экран в «Моя роль». '
+                      'Ответ появляется у него на экране сразу, как он '
+                      'выберет игрока, — один раз за ночь. '
                       'Выключено — знаете только вы и сообщаете сами.',
                       style: TextStyle(fontSize: 12, color: AppColors.dim),
                     ),

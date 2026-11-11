@@ -57,10 +57,13 @@ const S = {
   alive: 0, total: 0,    // «живых N из M»; 0 — ведущий старой версии не прислал
   intro: false,          // идёт ночь знакомства: убийств не будет
   lastWord: null,        // {id, name} того, кто говорит последнее слово
-  // Проверки комиссара: [{round, name, isMafia}]. Показываются ТОЛЬКО
-  // внутри шторки «Моя роль». Ни баннера, ни значка на игровом экране:
-  // днём телефон лежит на столе экраном вверх, и любая отметка, которая
-  // бывает только у комиссара, выдала бы его соседям.
+  // ---- v1.3.0 ----
+  verdict: null,         // {id, name}: о ком повторное голосование
+  // Проверки комиссара: [{round, name, isMafia, blocked}]. Ответ на
+  // проверку этой ночи виден на ночном экране — сразу после выбора и
+  // только до рассвета (см. nightCheck). Днём он остаётся ТОЛЬКО внутри
+  // шторки «Моя роль»: телефон лежит на столе экраном вверх, и любая
+  // отметка, которая бывает только у комиссара, выдала бы его соседям.
   checks: [],
   rules: null,           // правила стола из пакета лобби
 };
@@ -426,12 +429,15 @@ function onMessage(m) {
       renderLobby();
       break;
 
-    // Результат проверки — только комиссару. Молча кладём в список:
-    // см. комментарий у S.checks, почему здесь нет ни баннера, ни вибро.
+    // Результат проверки — только комиссару, ночью, сразу после выбора.
+    // Ни баннера, ни вибро: ответ рисует ночной экран (см. nightCheck),
+    // а вибрация в тишине ночи выдала бы комиссара соседям.
     case 'check_result':
       if (m.name) {
-        S.checks = S.checks.filter(c => c.round !== m.round)
-          .concat([{ round: m.round || S.round, name: m.name, isMafia: !!m.isMafia }]);
+        const r = m.round || S.round;
+        S.checks = S.checks.filter(c => c.round !== r)
+          .concat([{ round: r, name: m.name, isMafia: !!m.isMafia, blocked: !!m.blocked }]);
+        render();
       }
       break;
 
@@ -486,7 +492,9 @@ function onMessage(m) {
       const t = m.eliminatedName
         ? `Голосованием выбыл ${m.eliminatedName}` +
           (m.revealedRole ? ` — ${m.revealedRole}` : '')
-        : 'Голосование: никто не выбывает';
+        : m.pardonedName
+          ? `Стол передумал: ${m.pardonedName} остаётся в игре`
+          : 'Голосование: никто не выбывает';
       banner(t, 'info'); addLog(t);
       break;
     }
@@ -580,10 +588,13 @@ function applyPhase(m) {
 
   // Поля 1.2.0 — все необязательные: ведущий на 1.1.x их не пришлёт.
   const prevSpeaker = S.lastWord ? S.lastWord.id : null;
+  const prevVerdict = S.verdict ? S.verdict.id : null;
   if (typeof m.alive === 'number') S.alive = m.alive;
   if (typeof m.total === 'number') S.total = m.total;
   S.intro = !!m.intro;
   S.lastWord = (m.lastWord && m.lastWord.name) ? m.lastWord : null;
+  // Поле 1.3.0: повторное голосование после последнего слова.
+  S.verdict = (m.verdict && m.verdict.name) ? m.verdict : null;
   if (Array.isArray(m.checks)) S.checks = m.checks;
 
   // sync после переподключения приносит роль заново
@@ -615,7 +626,10 @@ function applyPhase(m) {
   // пропускали даже те, кому не надо ходить. Сигнал одинаковый у всех:
   // по вибрации нельзя понять, есть ли у соседа ночная роль.
   const speaker = S.lastWord ? S.lastWord.id : null;
-  if (prevPhase !== S.phase || prevSpeaker !== speaker) buzz([50, 40, 50]);
+  const accused = S.verdict ? S.verdict.id : null;
+  if (prevPhase !== S.phase || prevSpeaker !== speaker || prevVerdict !== accused) {
+    buzz([50, 40, 50]);
+  }
 
   // Перезагрузка страницы до подтверждения роли: экран-предупреждение
   // нужно показать заново, иначе игрок останется на экране входа.
@@ -733,14 +747,28 @@ function hideStory() {
   if (_storyEl) { _storyEl.remove(); _storyEl = null; }
 }
 
+// Идёт ли повторное голосование: «выгнать или оставить».
+function isVerdict() {
+  return S.phase === 'voting' && !!S.verdict;
+}
+
+// Ответ на проверку этой ночи — для ночного экрана комиссара.
+// null — не ночь, ответа ещё нет или включена маскировка карты.
+function nightCheck() {
+  if (S.phase !== 'night' || S.disguised || S.role !== 'commissioner') return null;
+  return S.checks.find(c => c.round === S.round) || null;
+}
+
 function render() {
   const [ico, nm, cls] = PHASES[S.phase] || PHASES.waiting;
-  // Последнее слово и ночь знакомства — не отдельные фазы протокола,
-  // а «день» и «ночь» с пометкой: старый клиент покажет их как обычные.
+  // Последнее слово, повторное голосование и ночь знакомства — не отдельные
+  // фазы протокола, а «день», «голосование» и «ночь» с пометкой: старый
+  // клиент покажет их как обычные и ничего не сломает.
   const title = S.lastWord ? 'Последнее слово'
+    : isVerdict() ? 'Повторное голосование'
     : (S.intro && S.phase === 'night') ? 'Ночь знакомства'
     : nm + (S.round ? ' ' + S.round : '');
-  $('phase-ico').textContent = S.lastWord ? '🎤' : ico;
+  $('phase-ico').textContent = S.lastWord ? '🎤' : isVerdict() ? '⚖️' : ico;
   $('phase-name').textContent = title + (S.paused ? ' · пауза' : '');
   $('phase-bar').className = 'phase ' + cls + (S.paused ? ' paused' : '');
   renderTimer();
@@ -767,13 +795,21 @@ function render() {
   $('game-foot').classList.toggle('hidden', !acting);
   $('btn-myrole').classList.toggle('hidden', !S.roleName);
 
+  const verdictVote = acting && isVerdict();
+  $('targets').classList.toggle('hidden', verdictVote);
+  $('verdict-note').classList.toggle('hidden', !verdictVote);
+
   if (dead) {
-    const mine = !!S.lastWord && S.lastWord.id === S.playerId;
-    $('dead-title').textContent = mine ? 'Ваше последнее слово' : 'Вы выбыли из игры';
-    $('dead-role').textContent = mine
-      ? 'Говорите, пока идёт таймер. Роль называть не обязательно.'
-      : `Ваша роль: ${S.roleEmoji || ''} ${S.roleName || '—'}`;
+    $('dead-title').textContent = 'Вы выбыли из игры';
+    $('dead-role').textContent = `Ваша роль: ${S.roleEmoji || ''} ${S.roleName || '—'}`;
     renderLog();
+  } else if (verdictVote) {
+    // Вопрос один, кандидат один — список не нужен, хватит двух кнопок.
+    // По сети это обычный голос: за кандидата — «выгнать», без — «оставить».
+    S.selected = S.targets[0].id;
+    $('btn-send').disabled = false;
+    $('btn-send').textContent = `Выгнать: ${S.verdict.name}`;
+    $('btn-skip').textContent = 'Оставить в игре';
   } else if (acting) {
     renderTargets();
     $('btn-send').disabled = !S.selected;
@@ -787,18 +823,32 @@ function render() {
 
 function renderIdle() {
   const night = S.phase === 'night';
+  const check = nightCheck();
   if (S.lastWord) {
+    const mine = S.lastWord.id === S.playerId;
     $('idle-emoji').textContent = '🎤';
-    $('idle-text').textContent = 'Последнее слово';
+    $('idle-text').textContent = mine ? 'Ваше последнее слово' : 'Последнее слово';
+    $('idle-sub').textContent = mine
+      ? 'Вы ещё в игре. Убедите стол: после вашего слова все голосуют ещё раз — выгнать или оставить.'
+      : `Говорит ${S.lastWord.name}. После слова — повторное голосование: выгнать или оставить.`;
+  } else if (check) {
+    // Ответ комиссару — сразу после выбора и только до рассвета.
+    $('idle-emoji').textContent = check.blocked ? '🚫' : '🔎';
+    $('idle-text').textContent = check.blocked
+      ? 'Проверка не состоялась'
+      : `${check.name} — ${check.isMafia ? 'МАФИЯ' : 'не мафия'}`;
+    $('idle-sub').textContent = check.blocked
+      ? 'Этой ночью вас заблокировали. Следующая проверка — следующей ночью.'
+      : 'Одна проверка за ночь. Утром ответ останется только в «Моя роль».';
+  } else if (isVerdict() && S.verdict.id === S.playerId) {
+    $('idle-emoji').textContent = '⚖️';
+    $('idle-text').textContent = 'Стол решает вашу судьбу';
     $('idle-sub').textContent =
-      `Говорит ${S.lastWord.name}. Обсуждение закончено — после слова наступит ночь.`;
+      'Вы не голосуете. Поровну или больше «оставить» — вы остаётесь в игре.';
   } else if (S.sent) {
     $('idle-emoji').textContent = '✅';
     $('idle-text').textContent = 'Ваш выбор принят';
-    $('idle-sub').textContent =
-      (night && S.role === 'commissioner' && S.rules && S.rules.privateCheck)
-        ? 'Ответ появится после рассвета в «Моя роль» — на этом экране его не будет.'
-        : 'Ожидайте следующей фазы';
+    $('idle-sub').textContent = 'Ожидайте следующей фазы';
   } else if (S.phase === 'waiting') {
     $('idle-emoji').textContent = '⏳';
     $('idle-text').textContent = 'Ожидание';
@@ -966,8 +1016,10 @@ const GUIDE = {
     tips: ['Себя лечить нельзя — вас устранят, как только поймут, кто вы.',
            'Удачное спасение — сильная улика.', 'Не раскрывайтесь рано.'] },
   commissioner: { goal: 'Вы за город. По ночам вычисляете мафию.',
-    night: 'Проверяете игрока. Ответ — «мафия» или «не мафия» — появится после рассвета '
-      + 'здесь же, в блоке «Ваши проверки». Если за столом договорились иначе, '
+    night: 'Проверяете игрока — одного за ночь. Ответ — «мафия» или «не мафия» — появится '
+      + 'на экране сразу, как выберете, и будет виден до рассвета. Потом все проверки '
+      + 'хранятся здесь же, в блоке «Ваши проверки». Если вас заблокировала проститутка, '
+      + 'проверка не состоится — экран так и скажет. Если за столом договорились иначе, '
       + 'результат сообщит ведущий. Важно: дон выглядит как мирный житель.',
     day: 'Донесите информацию до города, не выдав себя слишком рано.',
     win: CITY_WIN,
@@ -997,9 +1049,10 @@ const GUIDE = {
 // или включена маскировка (тогда шторка изображает мирного жителя).
 function checksBlock() {
   if (S.disguised || S.role !== 'commissioner' || !S.checks.length) return '';
-  const rows = S.checks.slice().sort((a, b) => a.round - b.round).map(c =>
-    `<div class="chk ${c.isMafia ? 'bad' : 'ok'}"><span>Ночь ${c.round | 0}: ${esc(c.name)}</span>`
-    + `<b>${c.isMafia ? 'МАФИЯ' : 'не мафия'}</b></div>`).join('');
+  const rows = S.checks.slice().sort((a, b) => a.round - b.round).map(c => c.blocked
+    ? `<div class="chk"><span>Ночь ${c.round | 0}: вас заблокировали</span><b>не состоялась</b></div>`
+    : `<div class="chk ${c.isMafia ? 'bad' : 'ok'}"><span>Ночь ${c.round | 0}: ${esc(c.name)}</span>`
+      + `<b>${c.isMafia ? 'МАФИЯ' : 'не мафия'}</b></div>`).join('');
   return `<div class="blk checks"><h4>ВАШИ ПРОВЕРКИ</h4>${rows}`
     + '<p class="note">«Не мафия» — это мирный, дон или маньяк.</p></div>';
 }
@@ -1012,9 +1065,12 @@ function tableRuleLines() {
   out.push(r.openCards ? 'Карта выбывшего открывается сразу.'
                        : 'Карта выбывшего закрыта до конца партии.');
   if (r.introNight) out.push('Первая ночь — знакомство: никто не погибает.');
-  if (r.lastWord) out.push(`Выбывшему голосованием — последнее слово, ${r.lastWordSeconds || 30} секунд.`);
-  out.push(r.privateCheck ? 'Комиссар видит результат проверки у себя в «Моя роль».'
-                          : 'Результат проверки комиссару сообщает ведущий.');
+  out.push(r.lastWord
+    ? `Перед изгнанием — последнее слово, ${r.lastWordSeconds || 30} секунд, и повторное голосование: стол может оставить игрока.`
+    : 'Выбывает тот, кого выбрало голосование, — без последнего слова.');
+  out.push(r.privateCheck
+    ? 'Комиссар видит ответ на проверку сразу, как выберет игрока; все его проверки — в «Моя роль».'
+    : 'Результат проверки комиссару сообщает ведущий.');
   return out;
 }
 
@@ -1028,10 +1084,17 @@ function openRules() {
     ${tr.length ? `<div class="blk goal"><h4>ПРАВИЛА ЭТОГО СТОЛА</h4><ul>${li(tr)}</ul></div>` : ''}
     <div class="blk night"><h4>НОЧЬ</h4><p>Город спит, ходят только роли. Порядок:
       проститутка блокирует, доктор лечит, мафия стреляет, маньяк стреляет отдельно,
-      комиссар проверяет. Нет ночного дела — экран пустой, это не поломка.</p></div>
+      комиссар проверяет. Комиссар видит ответ сразу, как выберет игрока, — одна проверка
+      за ночь. Нет ночного дела — экран пустой, это не поломка.</p></div>
     <div class="blk day"><h4>ДЕНЬ И ГОЛОСОВАНИЕ</h4><p>Ведущий объявляет, кто погиб, дальше —
       обсуждение. Потом все живые выбирают, кого выгнать. При равенстве — второй тур
       между лидерами; снова равенство — никто не выбывает.</p></div>
+    <div class="blk day"><h4>ПОСЛЕДНЕЕ СЛОВО И ПОВТОРНОЕ ГОЛОСОВАНИЕ</h4><p>Тот, кого выбрал стол,
+      ещё не выбыл. У него ${(S.rules && S.rules.lastWordSeconds) || 30} секунд на последнее слово, а потом все, кроме него,
+      голосуют ещё раз: выгнать или оставить. Выбывает, только если «выгнать» больше, чем
+      «оставить»; поровну — остаётся. Убедил стол — играет дальше, и наступает ночь. Если за
+      столом играют без последнего слова, выбывает сразу тот, кого выбрало первое
+      голосование.</p></div>
     <div class="blk win"><h4>КТО ПОБЕЖДАЕТ</h4><ul>${li([
       'Город — когда не осталось ни мафии, ни маньяка.',
       'Мафия — когда её столько же, сколько остальных, или больше.',
@@ -1150,7 +1213,9 @@ $('role-card').onclick = () => {
 $('btn-disguise').onclick = () => {
   S.disguised = !S.disguised;
   Sound.play('tap.ogg', 0.4);
-  renderCard();
+  // Полная перерисовка: маскировка прячет не только карту, но и ответ
+  // на проверку комиссара на ночном экране.
+  render();
 };
 
 function submitChoice(targetId) {

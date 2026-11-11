@@ -89,6 +89,7 @@ class SessionStore {
         'lastWord': s.lastWord,
         'privateCheck': s.privateCheck,
         'lastWordId': s.lastWordId,
+        'verdictId': s.verdictId,
         'checks': s.checks.map((c) => c.toJson()).toList(),
         // Сюжетные карточки: иначе после перезапуска «Первая кровь»
         // показалась бы второй раз.
@@ -195,6 +196,7 @@ class SessionStore {
       lastWord: m['lastWord'] as bool? ?? false,
       privateCheck: m['privateCheck'] as bool? ?? false,
       lastWordId: m['lastWordId'] as String?,
+      verdictId: m['verdictId'] as String?,
       checks: checks,
       storySeen: strList(m['storySeen']),
       noDeathsStreak: m['noDeathsStreak'] as int? ?? 0,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/constants.dart';
 import '../../host/host_controller.dart';
+import '../../models/game_state.dart';
 import '../theme.dart';
 
 /// Итоги голосования: прогресс-бары, расшифровка, второй тур.
@@ -21,6 +22,7 @@ class _VotingSheetState extends State<VotingSheet> {
   Widget build(BuildContext context) {
     final s = c.state;
     if (s == null) return const SizedBox.shrink();
+    if (s.isVerdictVote) return _buildVerdict(context, s);
 
     final tally = s.voteTally;
     final leaders = s.voteLeaders;
@@ -131,9 +133,11 @@ class _VotingSheetState extends State<VotingSheet> {
                     )
                   else if (leaders.length == 1)
                     ElevatedButton.icon(
-                      icon: const Icon(Icons.check),
-                      label: Text('Подтвердить: выбывает '
-                          '${s.nameOf(leaders.first)}'),
+                      icon: Icon(s.lastWord ? Icons.mic : Icons.check),
+                      label: Text(s.lastWord
+                          ? 'Последнее слово: ${s.nameOf(leaders.first)}'
+                          : 'Подтвердить: выбывает '
+                              '${s.nameOf(leaders.first)}'),
                       style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.bad),
                       onPressed: () {
@@ -145,8 +149,9 @@ class _VotingSheetState extends State<VotingSheet> {
                     const Padding(
                       padding: EdgeInsets.only(top: 6),
                       child: Text(
-                        'После подтверждения — последнее слово, '
-                        '${Rules.lastWordSeconds} секунд, затем ночь.',
+                        'Игрок ещё не выбыл: у него ${Rules.lastWordSeconds} '
+                        'секунд на последнее слово, потом стол голосует '
+                        'ещё раз — выгнать или оставить.',
                         textAlign: TextAlign.center,
                         style: TextStyle(fontSize: 12, color: AppColors.dim),
                       ),
@@ -159,6 +164,133 @@ class _VotingSheetState extends State<VotingSheet> {
                     },
                     child: const Text('Никто не выбывает'),
                   ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Итог повторного голосования: «выгнать» против «оставить».
+  ///
+  /// Кнопок всегда две — решение за ведущим (ТЗ FR-6.9), но подсвечена та,
+  /// что соответствует голосам: при равенстве игрок остаётся.
+  Widget _buildVerdict(BuildContext context, GameState s) {
+    final id = s.verdictId ?? '';
+    final name = s.nameOf(id);
+    final exile = s.verdictExile;
+    final keep = s.verdictKeep;
+    final passes = s.verdictPasses;
+    final maxVotes = exile > keep ? exile : keep;
+    final color = passes ? AppColors.bad : AppColors.ok;
+
+    void decide(String? eliminated) {
+      Navigator.pop(context);
+      c.confirmElimination(eliminated);
+    }
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.72,
+      maxChildSize: 0.95,
+      builder: (_, scroll) => Container(
+        decoration: const BoxDecoration(
+          color: AppColors.panel,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+        ),
+        child: Column(
+          children: [
+            Expanded(
+              child: ListView(
+                controller: scroll,
+                padding: const EdgeInsets.all(16),
+                children: [
+                  const Text(
+                    'Повторное голосование',
+                    style:
+                        TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '$name сказал последнее слово. Проголосовало '
+                    '${s.votes.length} из ${s.voters.length}. '
+                    'Нажмите на строку, чтобы увидеть, кто так голосовал.',
+                    style:
+                        const TextStyle(fontSize: 12.5, color: AppColors.dim),
+                  ),
+                  const SizedBox(height: 16),
+                  _VoteBar(
+                    name: 'Выгнать',
+                    votes: exile,
+                    maxVotes: maxVotes == 0 ? 1 : maxVotes,
+                    isLeader: passes,
+                    voters: _expanded == 'exile' ? s.votersFor(id) : null,
+                    onTap: () => setState(() =>
+                        _expanded = _expanded == 'exile' ? null : 'exile'),
+                  ),
+                  _VoteBar(
+                    name: 'Оставить',
+                    votes: keep,
+                    maxVotes: maxVotes == 0 ? 1 : maxVotes,
+                    isLeader: !passes && keep > 0,
+                    voters: _expanded == 'keep' ? s.verdictKeepers : null,
+                    onTap: () => setState(() =>
+                        _expanded = _expanded == 'keep' ? null : 'keep'),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: color.withAlpha(26),
+                      border: Border.all(color: color.withAlpha(102)),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      passes
+                          ? 'За изгнание больше: $name выбывает.'
+                          : exile == keep
+                              ? 'Голоса разделились поровну ($exile на $keep). '
+                                  'Сомнение — в пользу игрока: $name остаётся.'
+                              : 'Стол поверил: $name остаётся в игре.',
+                      style: const TextStyle(fontSize: 13.5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  if (passes) ...[
+                    ElevatedButton.icon(
+                      icon: const Icon(Icons.check),
+                      label: Text('Подтвердить: выбывает $name'),
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.bad),
+                      onPressed: () => decide(id),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton(
+                      onPressed: () => decide(null),
+                      child: Text('Оставить в игре: $name'),
+                    ),
+                  ] else ...[
+                    ElevatedButton.icon(
+                      icon: const Icon(Icons.check),
+                      label: Text('Подтвердить: $name остаётся'),
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.ok),
+                      onPressed: () => decide(null),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton(
+                      onPressed: () => decide(id),
+                      child: Text('Всё же выгнать: $name'),
+                    ),
+                  ],
                 ],
               ),
             ),

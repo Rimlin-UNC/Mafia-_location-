@@ -69,17 +69,23 @@ class NightOutcome {
 /// До 1.2.0 результат жил только в логе ведущего строкой текста. Отдельная
 /// запись нужна, чтобы отдать комиссару ЕГО проверки после переподключения,
 /// не разбирая лог и не показывая чужое (если комиссаров двое).
+///
+/// [blocked] — проверка не состоялась: комиссара в эту ночь заблокировали.
+/// Запись всё равно ведём: иначе комиссар ждал бы ответа, которого не будет,
+/// а после перезагрузки страницы не понял бы, куда делась ночь.
 class CheckRecord {
   final int round;
   final String commissionerId;
   final String targetId;
   final bool isMafia;
+  final bool blocked;
 
   const CheckRecord({
     required this.round,
     required this.commissionerId,
     required this.targetId,
     required this.isMafia,
+    this.blocked = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -87,6 +93,7 @@ class CheckRecord {
         'by': commissionerId,
         'target': targetId,
         'isMafia': isMafia,
+        if (blocked) 'blocked': true,
       };
 
   static CheckRecord? tryParse(Object? raw) {
@@ -99,6 +106,7 @@ class CheckRecord {
       commissionerId: by,
       targetId: target,
       isMafia: raw['isMafia'] == true,
+      blocked: raw['blocked'] == true,
     );
   }
 }
@@ -161,18 +169,26 @@ class GameState {
   /// По умолчанию выключено — как играли до 1.2.0.
   final bool introNight;
 
-  /// Давать выбывшему голосованием последнее слово
-  /// ([Rules.lastWordSeconds] секунд по таймеру).
+  /// Последнее слово и повторное голосование. Тот, кого выбрал стол,
+  /// ещё не выбыл: он говорит [Rules.lastWordSeconds] секунд, после чего
+  /// стол голосует ещё раз — выгнать или оставить. Выключено — выбывает
+  /// сразу по итогам первого голосования, как в 1.1.0.
   final bool lastWord;
 
-  /// Комиссар видит результат своей проверки на собственном экране
-  /// (в «Моя роль»). Выключено — результат знает только ведущий и сообщает
-  /// его сам, как в 1.1.0.
+  /// Комиссар видит результат своей проверки на собственном экране:
+  /// ночью — сразу, как выбрал игрока, потом — в «Моя роль». Выключено —
+  /// результат знает только ведущий и сообщает его сам, как в 1.1.0.
   final bool privateCheck;
 
   /// Кто сейчас говорит последнее слово. null — никто.
   /// Фаза при этом [GamePhase.day]: никто не голосует и не ходит.
+  /// Говорящий ещё жив: его судьбу решит повторное голосование.
   final String? lastWordId;
+
+  /// Чью судьбу решает повторное голосование («выгнать или оставить»).
+  /// Фаза при этом [GamePhase.voting], единственный кандидат — он сам.
+  /// Голос за него значит «выгнать», пропуск хода — «оставить».
+  final String? verdictId;
 
   /// Все состоявшиеся проверки комиссара за партию.
   final List<CheckRecord> checks;
@@ -206,6 +222,7 @@ class GameState {
     this.lastWord = true,
     this.privateCheck = true,
     this.lastWordId,
+    this.verdictId,
     this.checks = const [],
   });
 
@@ -235,8 +252,10 @@ class GameState {
     bool? lastWord,
     bool? privateCheck,
     String? lastWordId,
+    String? verdictId,
     List<CheckRecord>? checks,
     bool clearLastWord = false,
+    bool clearVerdict = false,
     bool clearStory = false,
     bool clearPendingNight = false,
     bool clearLastHealed = false,
@@ -271,6 +290,7 @@ class GameState {
       lastWord: lastWord ?? this.lastWord,
       privateCheck: privateCheck ?? this.privateCheck,
       lastWordId: clearLastWord ? null : (lastWordId ?? this.lastWordId),
+      verdictId: clearVerdict ? null : (verdictId ?? this.verdictId),
       checks: checks ?? this.checks,
     );
   }
@@ -354,9 +374,18 @@ class GameState {
   bool get allRolesAcknowledged =>
       players.isNotEmpty && unacknowledged.isEmpty;
 
-  /// Кто из живых ещё не проголосовал.
+  /// Идёт ли повторное голосование после последнего слова.
+  bool get isVerdictVote => phase == GamePhase.voting && verdictId != null;
+
+  /// Кто голосует в текущем туре. В повторном голосовании обвиняемый
+  /// не голосует: его голос «оставить» был бы голосом за самого себя.
+  List<Player> get voters => isVerdictVote
+      ? alive.where((p) => p.id != verdictId).toList()
+      : alive;
+
+  /// Кто из голосующих ещё не проголосовал.
   List<Player> get pendingVoters =>
-      alive.where((p) => !votes.containsKey(p.id)).toList();
+      voters.where((p) => !votes.containsKey(p.id)).toList();
 
   bool get allVotesIn => pendingVoters.isEmpty;
 
@@ -449,6 +478,30 @@ class GameState {
         .where((e) => e.value == max)
         .map((e) => e.key)
         .toList();
+  }
+
+  // ---------- повторное голосование ----------
+
+  /// Голоса «выгнать» в повторном голосовании.
+  int get verdictExile => verdictId == null
+      ? 0
+      : votes.values.where((v) => v == verdictId).length;
+
+  /// Голоса «оставить». Не проголосовавшие не считаются ни туда, ни сюда.
+  int get verdictKeep => votes.values.where((v) => v == null).length;
+
+  /// Решение стола: выгнать, только если «за» строго больше, чем «против».
+  /// Равенство — в пользу игрока: сомнение трактуется как «оставить»,
+  /// так же, как повторная ничья в обычном голосовании никого не выгоняет.
+  bool get verdictPasses => verdictExile > verdictKeep;
+
+  /// Кто голосовал «оставить» (только для ведущего).
+  List<String> get verdictKeepers {
+    final result = <String>[];
+    votes.forEach((voter, candidate) {
+      if (candidate == null) result.add(nameOf(voter));
+    });
+    return result;
   }
 
   /// Кто голосовал за конкретного кандидата (только для ведущего).

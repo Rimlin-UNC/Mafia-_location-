@@ -65,6 +65,9 @@ void main() {
     Map<String, String?> actions = const {},
     List<CheckRecord> checks = const [],
     String? lastWordId,
+    String? verdictId,
+    Map<String, String?> votes = const {},
+    NightOutcome? pendingNight,
   }) =>
       GameState(
         id: 'g1',
@@ -80,6 +83,9 @@ void main() {
         nightActions: actions,
         checks: checks,
         lastWordId: lastWordId,
+        verdictId: verdictId,
+        votes: votes,
+        pendingNight: pendingNight,
       );
 
   group('FR-9.1 — первая ночь — знакомство', () {
@@ -176,14 +182,10 @@ void main() {
   });
 
   group('FR-9.2 — последнее слово', () {
-    test('даётся, если правило включено и партия продолжается', () {
-      final players = table()
-          .map((p) => p.id == 'c1'
-              ? mk('c1', RoleType.civilian,
-                  alive: false, reason: EliminationReason.voted)
-              : p)
-          .toList();
-      final s = state(players: players, phase: GamePhase.voting);
+    test('даётся после первого голосования, если правило включено', () {
+      // Никто ещё не выбыл: слово говорит живой игрок.
+      final s = state(phase: GamePhase.voting);
+      expect(s.alive.length, 10);
       expect(shouldGiveLastWord(s), isTrue);
     });
 
@@ -194,15 +196,20 @@ void main() {
       );
     });
 
-    test('не даётся, если изгнание закончило партию', () {
-      // Выгнали единственного мафиози — сразу финал, речь не нужна.
+    test('даётся, даже если изгнание закончило бы партию', () {
+      // Стол выбрал последнего мафиози. Пропусти мы слово — все поняли бы
+      // его роль раньше, чем решили, выгонять ли.
       final s = state(phase: GamePhase.voting, players: [
-        mk('don', RoleType.don, alive: false, reason: EliminationReason.voted),
+        mk('don', RoleType.don),
         mk('c1', RoleType.civilian),
         mk('c2', RoleType.civilian),
         mk('c3', RoleType.civilian),
       ]);
-      expect(s.checkWinner(), WinnerSide.civilians);
+      expect(shouldGiveLastWord(s), isTrue);
+    });
+
+    test('после повторного голосования второго слова нет', () {
+      final s = state(phase: GamePhase.voting, verdictId: 'c1');
       expect(shouldGiveLastWord(s), isFalse);
     });
 
@@ -250,10 +257,22 @@ void main() {
       expect(checkRecordFor(s, o), isNull);
     });
 
-    test('заблокированный комиссар проверку не получает', () {
+    test('заблокированный комиссар ответа не получает, но знает об этом', () {
       final s = state(round: 2, actions: {'com': 'maf', 'pro': 'com'});
       final o = GameEngine.resolveNight(s, random: Random(1));
       expect(o.checkedId, isNull);
+      final record = checkRecordFor(s, o)!;
+      expect(record.blocked, isTrue);
+      // Роль цели заблокированному не раскрывается: maf — мафия,
+      // а в записи «не мафия» и пометка «не состоялась».
+      expect(record.isMafia, isFalse);
+      expect(checksWireFor(s.copyWith(checks: [record]), 'com').single,
+          containsPair('blocked', true));
+    });
+
+    test('заблокированный комиссар, пропустивший ход, — записи нет', () {
+      final s = state(round: 2, actions: {'com': null, 'pro': 'com'});
+      final o = GameEngine.resolveNight(s, random: Random(1));
       expect(checkRecordFor(s, o), isNull);
     });
 
@@ -333,6 +352,196 @@ void main() {
       expect(CheckRecord.tryParse('строка'), isNull);
       expect(CheckRecord.tryParse({'by': 'com'}), isNull);
       expect(CheckRecord.tryParse({'by': 1, 'target': 'x'}), isNull);
+    });
+  });
+
+  group('FR-9.7 — комиссар видит ответ сразу, как выбрал игрока', () {
+    test('проститутки нет — ответ известен в момент выбора', () {
+      final players =
+          table().where((p) => p.id != 'pro').toList(growable: false);
+      final s = state(players: players, round: 2, actions: {'com': 'maf'});
+      final c = checkKnownNow(s)!;
+      expect(c.targetId, 'maf');
+      expect(c.isMafia, isTrue);
+      expect(c.blocked, isFalse);
+      expect(c.round, 2);
+    });
+
+    test('комиссар ещё не выбрал — ответа нет', () {
+      expect(checkKnownNow(state(round: 2)), isNull);
+      // Остальные уже сходили — это ничего не меняет.
+      expect(
+        checkKnownNow(state(round: 2, actions: {'pro': 'c1', 'doc': 'c2'})),
+        isNull,
+      );
+    });
+
+    test('комиссар пропустил ход — ответа нет', () {
+      expect(
+        checkKnownNow(state(round: 2, actions: {'com': null, 'pro': 'c1'})),
+        isNull,
+      );
+    });
+
+    test('проститутка ещё не сходила — ответ ждёт её хода', () {
+      // Показать ответ, а потом отменить его блокировкой нельзя.
+      final s = state(round: 2, actions: {'com': 'maf'});
+      expect(checkKnownNow(s), isNull);
+    });
+
+    test('проститутка сходила мимо комиссара — ответ сразу', () {
+      final s = state(round: 2, actions: {'com': 'maf', 'pro': 'c1'});
+      expect(checkKnownNow(s)!.isMafia, isTrue);
+    });
+
+    test('проститутка пропустила ход — ответ сразу', () {
+      final s = state(round: 2, actions: {'com': 'c1', 'pro': null});
+      final c = checkKnownNow(s)!;
+      expect(c.isMafia, isFalse);
+      expect(c.blocked, isFalse);
+    });
+
+    test('проститутка пришла к комиссару — «проверка не состоялась»', () {
+      final s = state(round: 2, actions: {'com': 'maf', 'pro': 'com'});
+      final c = checkKnownNow(s)!;
+      expect(c.blocked, isTrue);
+      expect(c.isMafia, isFalse);
+    });
+
+    test('ночь знакомства: проститутка спит, ответ сразу', () {
+      final s = state(introNight: true, actions: {'com': 'maf'});
+      expect(s.isIntroNight, isTrue);
+      expect(checkKnownNow(s)!.isMafia, isTrue);
+    });
+
+    test('дон и маньяк и ночью выглядят «не мафией»', () {
+      for (final target in ['don', 'man']) {
+        final s = state(round: 2, actions: {'com': target, 'pro': null});
+        expect(checkKnownNow(s)!.isMafia, isFalse, reason: target);
+      }
+    });
+
+    test('ночь закрыта без хода проститутки — ответ по итогу ночи', () {
+      final open = state(round: 2, actions: {'com': 'maf'});
+      expect(checkKnownNow(open), isNull);
+      final o = GameEngine.resolveNight(open, random: Random(1));
+      final closed = state(round: 2, actions: {'com': 'maf'}, pendingNight: o);
+      expect(checkKnownNow(closed)!.isMafia, isTrue);
+    });
+
+    test('не ночью ответа нет', () {
+      final s = state(
+          phase: GamePhase.day, round: 2, actions: {'com': 'maf', 'pro': null});
+      expect(checkKnownNow(s), isNull);
+    });
+
+    test('ранний ответ совпадает с итогом ночи', () {
+      // Перебор: то, что комиссар увидел ночью, утром не меняется.
+      const targets = ['don', 'maf', 'doc', 'pro', 'man', 'c1'];
+      const blocks = <String?>[null, 'com', 'don', 'c1'];
+      for (final target in targets) {
+        for (final block in blocks) {
+          final s = state(round: 2, actions: {
+            'com': target,
+            'pro': block,
+            'don': 'c2',
+            'maf': 'c2',
+            'man': 'c3',
+            'doc': 'c4',
+          });
+          final early = checkKnownNow(s)!;
+          final atDawn =
+              checkRecordFor(s, GameEngine.resolveNight(s, random: Random(1)))!;
+          final why = 'цель $target, блок $block';
+          expect(early.targetId, atDawn.targetId, reason: why);
+          expect(early.isMafia, atDawn.isMafia, reason: why);
+          expect(early.blocked, atDawn.blocked, reason: why);
+        }
+      }
+    });
+
+    test('формулировка правила стола говорит «сразу»', () {
+      final on = TableRules.describe(state());
+      expect(on.any((l) => l.contains('сразу, как выберет')), isTrue);
+    });
+  });
+
+  group('FR-9.8 — повторное голосование после последнего слова', () {
+    GameState verdict(Map<String, String?> votes) =>
+        state(phase: GamePhase.voting, verdictId: 'c1', votes: votes);
+
+    test('обвиняемый не голосует', () {
+      final s = verdict(const {});
+      expect(s.isVerdictVote, isTrue);
+      expect(s.voters.length, 9);
+      expect(s.voters.any((p) => p.id == 'c1'), isFalse);
+      expect(s.pendingVoters.length, 9);
+    });
+
+    test('в обычном голосовании голосуют все живые', () {
+      final s = state(phase: GamePhase.voting);
+      expect(s.isVerdictVote, isFalse);
+      expect(s.voters.length, 10);
+    });
+
+    test('«выгнать» больше — игрок выбывает', () {
+      final s = verdict({'don': 'c1', 'maf': 'c1', 'doc': 'c1', 'com': null});
+      expect(s.verdictExile, 3);
+      expect(s.verdictKeep, 1);
+      expect(s.verdictPasses, isTrue);
+    });
+
+    test('стол поверил — игрок остаётся', () {
+      final s = verdict({'don': 'c1', 'doc': null, 'com': null, 'c2': null});
+      expect(s.verdictExile, 1);
+      expect(s.verdictKeep, 3);
+      expect(s.verdictPasses, isFalse);
+      expect(s.verdictKeepers, ['doc', 'com', 'c2']);
+    });
+
+    test('поровну — в пользу игрока', () {
+      final s = verdict({'don': 'c1', 'maf': 'c1', 'doc': null, 'com': null});
+      expect(s.verdictExile, s.verdictKeep);
+      expect(s.verdictPasses, isFalse);
+    });
+
+    test('никто не проголосовал — игрок остаётся', () {
+      expect(verdict(const {}).verdictPasses, isFalse);
+    });
+
+    test('все высказались — голосование закрыто', () {
+      final votes = {
+        for (final p in table().where((p) => p.id != 'c1')) p.id: 'c1',
+      };
+      final s = verdict(votes);
+      expect(s.allVotesIn, isTrue);
+      expect(s.verdictExile, 9);
+      expect(s.verdictPasses, isTrue);
+    });
+
+    test('copyWith: обвиняемый задаётся и снимается', () {
+      final s = verdict(const {});
+      expect(s.copyWith(timeLeft: 5).verdictId, 'c1');
+      expect(s.copyWith(clearVerdict: true).verdictId, isNull);
+      expect(s.copyWith(clearVerdict: true).isVerdictVote, isFalse);
+    });
+
+    test('обвиняемый переживает перезапуск ведущего', () async {
+      final s = verdict({'don': 'c1', 'doc': null});
+      await SessionStore().save(s);
+      final r = (await SessionStore().load())!;
+      expect(r.verdictId, 'c1');
+      expect(r.isVerdictVote, isTrue);
+      expect(r.verdictExile, 1);
+      expect(r.verdictKeep, 1);
+    });
+
+    test('формулировка правила стола упоминает повторное голосование', () {
+      final on = TableRules.describe(state());
+      expect(on.any((l) => l.contains('повторное голосование')), isTrue);
+      final off = TableRules.describe(state(lastWord: false));
+      expect(off.any((l) => l.contains('повторное голосование')), isFalse);
+      expect(off.any((l) => l.contains('без последнего слова')), isTrue);
     });
   });
 

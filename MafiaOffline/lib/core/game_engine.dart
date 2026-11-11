@@ -348,10 +348,14 @@ class TableRules {
           : 'Карта выбывшего закрыта до конца партии',
       if (on('introNight')) 'Первая ночь — знакомство: никто не погибает',
       if (on('lastWord'))
-        'Выбывшему голосованием — последнее слово, '
-            '${seconds is int ? seconds : Rules.lastWordSeconds} секунд',
+        'Перед изгнанием — последнее слово, '
+            '${seconds is int ? seconds : Rules.lastWordSeconds} секунд, '
+            'и повторное голосование: стол может оставить игрока'
+      else
+        'Выбывает тот, кого выбрало голосование, — без последнего слова',
       on('privateCheck')
-          ? 'Комиссар видит результат проверки у себя в «Моя роль»'
+          ? 'Комиссар видит ответ на проверку сразу, как выберет игрока; '
+              'все его проверки — в «Моя роль»'
           : 'Результат проверки комиссару сообщает ведущий',
     ];
   }
@@ -367,21 +371,77 @@ class TableRules {
 }
 
 /// Запись о проверке комиссара по итогам ночи или null, если проверки
-/// не было (комиссара нет, он заблокирован или пропустил ход).
+/// не было вовсе (комиссара нет или он пропустил ход).
+///
+/// Заблокированный комиссар получает запись с [CheckRecord.blocked]:
+/// он выбирал цель и должен узнать, что ответа не будет.
 ///
 /// [s] — состояние ДО применения смертей этой ночи: комиссар, убитый
-/// той же ночью, проверку всё равно сделал (в классике он узнаёт результат
-/// ночью, а не утром).
+/// той же ночью, проверку всё равно сделал.
 CheckRecord? checkRecordFor(GameState s, NightOutcome o) {
-  final target = o.checkedId;
-  if (target == null) return null;
   final com = s.commissioner;
   if (com == null) return null;
+  final target = o.checkedId;
+  if (target != null) {
+    return CheckRecord(
+      round: s.round,
+      commissionerId: com.id,
+      targetId: target,
+      isMafia: o.checkResultIsMafia == true,
+    );
+  }
+  final wanted = s.nightActions[com.id];
+  if (wanted != null && o.blockedId == com.id) {
+    return CheckRecord(
+      round: s.round,
+      commissionerId: com.id,
+      targetId: wanted,
+      isMafia: false,
+      blocked: true,
+    );
+  }
+  return null;
+}
+
+/// Что уже можно сказать комиссару о его проверке — прямо сейчас, ночью,
+/// не дожидаясь рассвета. null — сказать пока нечего.
+///
+/// Комиссар видит ответ сразу, как выбрал игрока. Единственное, что может
+/// отменить проверку, — блокировка проститутки, поэтому:
+///
+///  * проститутки нет в живых или идёт ночь знакомства — ответ сразу;
+///  * проститутка уже сходила — ответ сразу (или «вас заблокировали»);
+///  * проститутка ещё не сходила — ждём её хода: показать ответ, а потом
+///    отменить его блокировкой нельзя, увиденное уже не забыть;
+///  * ночь закрыта ([GameState.pendingNight] посчитан) — ответ по итогу.
+///
+/// Функция обязана совпадать с [GameEngine.resolveNight]: то, что комиссар
+/// увидел ночью, утром не должно оказаться другим. Это проверяет тест
+/// «ранний ответ совпадает с итогом ночи».
+CheckRecord? checkKnownNow(GameState s) {
+  if (s.phase != GamePhase.night) return null;
+  final com = s.commissioner;
+  if (com == null) return null;
+  final target = s.nightActions[com.id];
+  if (target == null) return null; // ещё не ходил или пропустил ход
+
+  final outcome = s.pendingNight;
+  if (outcome != null) return checkRecordFor(s, outcome);
+
+  var blocked = false;
+  if (!s.isIntroNight) {
+    final pros = s.prostitute;
+    if (pros != null) {
+      if (!s.nightActions.containsKey(pros.id)) return null;
+      blocked = s.nightActions[pros.id] == com.id;
+    }
+  }
   return CheckRecord(
     round: s.round,
     commissionerId: com.id,
     targetId: target,
-    isMafia: o.checkResultIsMafia == true,
+    isMafia: !blocked && s.byId(target)?.role?.type == RoleType.mafia,
+    blocked: blocked,
   );
 }
 
@@ -393,16 +453,28 @@ List<Map<String, dynamic>> checksWireFor(GameState s, String playerId) => [
           'round': c.round,
           'name': s.nameOf(c.targetId),
           'isMafia': c.isMafia,
+          if (c.blocked) 'blocked': true,
         },
     ];
 
-/// Нужно ли давать последнее слово после голосования.
+/// Одна проверка в виде пакета `check_result`.
+Map<String, dynamic> checkWire(GameState s, CheckRecord c) => {
+      'round': c.round,
+      'name': s.nameOf(c.targetId),
+      'isMafia': c.isMafia,
+      if (c.blocked) 'blocked': true,
+    };
+
+/// Нужно ли дать последнее слово тому, кого выбрало голосование.
 ///
-/// Только если правило включено и партия продолжается: когда изгнание
-/// решило исход, сразу показываем финал — речь «после титров» никому
-/// не нужна.
-bool shouldGiveLastWord(GameState afterElimination) =>
-    afterElimination.lastWord && afterElimination.checkWinner() == null;
+/// Слово даётся ДО выбывания: после него стол голосует ещё раз и может
+/// оставить игрока. Поэтому условие одно — правило включено и это ещё
+/// не повторное голосование (после него слова уже нет: человек всё сказал).
+///
+/// Намеренно НЕ смотрим, закончит ли изгнание партию. Если бы слово
+/// пропускалось, когда выбран последний мафиози, стол узнавал бы его роль
+/// по самому факту пропуска — до того, как решил, выгонять ли.
+bool shouldGiveLastWord(GameState s) => s.lastWord && s.verdictId == null;
 
 /// Что делать с запросом регистрации. Вынесено из `HostController`, чтобы
 /// правило «свой слот» можно было проверить тестом без запуска сервера.
