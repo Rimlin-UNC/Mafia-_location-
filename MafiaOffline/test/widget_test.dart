@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mafia_offline/core/assets.dart';
+import 'package:mafia_offline/core/crime_deck.dart';
 import 'package:mafia_offline/main.dart';
 import 'package:mafia_offline/models/role.dart';
 import 'package:mafia_offline/ui/rules_screen.dart';
@@ -67,6 +68,48 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
       expect(find.text('Правила и роли'), findsOneWidget);
+    });
+  });
+
+  group('Колода злодеяний', () {
+    test('десять способов, без дублей', () {
+      expect(Crime.all.length, 10);
+      expect(Crime.all.map((c) => c.type).toSet().length, 10);
+      for (final c in Crime.all) {
+        expect(c.name, isNotEmpty, reason: c.type.name);
+        expect(c.phrase, isNotEmpty, reason: c.type.name);
+      }
+    });
+
+    test('известный способ находится по типу', () {
+      expect(Crime.of(CrimeType.drowning).name, 'Утопление');
+      expect(Crime.of(CrimeType.poison).phrase, contains('отравлен'));
+    });
+
+    test('картинки ссылаются в assets/crimes/, отсутствие допустимо', () {
+      // У двух способов карточек нет осознанно (удушение не проходит
+      // генерацию, электричество осталось без картинки). Пустой строки
+      // быть не должно: либо путь, либо null.
+      for (final c in Crime.all) {
+        if (c.image != null) {
+          expect(c.image!, startsWith('assets/crimes/'), reason: c.type.name);
+          expect(c.image!, endsWith('.jpg'), reason: c.type.name);
+        }
+      }
+    });
+
+    test('строка для протокола читается по-русски', () {
+      expect(Crime.of(CrimeType.gas).logLine('Вася'),
+          'Вася — задохнулся от газа в квартире');
+    });
+
+    test('способ применим только к мафии и маньяку', () {
+      expect(crimeAppliesTo(RoleType.mafia), isTrue);
+      expect(crimeAppliesTo(RoleType.don), isTrue);
+      expect(crimeAppliesTo(RoleType.maniac), isTrue);
+      expect(crimeAppliesTo(RoleType.doctor), isFalse);
+      expect(crimeAppliesTo(RoleType.civilian), isFalse);
+      expect(crimeAppliesTo(null), isFalse);
     });
   });
 }

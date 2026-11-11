@@ -56,3 +56,5 @@ flutter:
     - assets/instructions/roles/
     - assets/instructions/phases/
     - assets/instructions/guides/
+    # Колода злодеяний: «как именно погиб игрок» (docs/ЗЛОДЕЯНИЯ.md).
+    - assets/crimes/
