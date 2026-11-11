@@ -27,7 +27,7 @@ class RulesScreen extends StatelessWidget {
           const _Section(
             title: 'Как это устроено',
             cards: [
-              const _Card(
+              _Card(
                 image: A.guideHost,
                 title: 'Ведущий и его телефон',
                 body: 'Один человек за столом не играет: он держит телефон, '
@@ -40,7 +40,7 @@ class RulesScreen extends StatelessWidget {
           const _Section(
             title: 'Фазы партии',
             cards: [
-              const _Card(
+              _Card(
                 image: A.guideNight,
                 title: 'Ночь',
                 body: 'Город спит, просыпаются только роли. Если у вас нет '
@@ -48,21 +48,21 @@ class RulesScreen extends StatelessWidget {
                     'Порядок: проститутка блокирует, доктор лечит, мафия '
                     'стреляет, маньяк стреляет отдельно, комиссар проверяет.',
               ),
-              const _Card(
+              _Card(
                 image: A.guideDay,
                 title: 'День',
                 body: 'Ведущий объявляет, кто погиб. Дальше — обсуждение. '
                     'Это главная часть игры: ночные роли слабее умения '
                     'слушать и замечать противоречия.',
               ),
-              const _Card(
+              _Card(
                 image: A.guideVote,
                 title: 'Голосование',
                 body: 'Все живые выбирают, кого выгнать. При равенстве — '
                     'второй тур между лидерами. Если и там равенство, '
                     'никто не выбывает и наступает ночь.',
               ),
-              const _Card(
+              _Card(
                 image: A.guideWin,
                 title: 'Конец партии',
                 body: 'Город побеждает, когда не осталось ни мафии, '
