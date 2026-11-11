@@ -4,22 +4,19 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../net/join_code.dart';
 import '../theme.dart';
 
-/// Результат сканирования QR-кода ведущего.
-class ScannedGame {
-  final String code;
-  final String? host;
-  final int port;
-
-  const ScannedGame({required this.code, this.host, this.port = 8088});
-}
+export '../../net/join_code.dart' show ScannedGame;
 
 /// Экран сканирования QR-кода.
 ///
-/// Ведущий показывает код вида `http://192.168.43.1:8088/?g=482913`.
-/// Отсюда мы забираем и номер игры, и адрес хоста — значит подключение
-/// произойдёт мгновенно, без поиска по сети.
+/// Ведущий показывает один из двух кодов:
+///   * единый код `WIFI:…;G:482913@192.168.43.1;;` — в нём и сеть, и игра;
+///     экран входа сам подключит телефон к Wi-Fi и войдёт в игру;
+///   * ссылку `http://192.168.43.1:8088/?g=482913` — только игра.
+/// В обоих случаях мы забираем и номер игры, и адрес хоста — значит
+/// подключение произойдёт без поиска по сети. Сам разбор — в `ScannedGame`.
 ///
 /// ВАЖНО по устройству экрана (версия 1.0.3):
 /// в 1.0.2 приложение падало при открытии сканера. Причин было три, и все
@@ -131,55 +128,25 @@ class _QrScanScreenState extends State<QrScanScreen>
     controller?.dispose();
   }
 
-  /// Разбор строки QR. Понимаем и полный адрес, и просто шесть цифр.
-  ScannedGame? _parse(String raw) {
-    final value = raw.trim();
-    final uri = Uri.tryParse(value);
-
-    if (uri != null) {
-      // Новый формат: http://IP:PORT/?g=482913
-      final q = uri.queryParameters['g'];
-      if (q != null && RegExp(r'^\d{6}$').hasMatch(q)) {
-        return ScannedGame(
-          code: q,
-          host: uri.host.isEmpty ? null : uri.host,
-          port: uri.hasPort ? uri.port : 8088,
-        );
-      }
-      // Старый формат: mafia://IP:PORT/482913
-      if (uri.scheme == 'mafia' && uri.pathSegments.isNotEmpty) {
-        final code = uri.pathSegments.last;
-        if (RegExp(r'^\d{6}$').hasMatch(code)) {
-          return ScannedGame(
-            code: code,
-            host: uri.host.isEmpty ? null : uri.host,
-            port: uri.hasPort ? uri.port : 8088,
-          );
-        }
-      }
-    }
-
-    if (RegExp(r'^\d{6}$').hasMatch(value)) return ScannedGame(code: value);
-
-    final m = RegExp(r'\b(\d{6})\b').firstMatch(value);
-    if (m != null) return ScannedGame(code: m.group(1)!);
-
-    return null;
-  }
-
   void _onDetect(BarcodeCapture capture) {
     if (_handled || !mounted) return;
     for (final barcode in capture.barcodes) {
       final raw = barcode.rawValue;
       if (raw == null || raw.isEmpty) continue;
 
-      final parsed = _parse(raw);
+      final parsed = ScannedGame.tryParse(raw);
       if (parsed != null) {
         _handled = true;
         Navigator.pop(context, parsed);
         return;
       }
-      setState(() => _error = 'Это не код игры «Мафия». Наведите на QR ведущего.');
+      // Код сети без номера игры: ведущий выключил «единый код».
+      // Говорим об этом прямо — иначе игрок будет сканировать его снова.
+      final wifiOnly = JoinCode.parse(raw) != null;
+      setState(() => _error = wifiOnly
+          ? 'Это код сети Wi-Fi, игры в нём нет. Подключитесь к сети '
+              'и наведите на второй код ведущего.'
+          : 'Это не код игры «Мафия». Наведите на QR ведущего.');
       return;
     }
   }
