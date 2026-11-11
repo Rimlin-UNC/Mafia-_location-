@@ -62,20 +62,40 @@ jobs:
           echo "--- gradle.properties (CI) ---"
           cat android/gradle.properties
 
+      # ВАЖНО: каждый APK копируем СРАЗУ после сборки.
+      # В v1.0.5 обе сборки складывались в один и тот же
+      # build/app/outputs/flutter-apk/app-release.apk, вторая перезаписывала
+      # первую — и в релиз уходили два одинаковых arm64-файла (оба
+      # 26 054 443 байта, «universal» таковым не был).
       - name: Build universal APK
-        run: flutter build apk --release
+        run: |
+          flutter build apk --release
+          cp build/app/outputs/flutter-apk/app-release.apk /tmp/app-universal.apk
 
       - name: Build arm64 APK
-        run: flutter build apk --release --target-platform android-arm64
+        run: |
+          flutter build apk --release --target-platform android-arm64
+          cp build/app/outputs/flutter-apk/app-release.apk /tmp/app-arm64.apk
 
       - name: Prepare release assets
         run: |
           VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: *//' | cut -d+ -f1)
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk "dist/MafiaOffline-${VERSION}-universal.apk"
-          cp build/app/outputs/flutter-apk/app-release.apk "dist/MafiaOffline-${VERSION}-arm64.apk"
+          cp /tmp/app-universal.apk "dist/MafiaOffline-${VERSION}-universal.apk"
+          cp /tmp/app-arm64.apk "dist/MafiaOffline-${VERSION}-arm64.apk"
           ls -lh dist/
+
+          # Защита от повторения бага v1.0.5: universal обязан быть больше
+          # arm64 (в нём лежат библиотеки для всех ABI). Если размеры равны —
+          # это один и тот же файл, и релиз публиковать нельзя.
+          U=$(stat -c%s "dist/MafiaOffline-${VERSION}-universal.apk")
+          A=$(stat -c%s "dist/MafiaOffline-${VERSION}-arm64.apk")
+          echo "universal=$U arm64=$A"
+          if [ "$U" -le "$A" ]; then
+            echo "::error::universal APK ($U) не больше arm64 ($A) — вероятно, это один и тот же файл"
+            exit 1
+          fi
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -94,7 +114,9 @@ jobs:
             ### Файлы
 
             - `MafiaOffline-${{ env.VERSION }}-universal.apk` — работает на любом Android-телефоне.
-            - `MafiaOffline-${{ env.VERSION }}-arm64.apk` — для телефонов 2018+ (64-bit), легче.
+            - `MafiaOffline-${{ env.VERSION }}-arm64.apk` — только для 64-битных телефонов
+              (примерно с 2018 года). Меньше размером, но не запустится на старых
+              и на редких 32-битных устройствах: если сомневаетесь — берите universal.
 
             **Ставит только ведущий.** Игрокам APK не нужен — они сканируют QR
             и играют в браузере (Android, iPhone, планшет, ноутбук).
