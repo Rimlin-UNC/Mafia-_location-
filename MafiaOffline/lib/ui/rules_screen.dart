@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/assets.dart';
+import '../core/crime_deck.dart';
 import '../core/role_guide.dart';
 import '../models/role.dart';
 import 'theme.dart';
@@ -75,6 +76,23 @@ class RulesScreen extends StatelessWidget {
             title: 'Роли',
             cards: [
               for (final type in RoleType.values) _RoleCard(type: type),
+            ],
+          ),
+          _Section(
+            title: 'Как мафия убирает игрока',
+            cards: [
+              const _Card(
+                title: 'Способ смерти — атмосфера, а не улика',
+                body: 'Ведущий может объявить не только кто погиб, но и как. '
+                    'Способ не подсказывает, мафия это была или маньяк: '
+                    'не ищите в нём информацию.',
+              ),
+              for (final c in Crime.all)
+                _Card(
+                  image: c.image,
+                  title: c.name,
+                  body: 'Вслух: «${c.phrase}».',
+                ),
             ],
           ),
           const _Section(
