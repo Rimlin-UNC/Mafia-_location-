@@ -143,8 +143,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
               label: const Text('Удалить партию',
                   style: TextStyle(color: AppColors.bad)),
               onPressed: () async {
+                // Навигатор берём ДО await: после удаления виджет может
+                // быть уже не в дереве, и context.mounted — не та проверка,
+                // которую ждёт анализатор (нужен mounted самого State).
+                final nav = Navigator.of(context);
                 await _repo.deleteGame(g.id);
-                if (context.mounted) Navigator.pop(context);
+                if (!mounted) return;
+                nav.pop();
                 _load();
               },
             ),

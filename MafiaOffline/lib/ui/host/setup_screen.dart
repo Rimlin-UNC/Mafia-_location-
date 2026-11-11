@@ -56,6 +56,7 @@ class _SetupScreenState extends State<SetupScreen> {
   /// один игрок — тогда город проигрывает, не начав.
   /// Равный состав (например 3 на 3) вполне играбелен: у города есть
   /// дневное голосование.
+  // ignore: unused_element
   bool get _mafiaTooMany => _total - _mafiaCount <= 1;
   bool get _valid => !_overflow;
 

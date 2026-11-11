@@ -453,7 +453,7 @@ void main() {
     });
 
     test('роль не утекает в публичные данные', () {
-      final p = Player(
+      const p = Player(
           id: 'p1',
           name: 'Иван',
           colorHex: '#FFFFFF',

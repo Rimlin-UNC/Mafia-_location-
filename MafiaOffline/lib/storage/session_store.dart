@@ -129,7 +129,7 @@ class SessionStore {
       }
     }
 
-    Map<String, String?> _strMap(Object? raw) {
+    Map<String, String?> strMap(Object? raw) {
       final out = <String, String?>{};
       if (raw is Map) {
         raw.forEach((k, v) {
@@ -164,8 +164,8 @@ class SessionStore {
       roleSetup: setup,
       players: players,
       log: log,
-      nightActions: _strMap(m['nightActions']),
-      votes: _strMap(m['votes']),
+      nightActions: strMap(m['nightActions']),
+      votes: strMap(m['votes']),
       runoffCandidates: runoff,
       awaitingVoteConfirm: m['awaitingVoteConfirm'] as bool? ?? false,
     );
