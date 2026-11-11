@@ -106,7 +106,7 @@ class StoryDeck {
       caption: 'Второй тур голосования.',
       trigger: StoryTrigger.runoff,
       priority: 60,
-      image: null,
+      image: 'assets/story/07_runoff.jpg',
     ),
     StoryCard(
       id: 'deadlock',
@@ -125,9 +125,7 @@ class StoryDeck {
       caption: 'Трое живых игроков.',
       trigger: StoryTrigger.lastThree,
       priority: 95,
-      // Иллюстрация не нарисована (кончился лимит генерации) —
-      // карточка работает текстом, это допустимо.
-      image: null,
+      image: 'assets/story/05_survivors.jpg',
     ),
     StoryCard(
       id: 'maniac_alone',
@@ -137,7 +135,7 @@ class StoryDeck {
       caption: 'Мафия выбита, маньяк ещё жив.',
       trigger: StoryTrigger.maniacAlone,
       priority: 100,
-      image: null,
+      image: 'assets/story/06_maniac.jpg',
     ),
     StoryCard(
       id: 'mafia_surge',
@@ -167,7 +165,7 @@ class StoryDeck {
       caption: 'Ночь прошла без жертв.',
       trigger: StoryTrigger.quietNight,
       priority: 50,
-      image: null,
+      image: 'assets/story/08_quiet_night.jpg',
     ),
   ];
 

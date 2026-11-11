@@ -10,6 +10,7 @@ import 'package:mafia_offline/models/game_state.dart';
 import 'package:mafia_offline/models/player.dart';
 import 'package:mafia_offline/main.dart';
 import 'package:mafia_offline/models/role.dart';
+import 'package:mafia_offline/ui/card_gallery_screen.dart';
 import 'package:mafia_offline/ui/rules_screen.dart';
 
 void main() {
@@ -279,6 +280,51 @@ void main() {
       for (final path in [A.guideHost, A.guideNight, A.guideDay, A.guideVote, A.guideWin]) {
         expect(File(path).existsSync(), isTrue, reason: path);
       }
+    });
+  });
+
+  group('Галерея карточек', () {
+    test('каталог покрывает все группы без пропусков', () {
+      final all = CardGalleryScreen.entries();
+      expect(all, isNotEmpty);
+      for (final g in CardGalleryScreen.groups) {
+        expect(all.where((e) => e.group == g), isNotEmpty, reason: g);
+      }
+      // Общее число = роли + 4 фазы + злодеяния + 4 суда + сюжет.
+      expect(
+        all.length,
+        RoleType.values.length + 4 + Crime.all.length + 4 + StoryDeck.all.length,
+      );
+    });
+
+    test('в каталоге нет карточек без названия', () {
+      for (final e in CardGalleryScreen.entries()) {
+        expect(e.title.trim(), isNotEmpty);
+        expect(e.subtitle.trim(), isNotEmpty, reason: e.title);
+      }
+    });
+
+    test('каждый путь из каталога существует на диске', () {
+      for (final e in CardGalleryScreen.entries()) {
+        if (e.image == null) continue;
+        expect(File(e.image!).existsSync(), isTrue, reason: e.image);
+      }
+    });
+
+    testWidgets('галерея открывается и показывает группы', (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: CardGalleryScreen()));
+      await tester.pump();
+      expect(find.textContaining('Все карточки'), findsOneWidget);
+      expect(find.text('Роли'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Суд'), 600,
+          scrollable: find.byType(Scrollable).first, maxScrolls: 100);
+      expect(find.text('Суд'), findsOneWidget);
+    });
+
+    testWidgets('в «Правилах» есть кнопка перехода в галерею', (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: RulesScreen()));
+      await tester.pump();
+      expect(find.byTooltip('Все карточки'), findsOneWidget);
     });
   });
 }
