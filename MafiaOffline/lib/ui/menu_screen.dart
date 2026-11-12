@@ -7,6 +7,7 @@ import '../player/player_controller.dart';
 import '../storage/app_prefs.dart';
 import '../storage/player_session_store.dart';
 import '../storage/session_store.dart';
+import 'app_sheet.dart';
 import 'history_screen.dart';
 import 'host/host_game_screen.dart';
 import 'host/setup_screen.dart';
@@ -161,106 +162,97 @@ class _MenuScreenState extends State<MenuScreen> {
   }
 
   void _openSettings() {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: AppColors.panel,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
+    // Шторка настроек выше экрана телефона: четыре переключателя с
+    // пояснениями занимают ~700 px. Раньше она лежала в Column с
+    // mainAxisSize.min, и последние пункты обрезались без возможности
+    // доскроллить. showAppSheet даёт прокрутку и почти полную высоту.
+    showAppSheet<void>(
+      context,
       builder: (_) => StatefulBuilder(
-        builder: (ctx, setSheet) => Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Настройки',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 14),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text('Звук',
-                    style:
-                        TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-              ),
-              SwitchListTile(
-                value: AudioService.instance.soundEnabled,
-                onChanged: (v) async {
-                  await AudioService.instance.setSound(v);
-                  setSheet(() {});
-                },
-                title: const Text('Звуки событий'),
-                subtitle: const Text('Убийство, рассвет, голосование',
-                    style: TextStyle(fontSize: 12, color: AppColors.dim)),
-                activeColor: AppColors.accent2,
-                contentPadding: EdgeInsets.zero,
-              ),
-              SwitchListTile(
-                value: AudioService.instance.musicEnabled,
-                onChanged: (v) async {
-                  await AudioService.instance.setMusic(v);
-                  setSheet(() {});
-                },
-                title: const Text('Атмосферный фон'),
-                subtitle: const Text('Тревожный гул ночи, гомон дня',
-                    style: TextStyle(fontSize: 12, color: AppColors.dim)),
-                activeColor: AppColors.accent2,
-                contentPadding: EdgeInsets.zero,
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Звук синхронизирован: событие звучит на всех телефонах '
-                'одновременно, независимо от того, у кого какие часы.',
-                style: TextStyle(fontSize: 11.5, color: AppColors.dim),
-              ),
-
-              const Divider(height: 28, color: AppColors.line),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text('Дополнительно',
-                    style:
-                        TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-              ),
-              SwitchListTile(
-                value: _autoStartNight,
-                onChanged: (v) async {
-                  await AppPrefs.setAutoStartFirstNight(v);
-                  setSheet(() {});
-                  if (mounted) setState(() => _autoStartNight = v);
-                },
-                title: const Text('Начинать первую ночь автоматически'),
-                subtitle: const Text(
-                  'Когда все прочитали роль — ночь начинается сама. '
-                  'Если выключить, ведущий нажмёт кнопку сам; ночь всё '
-                  'равно не начнётся, пока кто-то не подтвердил роль.',
-                  style: TextStyle(fontSize: 12, color: AppColors.dim),
-                ),
-                activeColor: AppColors.accent2,
-                contentPadding: EdgeInsets.zero,
-              ),
-              SwitchListTile(
-                value: _playerModeVisible,
-                onChanged: (v) async {
-                  await AppPrefs.setPlayerModeVisible(v);
-                  setSheet(() {});
-                  if (mounted) setState(() => _playerModeVisible = v);
-                },
-                title: const Text('Режим игрока в приложении'),
-                subtitle: const Text(
-                  'Запасной путь, если у кого-то не открывается браузер. '
-                  'Обычно игроки заходят по QR-коду.',
-                  style: TextStyle(fontSize: 12, color: AppColors.dim),
-                ),
-                activeColor: AppColors.accent2,
-                contentPadding: EdgeInsets.zero,
-              ),
-
-              const SizedBox(height: 16),
-              OutlinedButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Закрыть'),
-              ),
-            ],
+        builder: (ctx, setSheet) => SheetBody(
+          title: 'Настройки',
+          bottom: OutlinedButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Закрыть'),
           ),
+          children: [
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text('Звук',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+            ),
+            SwitchListTile(
+              value: AudioService.instance.soundEnabled,
+              onChanged: (v) async {
+                await AudioService.instance.setSound(v);
+                setSheet(() {});
+              },
+              title: const Text('Звуки событий'),
+              subtitle: const Text('Убийство, рассвет, голосование',
+                  style: TextStyle(fontSize: 12, color: AppColors.dim)),
+              activeColor: AppColors.accent2,
+              contentPadding: EdgeInsets.zero,
+            ),
+            SwitchListTile(
+              value: AudioService.instance.musicEnabled,
+              onChanged: (v) async {
+                await AudioService.instance.setMusic(v);
+                setSheet(() {});
+              },
+              title: const Text('Атмосферный фон'),
+              subtitle: const Text('Тревожный гул ночи, гомон дня',
+                  style: TextStyle(fontSize: 12, color: AppColors.dim)),
+              activeColor: AppColors.accent2,
+              contentPadding: EdgeInsets.zero,
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Звук синхронизирован: событие звучит на всех телефонах '
+              'одновременно, независимо от того, у кого какие часы.',
+              style: TextStyle(fontSize: 11.5, color: AppColors.dim),
+            ),
+
+            const Divider(height: 28, color: AppColors.line),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text('Дополнительно',
+                  style:
+                      TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+            ),
+            SwitchListTile(
+              value: _autoStartNight,
+              onChanged: (v) async {
+                await AppPrefs.setAutoStartFirstNight(v);
+                setSheet(() {});
+                if (mounted) setState(() => _autoStartNight = v);
+              },
+              title: const Text('Начинать первую ночь автоматически'),
+              subtitle: const Text(
+                'Когда все прочитали роль — ночь начинается сама. '
+                'Если выключить, ведущий нажмёт кнопку сам; ночь всё '
+                'равно не начнётся, пока кто-то не подтвердил роль.',
+                style: TextStyle(fontSize: 12, color: AppColors.dim),
+              ),
+              activeColor: AppColors.accent2,
+              contentPadding: EdgeInsets.zero,
+            ),
+            SwitchListTile(
+              value: _playerModeVisible,
+              onChanged: (v) async {
+                await AppPrefs.setPlayerModeVisible(v);
+                setSheet(() {});
+                if (mounted) setState(() => _playerModeVisible = v);
+              },
+              title: const Text('Режим игрока в приложении'),
+              subtitle: const Text(
+                'Запасной путь, если у кого-то не открывается браузер. '
+                'Обычно игроки заходят по QR-коду.',
+                style: TextStyle(fontSize: 12, color: AppColors.dim),
+              ),
+              activeColor: AppColors.accent2,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ],
         ),
       ),
     );

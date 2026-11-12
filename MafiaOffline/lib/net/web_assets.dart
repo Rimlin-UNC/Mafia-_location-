@@ -84,7 +84,7 @@ class WebAssets {
 
   /// Версия набора ассетов. Входит в ETag: подняли версию приложения —
   /// у всех игроков автоматически обновится кеш браузера.
-  static const String assetVersion = 'v11';
+  static const String assetVersion = 'v12';
 
   static String contentTypeFor(String path) {
     if (path.endsWith('.html') || path == '/') return 'text/html; charset=utf-8';

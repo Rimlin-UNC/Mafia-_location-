@@ -260,38 +260,43 @@ class _VotingSheetState extends State<VotingSheet> {
                 ],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  if (passes) ...[
-                    ElevatedButton.icon(
-                      icon: const Icon(Icons.check),
-                      label: Text('Подтвердить: выбывает $name'),
-                      style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.bad),
-                      onPressed: () => decide(id),
-                    ),
-                    const SizedBox(height: 8),
-                    OutlinedButton(
-                      onPressed: () => decide(null),
-                      child: Text('Оставить в игре: $name'),
-                    ),
-                  ] else ...[
-                    ElevatedButton.icon(
-                      icon: const Icon(Icons.check),
-                      label: Text('Подтвердить: $name остаётся'),
-                      style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.ok),
-                      onPressed: () => decide(null),
-                    ),
-                    const SizedBox(height: 8),
-                    OutlinedButton(
-                      onPressed: () => decide(id),
-                      child: Text('Всё же выгнать: $name'),
-                    ),
+            // Решение по игроку — главное действие шторки: держим его
+            // вне прокрутки и над системной навигацией.
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    if (passes) ...[
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.check),
+                        label: Text('Подтвердить: выбывает $name'),
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.bad),
+                        onPressed: () => decide(id),
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton(
+                        onPressed: () => decide(null),
+                        child: Text('Оставить в игре: $name'),
+                      ),
+                    ] else ...[
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.check),
+                        label: Text('Подтвердить: $name остаётся'),
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.ok),
+                        onPressed: () => decide(null),
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton(
+                        onPressed: () => decide(id),
+                        child: Text('Всё же выгнать: $name'),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ],

@@ -5,6 +5,7 @@ import '../../core/role_guide.dart';
 import '../../models/role.dart';
 import '../../player/player_controller.dart';
 import '../role_card_view.dart';
+import '../app_sheet.dart';
 import '../theme.dart';
 
 /// Экран получения роли.
@@ -112,15 +113,12 @@ Future<void> showRoleSheet(
   final type = _typeByName(c.roleName);
   final guide = RoleGuide.of(type);
 
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
+  return showAppSheet<void>(
+    context,
+    maxHeightFactor: 1.0,
+    showHandle: false,
     isDismissible: !firstTime,
     enableDrag: !firstTime,
-    backgroundColor: AppColors.panel,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-    ),
     builder: (_) => StatefulBuilder(
       builder: (ctx, setSheet) => DraggableScrollableSheet(
         expand: false,
