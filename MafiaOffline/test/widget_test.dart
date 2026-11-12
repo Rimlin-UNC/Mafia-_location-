@@ -459,8 +459,19 @@ void main() {
       // Открылся экран «Правила» с содержанием, а не пустая страница.
       expect(find.text('Правила'), findsOneWidget);
       expect(find.text('Как это устроено'), findsOneWidget);
-      expect(find.text('Фазы партии'), findsOneWidget);
-      expect(find.text('Роли'), findsWidgets);
+
+      // Секции ниже первого экрана: ListView строит лениво, поэтому до них
+      // надо доскроллить, иначе проверка была бы про высоту экрана, а не
+      // про наличие содержания.
+      for (final title in ['Фазы партии', 'Роли']) {
+        await tester.scrollUntilVisible(
+          find.text(title),
+          400,
+          scrollable: find.byType(Scrollable).last,
+          maxScrolls: 60,
+        );
+        expect(find.text(title), findsWidgets, reason: 'секция «$title»');
+      }
     });
 
     testWidgets('из правил можно вернуться к оферте', (tester) async {
