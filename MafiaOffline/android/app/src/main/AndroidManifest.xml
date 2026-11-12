@@ -25,6 +25,7 @@
         android:label="Мафия Offline"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:usesCleartextTraffic="true">
         <!-- usesCleartextTraffic обязателен: игра работает по ws:// в локальной сети без TLS -->
 
