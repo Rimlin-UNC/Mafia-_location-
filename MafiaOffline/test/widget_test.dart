@@ -385,7 +385,9 @@ void main() {
       expect(button, findsOneWidget);
       expect(tester.widget<ElevatedButton>(button).onPressed, isNull);
 
-      await tester.tap(button);
+      await tester.ensureVisible(button);
+      await tester.pumpAndSettle();
+      await tester.tap(button, warnIfMissed: false);
       await tester.pump();
       expect(accepted, isFalse, reason: 'без галочки принятие невозможно');
     });
@@ -403,7 +405,11 @@ void main() {
       final button = find.widgetWithText(ElevatedButton, 'Принимаю и продолжаю');
       expect(tester.widget<ElevatedButton>(button).onPressed, isNotNull);
 
-      await tester.tap(button);
+      // Кнопка внизу экрана: на тестовой высоте она может быть за границей
+      // видимой области, и тап по координатам не попадёт. Прокручиваем к ней.
+      await tester.ensureVisible(button);
+      await tester.pumpAndSettle();
+      await tester.tap(button, warnIfMissed: false);
       await tester.pump();
       expect(accepted, isTrue);
     });
@@ -415,8 +421,10 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('ООО «Ямастер»'), findsOneWidget);
-      expect(find.textContaining('ymaster.ru'), findsOneWidget);
+      // Правообладатель назван дважды: в шапке и в пункте 1 условий.
+      // Оба нужны — один виден сразу, второй остаётся при прокрутке.
+      expect(find.textContaining('ООО «Ямастер»'), findsNWidgets(2));
+      expect(find.textContaining('ymaster.ru'), findsWidgets);
       expect(find.text('УСЛОВИЯ ИСПОЛЬЗОВАНИЯ'), findsOneWidget);
     });
 
@@ -425,6 +433,14 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
+      // Меню прокручивается, и подпись стоит в самом низу. Ищем её
+      // прокруткой, а не «в кадре»: иначе тест проверял бы высоту экрана.
+      await tester.scrollUntilVisible(
+        find.textContaining('ООО «Ямастер»'),
+        300,
+        scrollable: find.byType(Scrollable).first,
+        maxScrolls: 40,
+      );
       expect(find.textContaining('ООО «Ямастер»'), findsOneWidget);
     });
   });
