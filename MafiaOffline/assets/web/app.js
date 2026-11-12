@@ -1296,6 +1296,9 @@ $('btn-skip').onclick = () => submitChoice(null);
 $('btn-myrole').onclick = openSheet;
 $('btn-rules').onclick = openRules;
 $('btn-rules-lobby').onclick = openRules;
+// Правила до входа в партию: на экране подключения и на экране оферты.
+$('btn-rules-join').onclick = openRules;
+$('btn-rules-offer').onclick = openRules;
 $('table-line').onclick = openTable;
 // Кнопка на компактной полосе открывает ту же шторку с крупной картой.
 $('rs-expand').onclick = openSheet;

@@ -442,6 +442,55 @@ void main() {
       expect(find.text('УСЛОВИЯ ИСПОЛЬЗОВАНИЯ'), findsOneWidget);
     });
 
+    testWidgets('правила доступны до принятия условий', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: OfferGate(onAccepted: () {}),
+      ));
+      await tester.pumpAndSettle();
+
+      // Сначала узнай игру, потом соглашайся — кнопка должна быть на экране
+      // оферты, до галочки.
+      final rulesButton = find.text('Правила и роли — что это за игра');
+      expect(rulesButton, findsOneWidget);
+
+      await tester.tap(rulesButton);
+      await tester.pumpAndSettle();
+
+      // Открылся экран «Правила» с содержанием, а не пустая страница.
+      expect(find.text('Правила'), findsOneWidget);
+      expect(find.text('Как это устроено'), findsOneWidget);
+
+      // Секции ниже первого экрана: ListView строит лениво, поэтому до них
+      // надо доскроллить, иначе проверка была бы про высоту экрана, а не
+      // про наличие содержания.
+      for (final title in ['Фазы партии', 'Роли']) {
+        await tester.scrollUntilVisible(
+          find.text(title),
+          400,
+          scrollable: find.byType(Scrollable).last,
+          maxScrolls: 60,
+        );
+        expect(find.text(title), findsWidgets, reason: 'секция «$title»');
+      }
+    });
+
+    testWidgets('из правил можно вернуться к оферте', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: OfferGate(onAccepted: () {}),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Правила и роли — что это за игра'));
+      await tester.pumpAndSettle();
+      expect(find.text('Правила'), findsOneWidget);
+
+      // Возврат — и оферта на месте, ничего не потеряно.
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.text('УСЛОВИЯ ИСПОЛЬЗОВАНИЯ'), findsOneWidget);
+      expect(find.text('Принимаю и продолжаю'), findsOneWidget);
+    });
+
     testWidgets('на маленьком экране оферта прокручивается, а не ломается',
         (tester) async {
       // Экран 320x480 — старый телефон. Текст условий длинный, и если бы он

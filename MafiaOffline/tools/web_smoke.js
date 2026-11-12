@@ -157,6 +157,32 @@ async function dealRole(page, role, roleName) {
     fresh.close();
   }
 
+  console.log('Правила доступны до входа в партию');
+  {
+    // До принятия условий: на экране оферты должна быть кнопка правил.
+    const pre = openPage({ acceptOffer: false });
+    check('на экране оферты есть кнопка правил', !!pre.$('btn-rules-offer'));
+    pre.click('btn-rules-offer');
+    check('правила открываются с экрана оферты', pre.visible('sheet'));
+    const offerRules = pre.text('sheet-body');
+    check('в правилах названы роли', offerRules.includes('МАФИЯ') || offerRules.includes('Мафия'));
+    check('в правилах названы ночь и день',
+      offerRules.toUpperCase().includes('НОЧЬ') && offerRules.toUpperCase().includes('ДЕНЬ'));
+    check('в правилах сказано, кто побеждает', offerRules.toUpperCase().includes('ПОБЕЖДА'));
+    check('ошибок JavaScript нет (правила на оферте)', pre.errors.length === 0);
+    pre.close();
+
+    // После принятия, но до подключения: кнопка на экране входа.
+    const post = openPage({ acceptOffer: true });
+    check('на экране подключения есть кнопка правил', !!post.$('btn-rules-join'));
+    post.click('btn-rules-join');
+    check('правила открываются на экране подключения', post.visible('sheet'));
+    check('без данных о столе правила всё равно показаны',
+      post.text('sheet-body').toUpperCase().includes('НОЧЬ'));
+    check('ошибок JavaScript нет (правила на входе)', post.errors.length === 0);
+    post.close();
+  }
+
   console.log('Оферта: вернувшийся игрок не видит её снова');
   {
     const back = openPage({ acceptOffer: true });

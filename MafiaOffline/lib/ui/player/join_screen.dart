@@ -7,6 +7,7 @@ import '../../net/protocol.dart';
 import '../../net/wifi_joiner.dart';
 import '../../player/player_controller.dart';
 import '../../storage/wifi_store.dart';
+import '../rules_screen.dart';
 import '../theme.dart';
 import 'player_game_screen.dart';
 import 'qr_scan_screen.dart';
@@ -435,7 +436,21 @@ class _JoinScreenState extends State<JoinScreen> {
     final status = _controller?.status;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Подключение к игре')),
+      appBar: AppBar(
+        title: const Text('Подключение к игре'),
+        actions: [
+          // Правила доступны до входа: новичок должен понять игру, а не
+          // разбираться в ней уже за столом, когда все ждут.
+          IconButton(
+            tooltip: 'Правила и роли',
+            icon: const Icon(Icons.menu_book_outlined),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const RulesScreen()),
+            ),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(20),

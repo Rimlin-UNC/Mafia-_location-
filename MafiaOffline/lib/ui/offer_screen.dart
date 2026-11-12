@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../storage/app_prefs.dart';
+import 'rules_screen.dart';
 import 'theme.dart';
 
 /// Текст оферты внутри приложения.
@@ -103,6 +104,18 @@ class _OfferGateState extends State<OfferGate> {
   /// впустую), а согласие должно быть осознанным действием человека.
   bool get _canAccept => _checked;
 
+  /// Показать полные «Правила и роли» до принятия условий.
+  ///
+  /// Человек должен понимать, во что играет, **до** того как согласится на
+  /// условия. Иначе галочка ставится вслепую: он ещё не знает ни правил, ни
+  /// ролей, а уже подписался под лицензией.
+  void _openRules() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const RulesScreen()),
+    );
+  }
+
   Future<void> _accept() async {
     if (!_canAccept) return;
 
@@ -123,21 +136,29 @@ class _OfferGateState extends State<OfferGate> {
       body: SafeArea(
         child: Column(
           children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(20, 18, 20, 10),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('🎭', style: TextStyle(fontSize: 34)),
-                  SizedBox(height: 6),
-                  Text(
+                  const Text('🎭', style: TextStyle(fontSize: 34)),
+                  const SizedBox(height: 6),
+                  const Text(
                     'Мафия Offline',
                     style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                   ),
-                  SizedBox(height: 2),
-                  Text(
+                  const SizedBox(height: 2),
+                  const Text(
                     '© 2026 ООО «Ямастер» · ymaster.ru',
                     style: TextStyle(color: AppColors.dim, fontSize: 12.5),
+                  ),
+                  const SizedBox(height: 10),
+                  // Понимание игры — до согласия с условиями: сначала узнай,
+                  // во что играешь, потом подписывайся.
+                  OutlinedButton.icon(
+                    onPressed: _openRules,
+                    icon: const Icon(Icons.menu_book_outlined, size: 18),
+                    label: const Text('Правила и роли — что это за игра'),
                   ),
                 ],
               ),
