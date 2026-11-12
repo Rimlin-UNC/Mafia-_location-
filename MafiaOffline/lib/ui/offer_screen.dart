@@ -107,11 +107,11 @@ class _OfferGateState extends State<OfferGate> {
       body: SafeArea(
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 18, 20, 10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
+                children: [
                   Text('🎭', style: TextStyle(fontSize: 34)),
                   SizedBox(height: 6),
                   Text(
@@ -144,9 +144,9 @@ class _OfferGateState extends State<OfferGate> {
                       ),
                     ),
                     const SizedBox(height: 6),
-                    Text(
+                    const Text(
                       'Редакция $offerVersion',
-                      style: const TextStyle(color: AppColors.dim, fontSize: 12),
+                      style: TextStyle(color: AppColors.dim, fontSize: 12),
                     ),
                     const SizedBox(height: 16),
                     for (var i = 0; i < offerHighlights.length; i++) ...[
