@@ -24,7 +24,9 @@ import 'package:mafia_offline/net/protocol.dart';
 void main() {
   group('Envelope.decode не падает на мусоре', () {
     /// Всё, что реально может прийти в сокет.
-    const garbage = <String>[
+    // final, а не const: ниже List.filled().join() — метод, а вызовы
+    // методов в константных выражениях Dart запрещает.
+    final garbage = <String>[
       '', ' ', '\n', '\t\t',                               // пустота
       'null', 'true', 'false', '[]', '{}', '[1,2,3]',     // не тот тип
       '"строка"', '42', '-1', '3.14', 'NaN', 'Infinity',  // не объект
