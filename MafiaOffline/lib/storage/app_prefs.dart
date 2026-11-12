@@ -51,6 +51,67 @@ class AppPrefs {
     await p.setBool(_kKeepScreenOn, v);
   }
 
+  // ---------- принятие оферты ----------
+
+  static const _kOfferAccepted = 'offer_accepted_v1';
+
+  /// Принял ли пользователь условия оферты на этом устройстве.
+  ///
+  /// Ключ версионирован (`_v1`): если оферту переработают по существу, номер
+  /// редакции в ключе меняется и галочку спросят заново. Оставлять одну
+  /// галочку на все будущие редакции нельзя — согласие даётся на конкретный
+  /// текст, а не на любой, который появится позже.
+  static Future<bool> offerAccepted() async {
+    final p = await SharedPreferences.getInstance();
+    return p.getBool(_kOfferAccepted) ?? false;
+  }
+
+  /// Сохраняет факт принятия: дату, время и номер редакции.
+  ///
+  /// Хранится только на устройстве и никуда не отправляется — программа
+  /// работает офлайн. Смысл записи в том, чтобы при споре было чем
+  /// подтвердить: условия приняты такого-то числа, в такой-то редакции.
+  static Future<void> setOfferAccepted({String? offerVersion, String? playerName}) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setBool(_kOfferAccepted, true);
+    await p.setString(_kOfferAcceptedAt, DateTime.now().toIso8601String());
+    if (offerVersion != null) await p.setString(_kOfferVersion, offerVersion);
+    if (playerName != null && playerName.trim().isNotEmpty) {
+      await p.setString(_kOfferName, playerName.trim());
+    }
+  }
+
+  static const _kOfferAcceptedAt = 'offer_accepted_at';
+  static const _kOfferVersion = 'offer_version';
+  static const _kOfferName = 'offer_player_name';
+
+  /// Когда принята оферта (ISO-8601), `null` — не принята.
+  static Future<String?> offerAcceptedAt() async {
+    final p = await SharedPreferences.getInstance();
+    return p.getString(_kOfferAcceptedAt);
+  }
+
+  /// Номер редакции, который был принят.
+  static Future<String?> offerVersionAccepted() async {
+    final p = await SharedPreferences.getInstance();
+    return p.getString(_kOfferVersion);
+  }
+
+  /// Имя, под которым принята оферта.
+  static Future<String?> offerAcceptedName() async {
+    final p = await SharedPreferences.getInstance();
+    return p.getString(_kOfferName);
+  }
+
+  /// Сбросить принятие (для тестов и для «показать условия снова»).
+  static Future<void> resetOfferAccepted() async {
+    final p = await SharedPreferences.getInstance();
+    await p.remove(_kOfferAccepted);
+    await p.remove(_kOfferAcceptedAt);
+    await p.remove(_kOfferVersion);
+    await p.remove(_kOfferName);
+  }
+
   // ---------- правила стола (v1.2.0) ----------
 
   static const _kOpenCards = 'rule_open_cards';
