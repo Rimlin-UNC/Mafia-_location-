@@ -15,7 +15,7 @@
 ```
 Mafia-_location-/
 ├── README.md                  ← этот файл (точка входа)
-├── LICENSE                    ← MIT, © 2026 Rimlin-UNC
+├── LICENSE                    ← проприетарная, © 2026 ООО «Ямастер»
 ├── .gitignore                 ← исключает *.apk, *.keystore, local.properties, build/
 └── MafiaOffline/              ← ВСЁ по проекту «Мафия Offline» (см. ниже)
     ├── README.md              ← краткая памятка проекта (из исходного архива)

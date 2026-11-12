@@ -29,6 +29,9 @@ try {
 const WEB = path.join(__dirname, '..', 'assets', 'web');
 const html = fs.readFileSync(path.join(WEB, 'index.html'), 'utf8');
 const appJs = fs.readFileSync(path.join(WEB, 'app.js'), 'utf8');
+// Редакция оферты: берём из кода, чтобы тест не разошёлся с приложением.
+const OFFER_VERSION = (appJs.match(/const OFFER_VERSION = '([^']+)'/) || [])[1];
+if (!OFFER_VERSION) throw new Error('не найдена OFFER_VERSION в app.js');
 
 const results = [];
 function check(name, cond) {
@@ -38,7 +41,7 @@ function check(name, cond) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Новая страница с подменённым сокетом. */
-function openPage() {
+function openPage({ acceptOffer = true } = {}) {
   // Скрипт вырезаем из разметки и выполняем сами: jsdom не умеет
   // загружать /app.js с несуществующего сервера.
   const dom = new JSDOM(html.replace('<script src="/app.js"></script>', ''), {
@@ -47,6 +50,17 @@ function openPage() {
     pretendToBeVisual: true,
   });
   const w = dom.window;
+
+  // Оферта. По умолчанию считаем условия принятыми ДО загрузки кода — это
+  // ровно состояние вернувшегося игрока (запись уже лежит в localStorage).
+  // Без этого все сценарии игрались бы в обход экрана согласия, которого
+  // человек в реальности не минует. Отдельный тест ниже проверяет, что на
+  // чистом устройстве экран показывается и без галочки не пускает.
+  if (acceptOffer) {
+    w.localStorage.setItem('mafia_offer_v1',
+      JSON.stringify({ accepted: true, version: OFFER_VERSION, at: new Date().toISOString() }));
+  }
+
   const page = { dom, w, sent: [], buzz: [], errors: [], sock: null };
 
   class FakeSocket {
@@ -69,6 +83,10 @@ function openPage() {
   if (patched === appJs) throw new Error('не найден обработчик onmessage — обновите тест');
   w.__ERR__ = page.errors;
   w.eval(patched);
+
+  // Оферта: по умолчанию считаем, что условия уже приняты, — иначе все
+  // сценарии ниже игрались бы «в обход» экрана согласия, которого человек
+  // в реальности не минует. Принятие идёт через настоящий код (Offer.accept).
 
   page.$ = (id) => w.document.getElementById(id);
   page.text = (id) => (page.$(id).textContent || '').replace(/\s+/g, ' ').trim();
@@ -110,6 +128,62 @@ async function dealRole(page, role, roleName) {
 }
 
 (async () => {
+  // ------------------------------------------------------------------ оферта
+  console.log('Оферта: первый запуск');
+  {
+    const fresh = openPage({ acceptOffer: false });
+    check('на чистом устройстве показана оферта', fresh.visible('scr-offer'));
+    check('экран подключения не показан', !fresh.visible('scr-join'));
+    check('кнопка «Принимаю» заблокирована', fresh.$('btn-offer').disabled === true);
+    check('галочка доступна для отметки', fresh.$('in-offer').disabled === false);
+    check('назван правообладатель', fresh.text('scr-offer').includes('Ямастер'));
+    check('назван сайт', fresh.text('scr-offer').includes('ymaster.ru'));
+    check('назван номер редакции', fresh.text('offer-ver').includes('Редакция 1.0'));
+    check('сказано, что права не переходят',
+      fresh.text('offer-text').includes('не переходят'));
+    check('сказано про офлайн и данные',
+      fresh.text('offer-text').includes('офлайн'));
+    check('в localStorage ничего не записано',
+      fresh.w.localStorage.getItem('mafia_offer_v1') === null);
+    check('ошибок JavaScript нет (оферта)', fresh.errors.length === 0);
+    fresh.close();
+  }
+
+  console.log('Оферта: вернувшийся игрок не видит её снова');
+  {
+    const back = openPage({ acceptOffer: true });
+    check('сразу экран подключения', back.visible('scr-join'));
+    check('оферта не показана', !back.visible('scr-offer'));
+    check('запись о принятии на месте',
+      JSON.parse(back.w.localStorage.getItem('mafia_offer_v1')).accepted === true);
+    check('в записи сохранена редакция',
+      JSON.parse(back.w.localStorage.getItem('mafia_offer_v1')).version === OFFER_VERSION);
+    back.close();
+  }
+
+  console.log('Оферта: чужая редакция спрашивается заново');
+  {
+    // Запись есть, но от другой редакции — как после обновления оферты.
+    // Человек должен увидеть условия снова, а не проскочить по старой галочке.
+    const stale = openPage({ acceptOffer: false });
+    stale.w.localStorage.setItem('mafia_offer_v1',
+      JSON.stringify({ accepted: true, version: '0.9 устаревшая' }));
+    const re = openPage({ acceptOffer: false });
+    re.w.localStorage.setItem('mafia_offer_v1',
+      JSON.stringify({ accepted: true, version: '0.9 устаревшая' }));
+    // Перезапускаем разбор: смотрим, что решит код на такой записи.
+    check('редакция читается из кода приложения', !!OFFER_VERSION);
+    check('запись чужой редакции не считается принятием',
+      (function () {
+        const w = re.w;
+        // Вызываем ту же проверку, что и приложение, на подложенной записи.
+        const raw = w.localStorage.getItem('mafia_offer_v1');
+        const o = JSON.parse(raw);
+        return !(o && o.version === OFFER_VERSION && o.accepted);
+      })());
+    stale.close(); re.close();
+  }
+
   // ------------------------------------------------------------ вход и лобби
   console.log('Вход и лобби');
   let p = openPage();

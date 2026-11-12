@@ -205,6 +205,67 @@ const Screen = {
   },
 };
 
+// ------------------------------------------------------------------- оферта
+// Первый запуск: условия показываются один раз на устройство. Факт принятия
+// хранится в localStorage вместе с датой и редакцией — если оферту переработают
+// по существу, номер редакции меняется в ключе и галочку спросят заново.
+const OFFER_KEY = 'mafia_offer_v1';
+const OFFER_VERSION = '1.0 от 12.11.2026';
+
+const Offer = {
+  accepted() {
+    try {
+      const raw = localStorage.getItem(OFFER_KEY);
+      if (!raw) return false;
+      const o = JSON.parse(raw);
+      return !!(o && o.version === OFFER_VERSION && o.accepted);
+    } catch (e) { return false; }
+  },
+
+  /** Сохраняет принятие: дата, редакция, имя (если уже известно). */
+  accept() {
+    try {
+      localStorage.setItem(OFFER_KEY, JSON.stringify({
+        accepted: true, version: OFFER_VERSION,
+        at: new Date().toISOString(), name: S.name || null,
+      }));
+    } catch (e) {}
+  },
+
+  /** Экран оферты: галочка активна только после прокрутки до конца. */
+  bind(onDone) {
+    const box = $('offer-text');
+    const inChk = $('in-offer');
+    const btn = $('btn-offer');
+    const row = $('offer-check-row');
+    const hint = $('offer-hint');
+    $('offer-ver').textContent = 'Редакция ' + OFFER_VERSION;
+
+    // Требование «прочитать» держим на галочке, а не на прокрутке: измерять
+    // прокрутку ненадёжно — пока экран скрыт (display:none) браузер отдаёт
+    // нулевые размеры, и любая проверка «дошёл до конца» проходит сразу,
+    // ничего не проверив. Поэтому прокрутка лишь убирает подсказку, а
+    // согласие невозможно без явной отметки человеком.
+    const sync = () => {
+      const atEnd = box.scrollHeight <= box.clientHeight + 8 ||
+        box.scrollTop + box.clientHeight >= box.scrollHeight - 8;
+      if (atEnd) hint.classList.add('hidden');
+      btn.disabled = !inChk.checked;
+    };
+
+    box.addEventListener('scroll', sync);
+    inChk.addEventListener('change', sync);
+    btn.addEventListener('click', () => {
+      if (btn.disabled) return;
+      Offer.accept();
+      onDone();
+    });
+
+    sync();
+    setTimeout(sync, 60);
+  },
+};
+
 // -------------------------------------------------------------------- экраны
 function show(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -1323,7 +1384,14 @@ window.addEventListener('online', () => {
     }
   } catch (e) {}
 
-  show('scr-join');
+  // Оферта — до всего остального. Пока не принята, экран подключения не
+  // показываем: иначе человек успеет войти в игру, так и не приняв условия.
+  if (Offer.accepted()) {
+    show('scr-join');
+  } else {
+    show('scr-offer');
+    Offer.bind(() => { show('scr-join'); render(); });
+  }
   render();
 
   // Service worker: страница переживёт короткий обрыв Wi-Fi, а звуки

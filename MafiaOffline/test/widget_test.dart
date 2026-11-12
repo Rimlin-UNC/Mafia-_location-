@@ -5,13 +5,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mafia_offline/core/assets.dart';
 import 'package:mafia_offline/core/crime_deck.dart';
 import 'package:mafia_offline/core/story_deck.dart';
+import 'package:mafia_offline/main.dart';
 import 'package:mafia_offline/models/game_phase.dart';
 import 'package:mafia_offline/models/game_state.dart';
 import 'package:mafia_offline/models/player.dart';
-import 'package:mafia_offline/main.dart';
 import 'package:mafia_offline/models/role.dart';
+import 'package:mafia_offline/storage/app_prefs.dart';
 import 'package:mafia_offline/ui/card_gallery_screen.dart';
+import 'package:mafia_offline/ui/offer_screen.dart';
 import 'package:mafia_offline/ui/rules_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   testWidgets('главное меню показывает вход ведущего', (tester) async {
@@ -348,6 +351,128 @@ void main() {
       await tester.pumpWidget(const MaterialApp(home: RulesScreen()));
       await tester.pump();
       expect(find.byTooltip('Все карточки'), findsOneWidget);
+    });
+  });
+
+  group('Оферта и права на программу', () {
+    test('оферта называет правообладателя, сайт и редакцию', () {
+      expect(offerHighlights.join(' '), contains('Ямастер'));
+      expect(offerHighlights.join(' '), contains('ymaster.ru'));
+      expect(offerHighlights.join(' '), contains('2026'));
+      expect(offerVersion, contains('1.0'));
+    });
+
+    test('в условиях прямо сказано, что права не переходят', () {
+      final text = offerHighlights.join(' ');
+      expect(text.toLowerCase(), contains('не переходят'));
+    });
+
+    test('в условиях сказано про офлайн и хранение данных на устройстве', () {
+      final text = offerHighlights.join(' ');
+      expect(text.toLowerCase(), contains('офлайн'));
+      expect(text.toLowerCase(), contains('устройстве'));
+    });
+
+    testWidgets('без галочки принять оферту нельзя', (tester) async {
+      var accepted = false;
+      await tester.pumpWidget(MaterialApp(
+        home: OfferGate(onAccepted: () => accepted = true),
+      ));
+      await tester.pumpAndSettle();
+
+      // Кнопка есть, но неактивна: галочка не стоит.
+      final button = find.widgetWithText(ElevatedButton, 'Принимаю и продолжаю');
+      expect(button, findsOneWidget);
+      expect(tester.widget<ElevatedButton>(button).onPressed, isNull);
+
+      await tester.tap(button);
+      await tester.pump();
+      expect(accepted, isFalse, reason: 'без галочки принятие невозможно');
+    });
+
+    testWidgets('после галочки кнопка становится активной', (tester) async {
+      var accepted = false;
+      await tester.pumpWidget(MaterialApp(
+        home: OfferGate(onAccepted: () => accepted = true),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(Checkbox));
+      await tester.pump();
+
+      final button = find.widgetWithText(ElevatedButton, 'Принимаю и продолжаю');
+      expect(tester.widget<ElevatedButton>(button).onPressed, isNotNull);
+
+      await tester.tap(button);
+      await tester.pump();
+      expect(accepted, isTrue);
+    });
+
+    testWidgets('экран оферты показывает правообладателя и ограничение ответственности',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: OfferGate(onAccepted: () {}),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('ООО «Ямастер»'), findsOneWidget);
+      expect(find.textContaining('ymaster.ru'), findsOneWidget);
+      expect(find.text('УСЛОВИЯ ИСПОЛЬЗОВАНИЯ'), findsOneWidget);
+    });
+
+    testWidgets('в главном меню видно, кому принадлежат права', (tester) async {
+      await tester.pumpWidget(const MafiaApp(offerAccepted: true));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.textContaining('ООО «Ямастер»'), findsOneWidget);
+    });
+  });
+
+  group('Принятие оферты сохраняется', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    test('по умолчанию оферта не принята', () async {
+      expect(await AppPrefs.offerAccepted(), isFalse);
+      expect(await AppPrefs.offerAcceptedAt(), isNull);
+      expect(await AppPrefs.offerVersionAccepted(), isNull);
+    });
+
+    test('принятие записывает дату, редакцию и имя', () async {
+      await AppPrefs.setOfferAccepted(
+        offerVersion: offerVersion,
+        playerName: '  Аня  ',
+      );
+
+      expect(await AppPrefs.offerAccepted(), isTrue);
+      final at = await AppPrefs.offerAcceptedAt();
+      expect(at, isNotNull);
+      expect(DateTime.tryParse(at!), isNotNull,
+          reason: 'дата должна быть в ISO-8601, иначе её нечем показать');
+      expect(await AppPrefs.offerVersionAccepted(), offerVersion);
+      // Имя обрезается по краям: пробелы в доказательстве согласия не нужны.
+      expect(await AppPrefs.offerAcceptedName(), 'Аня');
+    });
+
+    test('пустое имя не записывается', () async {
+      await AppPrefs.setOfferAccepted(offerVersion: offerVersion, playerName: '   ');
+      expect(await AppPrefs.offerAcceptedName(), isNull);
+    });
+
+    test('сброс возвращает устройство в состояние «не принято»', () async {
+      await AppPrefs.setOfferAccepted(offerVersion: offerVersion, playerName: 'Аня');
+      await AppPrefs.resetOfferAccepted();
+
+      expect(await AppPrefs.offerAccepted(), isFalse);
+      expect(await AppPrefs.offerAcceptedAt(), isNull);
+      expect(await AppPrefs.offerVersionAccepted(), isNull);
+      expect(await AppPrefs.offerAcceptedName(), isNull);
+    });
+
+    test('принятие переживает перезапуск приложения', () async {
+      await AppPrefs.setOfferAccepted(offerVersion: offerVersion);
+      // Новый экземпляр AppPrefs читает те же prefs — как после перезапуска.
+      expect(await AppPrefs.offerAccepted(), isTrue);
     });
   });
 }

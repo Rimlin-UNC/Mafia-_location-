@@ -12,6 +12,7 @@ import 'host/host_game_screen.dart';
 import 'host/setup_screen.dart';
 import 'player/join_screen.dart';
 import 'player/player_game_screen.dart';
+import 'offer_screen.dart';
 import 'role_card_view.dart';
 import 'rules_screen.dart';
 import 'theme.dart';
@@ -576,6 +577,11 @@ class _MenuScreenState extends State<MenuScreen> {
                       ],
                     ),
                   ),
+
+                  // Авторские права — на главном экране, а не в «О программе»:
+                  // человек должен видеть, кому принадлежит игра, ещё до партии.
+                  const SizedBox(height: 22),
+                  const CopyrightLine(),
                 ],
               ),
             ),
