@@ -97,8 +97,16 @@ class _OfferGateState extends State<OfferGate> {
 
   Future<void> _accept() async {
     if (!_canAccept) return;
-    await AppPrefs.setOfferAccepted();
+
+    // Сначала пускаем в игру, потом записываем: отказ хранилища (нет доступа
+    // к prefs, ошибка записи) не должен запирать человека на экране условий.
+    // Согласие он уже дал — это факт, а запись лишь подтверждение.
     if (mounted) widget.onAccepted();
+    try {
+      await AppPrefs.setOfferAccepted(offerVersion: offerVersion);
+    } catch (_) {
+      // Не сохранилось — спросим в следующий раз. Пользователя это не касается.
+    }
   }
 
   @override

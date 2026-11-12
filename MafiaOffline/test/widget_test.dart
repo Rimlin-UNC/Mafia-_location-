@@ -393,6 +393,8 @@ void main() {
     });
 
     testWidgets('после галочки кнопка становится активной', (tester) async {
+      // Хранилище как на устройстве: принятие должно ещё и записаться.
+      SharedPreferences.setMockInitialValues({});
       var accepted = false;
       await tester.pumpWidget(MaterialApp(
         home: OfferGate(onAccepted: () => accepted = true),
@@ -410,8 +412,13 @@ void main() {
       await tester.ensureVisible(button);
       await tester.pumpAndSettle();
       await tester.tap(button, warnIfMissed: false);
-      await tester.pump();
+      await tester.pumpAndSettle();
       expect(accepted, isTrue);
+
+      // И факт принятия действительно записан — иначе галочка была бы
+      // формальностью, которую нечем подтвердить в споре.
+      expect(await AppPrefs.offerAccepted(), isTrue);
+      expect(await AppPrefs.offerVersionAccepted(), offerVersion);
     });
 
     testWidgets('экран оферты показывает правообладателя и ограничение ответственности',
