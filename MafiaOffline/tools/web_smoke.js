@@ -176,6 +176,12 @@ async function dealRole(page, role, roleName) {
     check('до согласия сказано, что полная инструкция будет после оферты',
       offerRules.includes('ПОЛНАЯ ИНСТРУКЦИЯ')
       && offerRules.includes('подтвердите условия оферты'));
+    // Подпись под кнопкой на экране оферты — та же мысль словами заказчика:
+    // «после подтверждения оферты увидит развёрнутую информацию об игре».
+    const offerPage = pre.$( 'scr-offer' ).textContent;
+    check('на экране оферты обещано полное описание после подтверждения',
+      offerPage.includes('После подтверждения оферты')
+      && offerPage.includes('полное описание игры'));
     check('ошибок JavaScript нет (правила на оферте)', pre.errors.length === 0);
     pre.close();
 
@@ -268,6 +274,84 @@ async function dealRole(page, role, roleName) {
       body.includes('КАК МАФИЯ УБИРАЕТ ИГРОКА') && body.includes('Мирный житель'));
     check('ошибок JavaScript нет (книга правил в лобби)', inGame.errors.length === 0);
     inGame.close();
+  }
+
+  // ------------------------------------------- ассеты книги правил в бандле
+  // Ошибка 1.8.0: картинки лежали в подпапках assets/instructions/web/{roles,
+  // phases,guides}/, но в pubspec.yaml был объявлен только .../web/. Flutter
+  // включает каталог с завершающим слэшем БЕЗ подпапок, поэтому в APK этих
+  // файлов не было: сервер отдавал 302 на главную вместо JPEG, и в браузере
+  // вместо карточек ролей были пустые прямоугольники. Здесь проверяется само
+  // объявление: каждый файл, который книга правил просит у сервера, обязан
+  // быть включён в сборку.
+  console.log('Ассеты книги правил объявлены в pubspec.yaml');
+  {
+    const pubspec = fs.readFileSync(path.join(__dirname, '..', 'pubspec.yaml'), 'utf8');
+    const declared = new Set(
+      [...pubspec.matchAll(/^\s*-\s*(assets\/[^\s#]+)/gm)].map(m => m[1]));
+    // Каталог с завершающим слэшем покрывает только файлы внутри него.
+    const covered = (file) => {
+      for (const d of declared) {
+        if (!d.endsWith('/')) { if (d === file) return true; continue; }
+        const dir = d;
+        if (file.startsWith(dir) && !file.slice(dir.length).includes('/')) return true;
+      }
+      return false;
+    };
+
+    // Все URL, которые реально просит книга правил.
+    const page = openPage({ acceptOffer: true });
+    page.click('btn-rules-join');
+    const urls = [...page.$('sheet-body').querySelectorAll('.rcard img')]
+      .map(i => i.getAttribute('src'));
+    page.close();
+    check('книга правил просит картинки', urls.length >= 20);
+    check('все URL — с диска, без внешних адресов',
+      urls.every(u => u.startsWith('/')));
+
+    // Облегчённая копия: то же, что делает WebAssets.resolve для .jpg.
+    const missing = [];
+    for (const u of urls) {
+      const rel = u.replace(/^\//, '');
+      const parts = rel.split('/');
+      const light = ['cards', 'instructions', 'crimes'].includes(parts[0]);
+      const bundle = light
+        ? ['assets', parts[0], 'web', ...parts.slice(1)].join('/')
+        : ['assets', ...parts].join('/');
+      const onDisk = path.join(__dirname, '..', bundle);
+      if (!fs.existsSync(onDisk)) missing.push(`${bundle} (нет файла)`);
+      else if (!covered(bundle)) missing.push(`${bundle} (нет в pubspec.yaml)`);
+    }
+    check('каждая картинка правил есть на диске и объявлена в сборке',
+      missing.length === 0);
+    if (missing.length) console.log('    не попадёт в APK: ' + missing.join(', '));
+  }
+
+  // -------------------------------------- мобильная вёрстка книги правил
+  // Проверяется то, что можно проверить без браузера: правила для узких
+  // экранов есть в CSS, потолок высоты у картинки на телефоне задан, и у
+  // картинки есть onerror — при обрыве связи остаётся подпись, а не пустое
+  // место (со 1.8.0 гость хотспота видел именно пустые прямоугольники).
+  console.log('Вёрстка правил под мобильные устройства');
+  {
+    const css = fs.readFileSync(path.join(WEB, 'style.css'), 'utf8');
+    check('есть медиазапрос под телефон (<=520px)', /@media\s*\(max-width:520px\)/.test(css));
+    check('есть медиазапрос под узкий экран (<=360px)', /@media\s*\(max-width:360px\)/.test(css));
+    check('на телефоне у карточки ограничена высота картинки',
+      /\.rcard img\{[^}]*max-height/.test(css));
+    check('у картинки карточки есть подпись при ошибке загрузки',
+      css.includes('.rcard .noimg-t'));
+    check('карточка оборачивает картинку для позиционирования подписи',
+      css.includes('.rcard-imgwrap'));
+
+    const onErr = /onerror="this\.classList\.add\('noimg'\)/.test(appJs);
+    check('app.js ставит onerror на картинку правила', onErr);
+
+    // Плейсхолдер не должен ломать разметку: он добавляется, только когда
+    // картинка не загрузилась, и не дублируется.
+    const cardFn = (appJs.match(/function ruleCard[\s\S]*?\n}/) || [''])[0];
+    check('у карточки без картинки нет пустой обёртки',
+      cardFn.includes('const pic = img'));
   }
 
   console.log('Оферта: вернувшийся игрок не видит её снова');

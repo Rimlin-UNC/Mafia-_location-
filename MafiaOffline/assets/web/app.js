@@ -1203,9 +1203,19 @@ const WEB_PHASES = [
 ];
 
 // Карточка с картинкой: рамка 2:3, как нарисованы иллюстрации.
+//
+// Картинка не загрузилась — не оставляем пустое место: рамка сохраняет
+// размер (без скачков вёрстки при догрузке), внутри честная подпись.
+// Так было в 1.8.0: файлы лежали в подпапках, которых не было в
+// pubspec.yaml, браузер получал 302 на главную вместо JPEG, и человек
+// видел пустые прямоугольники вместо карточек ролей.
 function ruleCard(img, title, body) {
-  return `<div class="rcard">`
-    + (img ? `<img src="${esc(img)}" alt="" loading="lazy">` : '')
+  const pic = img
+    ? `<div class="rcard-imgwrap"><img src="${esc(img)}" alt="" loading="lazy"`
+      + ` onerror="this.classList.add('noimg');this.insertAdjacentHTML('afterend',`
+      + `'<div class=noimg-t>Картинка не загрузилась</div>')"></div>`
+    : '';
+  return `<div class="rcard">${pic}`
     + `<div class="rcard-t"><b>${esc(title)}</b><p>${esc(body)}</p></div></div>`;
 }
 

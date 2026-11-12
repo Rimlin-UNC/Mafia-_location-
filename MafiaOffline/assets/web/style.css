@@ -285,6 +285,40 @@ body{
 .rcard{background:var(--panel2);border:1px solid var(--line);border-radius:12px;
   overflow:hidden;margin-bottom:10px}
 .rcard img{display:block;width:100%;aspect-ratio:2/3;object-fit:cover;background:#1a1c24}
+/* Картинка не загрузилась (битый файл, обрыв связи на хотспоте). Раньше от
+   <img> оставался пустой прямоугольник, и человек думал, что карточки нет.
+   Теперь рамка остаётся, внутри — нейтральная подпись: текст правила читается,
+   и видно, что это иллюстрация, а не пустое место. Класс вешает onerror в
+   ruleCard(); размеры карточки от этого не «прыгают» при догрузке. */
+.rcard img.noimg{object-fit:contain;padding:0;background:var(--panel2)}
+.rcard .noimg-t{position:absolute;inset:0;display:flex;align-items:center;
+  justify-content:center;color:var(--dim);font-size:12.5px;
+  background:repeating-linear-gradient(45deg,#1a1c24,#1a1c24 10px,#1e2130 10px,#1e2130 20px)}
+.rcard-imgwrap{position:relative}
 .rcard-t{padding:12px 13px 13px}
 .rcard-t b{display:block;font-size:14.5px;margin-bottom:5px}
 .rcard-t p{margin:0;font-size:13.5px;line-height:1.45;color:#c7cbdb;white-space:pre-line}
+
+/* ---------- мобильная вёрстка книги правил (1.8.1) ---------- */
+/* Проверено под 320x480, 360x640, 390x844, 414x896: до этой правки карточка
+   роли занимала 2/3 ширины экрана по высоте (560x840 ≈ 1,5 экрана), и до
+   текста правила приходилось листать. Теперь картинка та же, но с потолком
+   по высоте: на телефоне видно и иллюстрацию, и памятку, без «простыни»
+   прокрутки. На планшете и ноутбуке потолок не срабатывает — карточка
+   остаётся широкой. */
+@media (max-width:520px){
+  .rcard img{max-height:38vh;object-fit:cover}
+  .rcard-t{padding:11px 12px 12px}
+  .rcard-t p{font-size:13px}
+  .rule-h{margin:15px 0 7px}
+  .sheet{padding:12px 13px calc(14px + var(--safe-bot))}
+  .sheet-h{font-size:16px}
+}
+/* Узкие экраны (320px): шторка не должна терять отступы, а текст —
+   расползаться по горизонтали. */
+@media (max-width:360px){
+  .sheet{padding:11px 11px calc(12px + var(--safe-bot))}
+  .rcard img{max-height:34vh}
+  .rcard-t b{font-size:14px}
+  .rcard-t p{font-size:12.5px}
+}
