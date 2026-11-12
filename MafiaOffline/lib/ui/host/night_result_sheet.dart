@@ -189,15 +189,20 @@ class _NightResultSheetState extends State<NightResultSheet> {
                 ],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.campaign),
-                label: const Text('Огласить и начать день'),
-                onPressed: () {
-                  Navigator.pop(context);
-                  c.announceNight();
-                },
+            // Кнопка вынесена из прокрутки и поднята над системной
+            // навигацией: при жестовой навигации её нижний край срезался.
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.campaign),
+                  label: const Text('Огласить и начать день'),
+                  onPressed: () {
+                    Navigator.pop(context);
+                    c.announceNight();
+                  },
+                ),
               ),
             ),
           ],

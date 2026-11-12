@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../core/protocol_export.dart';
 import '../models/game_event.dart';
 import '../storage/history_repository.dart';
+import 'app_sheet.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
@@ -113,13 +114,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final log = await _repo.logOf(g.id);
     if (!mounted) return;
 
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.panel,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
+    showAppSheet<void>(
+      context,
+      // Высоту задаёт сам DraggableScrollableSheet (доля экрана) —
+      // внешний потолок не нужен, иначе ему не хватит места под прокрутку.
+      maxHeightFactor: 1.0,
+      showHandle: false,
       builder: (_) => DraggableScrollableSheet(
         expand: false,
         initialChildSize: 0.8,

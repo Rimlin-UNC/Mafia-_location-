@@ -6,6 +6,7 @@ import '../../host/host_controller.dart';
 import '../../models/game_phase.dart';
 import '../../models/game_state.dart';
 import '../story_card_view.dart';
+import '../app_sheet.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'night_result_sheet.dart';
@@ -47,6 +48,9 @@ class _HostGameScreenState extends State<HostGameScreen> {
       showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
+        // Нижняя кнопка «Огласить» не должна уходить под системную
+        // навигацию: на жестовой навигации её срезало край экрана.
+        useSafeArea: true,
         backgroundColor: Colors.transparent,
         isDismissible: false,
         enableDrag: false,
@@ -60,6 +64,9 @@ class _HostGameScreenState extends State<HostGameScreen> {
       showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
+        // Нижняя кнопка «Огласить» не должна уходить под системную
+        // навигацию: на жестовой навигации её срезало край экрана.
+        useSafeArea: true,
         backgroundColor: Colors.transparent,
         isDismissible: false,
         enableDrag: false,
@@ -511,52 +518,67 @@ class _HostGameScreenState extends State<HostGameScreen> {
   /// Ручной выбор карточки: список всех, с пометкой уже показанных.
   /// Нужен, когда ведущий хочет подчеркнуть момент, а условие не совпало.
   void _pickStory(GameState s) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: AppColors.panel,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      builder: (ctx) => ListView(
-        padding: const EdgeInsets.all(16),
+    // Список всех карточек длиннее экрана телефона, поэтому шторка
+    // занимает почти весь экран, а прокручивается только список:
+    // заголовок остаётся на месте.
+    showAppSheet<void>(
+      context,
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('Кадр партии',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 4),
-          const Text(
-            'Показать всем игрокам карточку момента. Правила не меняет.',
-            style: TextStyle(fontSize: 12.5, color: AppColors.dim),
-          ),
-          const SizedBox(height: 12),
-          for (final card in StoryDeck.all)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.movie_outlined),
-              title: Text(card.title,
-                  style: const TextStyle(fontSize: 14.5)),
-              subtitle: Text(card.caption,
-                  style: const TextStyle(fontSize: 12)),
-              trailing: s.storySeen.contains(card.id)
-                  ? const Icon(Icons.done, size: 18, color: AppColors.ok)
-                  : null,
-              onTap: () {
-                Navigator.pop(ctx);
-                c.showStory(card.id);
-              },
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Кадр партии',
+                    style:
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                SizedBox(height: 4),
+                Text(
+                  'Показать всем игрокам карточку момента. Правила не меняет.',
+                  style: TextStyle(fontSize: 12.5, color: AppColors.dim),
+                ),
+              ],
             ),
+          ),
+          const SizedBox(height: 8),
+          Flexible(
+            child: ListView(
+              shrinkWrap: true,
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              children: [
+                for (final card in StoryDeck.all)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.movie_outlined),
+                    title: Text(card.title,
+                        style: const TextStyle(fontSize: 14.5)),
+                    subtitle: Text(card.caption,
+                        style: const TextStyle(fontSize: 12)),
+                    trailing: s.storySeen.contains(card.id)
+                        ? const Icon(Icons.done, size: 18, color: AppColors.ok)
+                        : null,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      c.showStory(card.id);
+                    },
+                  ),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 
   void _showFullLog(GameState s) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.panel,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
+    showAppSheet<void>(
+      context,
+      // Высоту задаёт сам DraggableScrollableSheet (доля экрана) —
+      // внешний потолок не нужен, иначе ему не хватит места под прокрутку.
+      maxHeightFactor: 1.0,
+      showHandle: false,
       builder: (_) => DraggableScrollableSheet(
         expand: false,
         initialChildSize: 0.7,
