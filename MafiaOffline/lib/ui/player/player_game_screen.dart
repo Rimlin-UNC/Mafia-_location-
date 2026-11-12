@@ -629,7 +629,12 @@ class _DisconnectedView extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Соединение потеряно')),
       body: SafeArea(
-        child: Padding(
+        // Экран обрыва связи показывается именно в тот момент, когда
+        // человек нервничает и читает всё подряд. Если содержимое выше
+        // экрана (крупный шрифт, маленький телефон), оно должно
+        // прокручиваться, а не обрезаться: иначе теряется кнопка «Выйти
+        // из игры», и игрок застревает на этом экране.
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,

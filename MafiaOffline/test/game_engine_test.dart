@@ -330,6 +330,88 @@ void main() {
       expect(result.length, 3);
       expect(result.every((p) => p.role != null), isTrue);
     });
+
+    // Регресс 1.9.2. Пресет «2 мафии + дон» на 6 пришедших давал 3 мафии
+    // против 3 города. `checkWinner` объявляет победу при mafia >= city,
+    // поэтому партия заканчивалась в первую секунду: город не делал ни
+    // одного хода, а ведущий видел «Игра окончена» сразу после раздачи.
+    test('раздача не создаёт уже выигранную партию', () {
+      // Все составы, которые реально бывают за столом: от 6 до 20 игроков
+      // и оба пресета ведущего плюс крайности из редактора состава.
+      final setups = <Map<RoleType, int>>[
+        {
+          RoleType.mafia: 2,
+          RoleType.don: 1,
+          RoleType.doctor: 1,
+          RoleType.commissioner: 1,
+          RoleType.prostitute: 1,
+        },
+        {
+          RoleType.mafia: 4,
+          RoleType.don: 1,
+          RoleType.doctor: 1,
+          RoleType.commissioner: 1,
+          RoleType.prostitute: 1,
+          RoleType.maniac: 1,
+        },
+        {RoleType.mafia: 8, RoleType.don: 1},
+        {RoleType.mafia: 1},
+        {RoleType.mafia: 3, RoleType.don: 1, RoleType.maniac: 1},
+      ];
+
+      for (final setup in setups) {
+        for (var n = 6; n <= 20; n++) {
+          final players = [
+            for (var i = 0; i < n; i++)
+              Player(id: 'p$i', name: 'P$i', colorHex: '#FFFFFF'),
+          ];
+          // Несколько сидов: раздача перемешивается, но баланс обязан
+          // держаться при любом жребии.
+          for (final seed in [1, 7, 42]) {
+            final dealt = GameEngine.assignRoles(
+              players: players,
+              setup: setup,
+              random: Random(seed),
+            );
+            final state = GameState(
+              id: 'g',
+              name: 't',
+              code: '000000',
+              createdAt: DateTime(2026),
+              players: dealt,
+            );
+            expect(
+              state.checkWinner(),
+              isNull,
+              reason: 'состав $setup на $n игроков (сид $seed): партия '
+                  'выиграна до первого хода — $setup, мафии '
+                  '${dealt.where((p) => p.role?.side == Side.mafia).length} '
+                  'из $n',
+            );
+          }
+        }
+      }
+    });
+
+    test('мафии всегда остаётся меньше, чем города', () {
+      // То же свойство, но напрямую по числам: если когда-нибудь кто-то
+      // поменяет условие в assignRoles, тест покажет, где именно.
+      for (var n = 6; n <= 20; n++) {
+        final dealt = GameEngine.assignRoles(
+          players: [
+            for (var i = 0; i < n; i++)
+              Player(id: 'p$i', name: 'P$i', colorHex: '#FFFFFF'),
+          ],
+          setup: {RoleType.mafia: 2, RoleType.don: 1},
+          random: Random(3),
+        );
+        final mafia = dealt.where((p) => p.role?.side == Side.mafia).length;
+        final maniac =
+            dealt.where((p) => p.role?.type == RoleType.maniac).length;
+        expect(mafia, lessThan(n - mafia - maniac),
+            reason: '$n игроков: мафия $mafia против ${n - mafia - maniac}');
+      }
+    });
   });
 
   group('Подсчёт голосов', () {

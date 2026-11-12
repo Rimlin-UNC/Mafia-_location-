@@ -101,15 +101,31 @@ class Player {
     return null;
   }
 
+  /// Восстановление игрока из сохранения партии.
+  ///
+  /// Разбор намеренно «мягкий»: сохранение пишется на диск и может быть
+  /// записано прошлой версией приложения, повреждено при сбое питания
+  /// или содержать поле другого типа (раньше `name` был числом, потом
+  /// стал строкой). `as String?` в таком случае бросает исключение —
+  /// и партия не восстанавливается вообще, хотя терять ради одного
+  /// поля весь расклад ролей нельзя.
+  ///
+  /// Поэтому каждое поле проверяется по типу: не подошло — берём
+  /// значение по умолчанию. Игрок с пустым именем попадёт в партию как
+  /// «—», и ведущий увидит это в списке.
   static Player fromStorageJson(Map<String, dynamic> j) => Player(
-        id: j['id'] as String? ?? '',
-        name: j['name'] as String? ?? '—',
-        colorHex: j['color'] as String? ?? '#888888',
-        role: Role.tryParse(j['role'] as String?),
-        isAlive: j['isAlive'] as bool? ?? true,
-        roleAcknowledged: j['roleAck'] as bool? ?? false,
-        deviceId: j['deviceId'] as String?,
-        eliminatedRound: j['eliminatedRound'] as int?,
-        eliminationReason: _parseReason(j['reason']),
+        id: _str(j['id']) ?? '',
+        name: _str(j['name']) ?? '—',
+        colorHex: _str(j['color']) ?? '#888888',
+        role: Role.tryParse(_str(j['role'])),
+        isAlive: _bool(j['isAlive']) ?? true,
+        roleAcknowledged: _bool(j['roleAck']) ?? false,
+        deviceId: _str(j['deviceId']),
+        eliminatedRound: _int(j['eliminatedRound']),
+        eliminationReason: _parseReason(_str(j['reason'])),
       );
+
+  static String? _str(Object? v) => v is String ? v : null;
+  static bool? _bool(Object? v) => v is bool ? v : null;
+  static int? _int(Object? v) => v is int ? v : (v is num ? v.toInt() : null);
 }

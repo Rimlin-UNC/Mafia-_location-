@@ -226,46 +226,58 @@ class _QrScanScreenState extends State<QrScanScreen>
             ),
           ),
         ),
+        // Нижняя панель не имеет фиксированного «потолка»: при крупном
+        // системном шрифте и маленьком экране она выше рамки и уезжала
+        // за нижнюю границу — кнопка «Ввести код вручную» становилась
+        // недоступна. Прокрутка внутри панели решает это, не трогая вид.
         Positioned(
           left: 20,
           right: 20,
-          bottom: 40,
-          child: Column(
-            children: [
-              if (_error != null)
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    color: AppColors.bad.withAlpha(220),
-                    borderRadius: BorderRadius.circular(12),
+          bottom: 24,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.55,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  if (_error != null)
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: AppColors.bad.withAlpha(220),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        _error!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withAlpha(190),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      'Наведите камеру на QR-код на экране ведущего',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 14),
+                    ),
                   ),
-                  child: Text(
-                    _error!,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 13),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    style:
+                        OutlinedButton.styleFrom(backgroundColor: Colors.black54),
+                    icon: const Icon(Icons.keyboard),
+                    label: const Text('Ввести код вручную'),
+                    onPressed: () => Navigator.pop(context),
                   ),
-                ),
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.black.withAlpha(190),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Text(
-                  'Наведите камеру на QR-код на экране ведущего',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 14),
-                ),
+                ],
               ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(backgroundColor: Colors.black54),
-                icon: const Icon(Icons.keyboard),
-                label: const Text('Ввести код вручную'),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ],
+            ),
           ),
         ),
       ],

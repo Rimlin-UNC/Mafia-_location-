@@ -101,3 +101,4 @@ for r,c in Counter(p.role for p in g.players).most_common(): print(f"   {r:<14} 
 print("\nЛог (последние 8):")
 for l in g.log[-8:]: print("   ",l)
 print(f"\n{'✅ БАГОВ НЕ НАЙДЕНО' if not BUGS else f'🐛 НАЙДЕНО {len(BUGS)} ПРОБЛЕМ'}")
+sys.exit(1 if BUGS else 0)

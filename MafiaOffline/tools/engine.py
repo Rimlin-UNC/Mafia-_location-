@@ -117,9 +117,13 @@ class Game:
             pool += [t]*s.setup.get(t,0)
         n=len(s.players)
         while len(pool)>n: pool.pop()
-        # защита баланса: мафия не больше половины ИТОГОВОГО состава
+        # Защита баланса: после раздачи никто не должен победить сразу.
+        # Условие совпадает с check_winner: мафия побеждает при mafia >= city,
+        # где city НЕ считает маньяка — он играет сам за себя.
         mc=lambda: sum(1 for r in pool if r in (MAFIA,DON))
-        while pool and n - mc() <= 1:
+        kc=lambda: sum(1 for r in pool if r==MANIAC)
+        while pool and mc() > 0:
+            if mc() < n - mc() - kc(): break
             if MAFIA in pool: idx=len(pool)-1-pool[::-1].index(MAFIA)
             elif DON in pool: idx=len(pool)-1-pool[::-1].index(DON)
             else: break

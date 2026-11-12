@@ -38,7 +38,7 @@ class SessionStore {
       final map = jsonDecode(raw);
       if (map is! Map<String, dynamic>) return null;
 
-      final savedAt = map['savedAt'] as int? ?? 0;
+      final savedAt = _int(map['savedAt']) ?? 0;
       final age = DateTime.now().millisecondsSinceEpoch - savedAt;
       if (age > _maxAge.inMilliseconds) {
         await clear();
@@ -109,6 +109,21 @@ class SessionStore {
         'log': s.log.map((e) => e.toJson()).toList(),
       };
 
+  /// Мягкое чтение полей сохранения.
+  ///
+  /// Сохранение пишется на диск и переживает перезапуск приложения, смену
+  /// версии и внезапное выключение телефона. Поле может оказаться другого
+  /// типа: `as String?` в этом случае бросает TypeError, `load()` ловит его
+  /// внешним `catch` и **молча стирает сохранение** — ведущий теряет
+  /// прерванную партию целиком из-за одного поля.
+  ///
+  /// Эти три функции возвращают null вместо исключения: не подошло — берём
+  /// значение по умолчанию и играем дальше. Так же сделано в
+  /// `Player.fromStorageJson`.
+  static String? _str(Object? v) => v is String ? v : null;
+  static bool? _bool(Object? v) => v is bool ? v : null;
+  static int? _int(Object? v) => v is int ? v : (v is num ? v.toInt() : null);
+
   GameState _decode(Map<String, dynamic> m) {
     final rawPlayers = m['players'];
     final players = <Player>[];
@@ -174,39 +189,39 @@ class SessionStore {
     }
 
     return GameState(
-      id: m['id'] as String? ?? '0',
-      name: m['name'] as String? ?? 'Игра',
-      code: m['code'] as String? ?? '000000',
+      id: _str(m['id']) ?? '0',
+      name: _str(m['name']) ?? 'Игра',
+      code: _str(m['code']) ?? '000000',
       createdAt: DateTime.fromMillisecondsSinceEpoch(
-          m['createdAt'] as int? ?? DateTime.now().millisecondsSinceEpoch),
-      plannedPlayers: m['plannedPlayers'] as int? ?? players.length,
-      phase: GamePhaseX.parse(m['phase'] as String?),
-      round: m['round'] as int? ?? 1,
+          _int(m['createdAt']) ?? DateTime.now().millisecondsSinceEpoch),
+      plannedPlayers: _int(m['plannedPlayers']) ?? players.length,
+      phase: GamePhaseX.parse(_str(m['phase'])),
+      round: _int(m['round']) ?? 1,
       // Таймер после восстановления стоит на паузе: ведущий сам решит,
       // когда продолжить — за время простоя ситуация за столом изменилась.
-      timeLeft: m['timeLeft'] as int? ?? 0,
+      timeLeft: _int(m['timeLeft']) ?? 0,
       paused: true,
-      lastHealedId: m['lastHealedId'] as String?,
+      lastHealedId: _str(m['lastHealedId']),
       // Старые сохранения поля не знают — считаем карту закрытой.
-      openCards: m['openCards'] as bool? ?? false,
+      openCards: _bool(m['openCards']) ?? false,
       // Сохранение из 1.1.x этих полей не знает. Партия, начатая по старым
       // правилам, по ним и доигрывается: без знакомства, без таймера
       // последнего слова, проверку сообщает ведущий.
-      introNight: m['introNight'] as bool? ?? false,
-      lastWord: m['lastWord'] as bool? ?? false,
-      privateCheck: m['privateCheck'] as bool? ?? false,
-      lastWordId: m['lastWordId'] as String?,
-      verdictId: m['verdictId'] as String?,
+      introNight: _bool(m['introNight']) ?? false,
+      lastWord: _bool(m['lastWord']) ?? false,
+      privateCheck: _bool(m['privateCheck']) ?? false,
+      lastWordId: _str(m['lastWordId']),
+      verdictId: _str(m['verdictId']),
       checks: checks,
       storySeen: strList(m['storySeen']),
-      noDeathsStreak: m['noDeathsStreak'] as int? ?? 0,
+      noDeathsStreak: _int(m['noDeathsStreak']) ?? 0,
       roleSetup: setup,
       players: players,
       log: log,
       nightActions: strMap(m['nightActions']),
       votes: strMap(m['votes']),
       runoffCandidates: runoff,
-      awaitingVoteConfirm: m['awaitingVoteConfirm'] as bool? ?? false,
+      awaitingVoteConfirm: _bool(m['awaitingVoteConfirm']) ?? false,
     );
   }
 }

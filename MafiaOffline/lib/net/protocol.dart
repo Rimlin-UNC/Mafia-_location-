@@ -105,11 +105,22 @@ class Envelope {
       if (decoded is! Map<String, dynamic>) return null;
       final type = decoded['type'];
       if (type is! String) return null;
-      final version = decoded['v'] as int? ?? 0;
+
+      // `as int?` бросает исключение при строке или дробном числе —
+      // а прислать `"v":"1"` может и обновлённый клиент из кеша, и
+      // что угодно, что стучится в открытый порт. Ловится оно внешним
+      // try, но тогда сообщение молча пропадает вместо понятного
+      // «версия не та». Разбираем тип явно.
+      final rawVersion = decoded['v'];
+      final version = rawVersion is int
+          ? rawVersion
+          : (rawVersion is num ? rawVersion.toInt() : 0);
       if (version != Net.protocolVersion) {
         lastRejectedVersion = version;
         return null;
       }
+
+      final rawTs = decoded['ts'];
       final data = Map<String, dynamic>.from(decoded)
         ..remove('type')
         ..remove('v')
@@ -118,7 +129,7 @@ class Envelope {
         type,
         data,
         version,
-        decoded['ts'] as int? ?? 0,
+        rawTs is int ? rawTs : (rawTs is num ? rawTs.toInt() : 0),
       );
     } catch (_) {
       return null;
