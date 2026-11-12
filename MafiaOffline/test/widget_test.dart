@@ -359,7 +359,14 @@ void main() {
       expect(offerHighlights.join(' '), contains('Ямастер'));
       expect(offerHighlights.join(' '), contains('ymaster.ru'));
       expect(offerHighlights.join(' '), contains('2026'));
-      expect(offerVersion, contains('1.1'));
+      expect(offerVersion, contains('1.2'));
+    });
+
+    test('в условиях названы реквизиты правообладателя', () {
+      final text = offerHighlights.join(' ');
+      expect(text, contains('4712030034'), reason: 'ИНН');
+      expect(text, contains('1204700012483'), reason: 'ОГРН');
+      expect(text, contains('ymaster.ru'));
     });
 
     test('в условиях прямо сказано, что права не переходят', () {
@@ -435,6 +442,31 @@ void main() {
       expect(find.text('УСЛОВИЯ ИСПОЛЬЗОВАНИЯ'), findsOneWidget);
     });
 
+    testWidgets('на маленьком экране оферта прокручивается, а не ломается',
+        (tester) async {
+      // Экран 320x480 — старый телефон. Текст условий длинный, и если бы он
+      // лежал в Column, был бы overflow. Проверяем, что этого не происходит.
+      tester.view.physicalSize = const Size(320, 480);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(MaterialApp(
+        home: OfferGate(onAccepted: () {}),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull,
+          reason: 'переполнение вёрстки на маленьком экране');
+      // И кнопка согласия остаётся доступной после прокрутки.
+      await tester.scrollUntilVisible(
+        find.widgetWithText(ElevatedButton, 'Принимаю и продолжаю'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+        maxScrolls: 60,
+      );
+      expect(find.text('Принимаю и продолжаю'), findsOneWidget);
+    });
+
     testWidgets('в главном меню видно, кому принадлежат права', (tester) async {
       await tester.pumpWidget(const MafiaApp(offerAccepted: true));
       await tester.pump();
@@ -499,14 +531,14 @@ void main() {
     });
 
     test('старая редакция не засчитывается как принятие', () async {
-      await AppPrefs.setOfferAccepted(offerVersion: '1.0 от 12.11.2026');
+      await AppPrefs.setOfferAccepted(offerVersion: '1.1 от 12.11.2026');
 
       // Без указания редакции отметка есть — но текущую редакцию она не покрывает.
       expect(await AppPrefs.offerAccepted(), isTrue);
-      expect(await AppPrefs.offerAccepted(currentVersion: '1.1 от 12.11.2026'),
+      expect(await AppPrefs.offerAccepted(currentVersion: '1.2 от 12.11.2026'),
           isFalse,
           reason: 'условия переработаны — галочку нужно спросить заново');
-      expect(await AppPrefs.offerAccepted(currentVersion: '1.0 от 12.11.2026'),
+      expect(await AppPrefs.offerAccepted(currentVersion: '1.1 от 12.11.2026'),
           isTrue);
     });
 
