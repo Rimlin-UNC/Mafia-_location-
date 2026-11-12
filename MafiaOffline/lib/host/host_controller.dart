@@ -110,7 +110,7 @@ class HostController extends ChangeNotifier {
         plannedPlayers: plannedPlayers,
       );
     } catch (e) {
-      _lastError = 'Не удалось запустить сервер: $e';
+      _lastError = _explainServerError(e);
       notifyListeners();
       return false;
     }
@@ -125,6 +125,30 @@ class HostController extends ChangeNotifier {
 
     notifyListeners();
     return true;
+  }
+
+  /// Понятная причина, почему сервер не поднялся.
+  ///
+  /// Раньше ведущий видел `SocketException: Address already in use (OS
+  /// Error: 98), errno = 98` — строка из недр системы, по которой нельзя
+  /// принять решение. Самая частая причина на телефоне: прошлая партия не
+  /// закрылась штатно (свернули приложение, не нажали «Завершить»), и порт
+  /// 8088 остался занят. Вторая по частоте — та же игра уже открыта вторым
+  /// окном. Обе лечатся понятным действием, поэтому и текст — про действие.
+  String _explainServerError(Object e) {
+    final text = e.toString();
+    if (text.contains('Address already in use') ||
+        text.contains('errno = 98') ||
+        text.contains('bind')) {
+      return 'Порт 8088 занят. Скорее всего, игра уже запущена в другом '
+          'окне приложения — закройте его и попробуйте снова. '
+          'Если не помогло, перезапустите приложение.';
+    }
+    if (text.contains('Permission denied')) {
+      return 'Система не разрешила открыть порт 8088. '
+          'Проверьте, не включён ли режим экономии или блокировщик сети.';
+    }
+    return 'Не удалось запустить сервер: $e';
   }
 
   /// Синхронный звук: назначаем момент воспроизведения в будущем
@@ -166,7 +190,7 @@ class HostController extends ChangeNotifier {
         plannedPlayers: saved.plannedPlayers,
       );
     } catch (e) {
-      _lastError = 'Не удалось поднять сервер: $e';
+      _lastError = _explainServerError(e);
       _state = null;
       notifyListeners();
       return false;
@@ -238,12 +262,46 @@ class HostController extends ChangeNotifier {
 
   // ==================== приём сообщений ====================
 
+  /// Разбор входящего сообщения.
+  ///
+  /// Всё тело обёрнуто в try/catch намеренно. Обработчик висит на широковеща­
+  /// тельном потоке сервера: необработанное исключение от ОДНОГО клиента
+  /// (битый JSON нужного типа, неожидаемая строка вместо числа, эмулятор
+  /// WebSocket) уходило в зону ошибок потока и роняло подписку. Дальше
+  /// сервер работал, а ведущий не получал уже ни одного сообщения: партия
+  /// замирала, и восстановить её можно было только перезапуском.
+  ///
+  /// Теперь сбой одного сообщения — это только это сообщение. Пишем в лог
+  /// и живём дальше.
+  /// Сколько сообщений не удалось разобрать — только для ограничения
+  /// записей в лог (см. [_onMessage]).
+  int _badMessageCount = 0;
+
   void _onMessage(({ClientConn conn, Envelope msg}) event) {
     final s = _state;
     if (s == null) return;
     final msg = event.msg;
     final conn = event.conn;
 
+    try {
+      _dispatchMessage(conn, msg);
+    } catch (e) {
+      // В лог партии пишем первые три сбоя: они бывают при обновлении
+      // клиента и полезны в разборе, но клиент, который шлёт мусор
+      // пачками, не должен раздувать лог и отвлекать ведущего.
+      _badMessageCount++;
+      debugPrint('Mafia: сообщение ${msg.type} отклонено: $e');
+      if (_badMessageCount <= 3) {
+        _addLog(
+          EventType.info,
+          'Пропущена некорректная команда от игрока',
+          visibleToPlayers: false,
+        );
+      }
+    }
+  }
+
+  void _dispatchMessage(ClientConn conn, Envelope msg) {
     switch (msg.type) {
       case Msg.register:
         _handleRegister(conn, msg);
@@ -1227,15 +1285,42 @@ class HostController extends ChangeNotifier {
 
   // ==================== таймер ====================
 
+  /// Момент последнего учтённого тика. По нему считается реально
+  /// прошедшее время, а не число срабатываний таймера (см. [_startTimer]).
+  DateTime? _lastTickAt;
+
   void _startTimer() {
     _stopTimer();
+    // Отсчёт по РЕАЛЬНОМУ времени, а не по числу тиков.
+    //
+    // Timer.periodic не гарантирует секунду: Android замораживает таймеры,
+    // когда экран ведущего гаснет и служба переднего плана ещё не поднялась,
+    // а при высокой нагрузке тики сдвигаются. Раньше `timeLeft--` на каждом
+    // тике означал, что за фон из 3 секунд реального времени уходила 1
+    // секунда игрового — фаза «Ночи» висела втрое дольше, и стол ждал
+    // ведущего. Теперь мы запоминаем момент старта и вычитаем реальную
+    // разницу: пропущенные тики не теряются.
+    _lastTickAt = DateTime.now();
+
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
       final s = _state;
-      if (s == null || s.paused) return;
-      if (s.timeLeft > 0) {
-        _state = s.copyWith(timeLeft: s.timeLeft - 1);
+      if (s == null || s.paused) {
+        // На паузе время не идёт: сдвигаем точку отсчёта, чтобы после
+        // снятия паузы не вычесть всё время простоя.
+        _lastTickAt = DateTime.now();
+        return;
+      }
+      final now = DateTime.now();
+      final elapsed = now.difference(_lastTickAt!).inSeconds;
+      if (elapsed <= 0) return; // тик пришёл раньше секунды — не вычитаем
+      _lastTickAt = now;
+
+      final left = s.timeLeft - elapsed;
+      if (left > 0) {
+        _state = s.copyWith(timeLeft: left);
         notifyListeners();
       } else {
+        _state = s.copyWith(timeLeft: 0);
         _stopTimer();
         _onTimeout();
       }
@@ -1250,6 +1335,40 @@ class HostController extends ChangeNotifier {
         'paused': s.paused,
       }));
     });
+  }
+
+  /// Приложение вернулось из фона.
+  ///
+  /// Пока процесс был заморожен (экран погас, система придушила службу),
+  /// Timer.periodic не срабатывал: `timeLeft` застывало, хотя реальное
+  /// время шло. Со службой переднего плана Android обычно не замораживает
+  /// ведущего, но на iOS и на «злых» прошивках это случается.
+  ///
+  /// Здесь мы догоняем пропущенное: если фаза не на паузе, вычитаем
+  /// реально прошедшее время и, если оно вышло, сразу завершаем фазу —
+  /// вместо того чтобы позволить столу ждать ещё минуту.
+  void onResume() {
+    final s = _state;
+    if (s == null || s.paused || _lastTickAt == null) return;
+    if (s.phase == GamePhase.ended) return;
+    // В раздаче ролей и в лобби таймера нет: timeLeft = 0, и «догон»
+    // мгновенно завершил бы фазу, которую завершает человек, а не часы.
+    if (s.phase == GamePhase.waiting || s.phase == GamePhase.rolesCheck) return;
+
+    final elapsed = DateTime.now().difference(_lastTickAt!).inSeconds;
+    if (elapsed <= 0) return;
+    _lastTickAt = DateTime.now();
+
+    if (elapsed < s.timeLeft) {
+      _state = s.copyWith(timeLeft: s.timeLeft - elapsed);
+      notifyListeners();
+      return;
+    }
+
+    // Время фазы истекло, пока приложение спало.
+    _state = s.copyWith(timeLeft: 0);
+    _stopTimer();
+    _onTimeout();
   }
 
   void _stopTimer() {
@@ -1287,6 +1406,10 @@ class HostController extends ChangeNotifier {
     final s = _state;
     if (s == null) return;
     _state = s.copyWith(paused: !s.paused);
+    // Пауза и её снятие — тоже сдвиг точки отсчёта: пока стояли,
+    // реальное время шло, и без этого первая же проверка вычла бы
+    // всё время простоя.
+    _lastTickAt = DateTime.now();
     server.broadcast(Envelope(Msg.timeUpdate, {
       'time': _state!.timeLeft,
       'paused': _state!.paused,
@@ -1295,6 +1418,9 @@ class HostController extends ChangeNotifier {
   }
 
   void addTime(int seconds) {
+    // Точка отсчёта сдвигается: иначе следующая проверка вычла бы время,
+    // которое только что добавили, и кнопка «+1 мин» не работала бы.
+    _lastTickAt = DateTime.now();
     final s = _state;
     if (s == null) return;
     _state = s.copyWith(timeLeft: s.timeLeft + seconds);
@@ -1672,7 +1798,15 @@ class HostController extends ChangeNotifier {
     ]);
   }
 
+  /// Остановка сервера и таймеров.
+  ///
+  /// Идемпотентна: вызывается и по кнопке, и из `dispose()` экрана как
+  /// страховка. Флаг [_shutDown] нужен из-за `notifyListeners()`: после
+  /// `super.dispose()` контроллера оповещать подписчиков уже нельзя —
+  /// Flutter бросает «A HostController was used after being disposed».
   Future<void> shutdown() async {
+    if (_shutDown) return;
+    _shutDown = true;
     _stopTimer();
     await AudioService.instance.stopAmbient();
     await HostBackground.stop();
@@ -1683,8 +1817,26 @@ class HostController extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool _shutDown = false;
+  bool _disposed = false;
+
+  /// Оповещение подписчиков с защитой от «после dispose».
+  ///
+  /// Таймеры и сетевые колбэки живут независимо от жизненного цикла
+  /// контроллера: последний тик может прийти между `dispose()` и отменой
+  /// таймера (или сокет прислать сообщение в тот же кадр). Штатный
+  /// `notifyListeners()` в этот момент бросает исключение и роняет кадр —
+  /// в дебаге это видно как красный экран, в релизе как пропущенная
+  /// отрисовка.
+  @override
+  void notifyListeners() {
+    if (_disposed) return;
+    super.notifyListeners();
+  }
+
   @override
   void dispose() {
+    _disposed = true;
     _stopTimer();
     _inboxSub?.cancel();
     _lostSub?.cancel();

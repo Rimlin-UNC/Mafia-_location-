@@ -155,15 +155,26 @@ class GameEngine {
       pool.removeLast();
     }
 
-    // Главное правило баланса: против мафии должно остаться минимум
-    // два игрока, иначе город проигрывает, не начав. Равный состав
-    // (3 на 3) допустим — у города есть дневное голосование.
+    // Главное правило баланса: после раздачи никто не должен победить
+    // сразу. Проверка повторяет `GameState.checkWinner` — мафия побеждает
+    // при mafia >= city, где city НЕ включает маньяка (он одиночка).
+    //
+    // Раньше здесь стояло условие `players.length - mafia <= 1`: оно
+    // допускало равный состав (3 мафии / 3 города) — но `checkWinner`
+    // объявляет победу именно при равенстве (`mafia >= civ`). В итоге
+    // пресет «2 мафии + дон» на 6 пришедших давал 3 на 3, партия
+    // заканчивалась победой мафии в первую секунду, и город не успевал
+    // сделать ни одного хода. Проверено tools/forcestart.py и тестом
+    // «раздача не создаёт уже выигранную партию».
     int mafiaCount() => pool
         .where((r) => r == RoleType.mafia || r == RoleType.don)
         .length;
-    // Сравниваем с ИТОГОВЫМ числом игроков, а не с длиной ещё не добитого
-    // мирными пула — иначе разжалуем мафию там, где баланс в порядке.
-    while (pool.isNotEmpty && players.length - mafiaCount() <= 1) {
+    int maniacCount() => pool.where((r) => r == RoleType.maniac).length;
+
+    while (pool.isNotEmpty && mafiaCount() > 0) {
+      final mafia = mafiaCount();
+      final city = players.length - mafia - maniacCount();
+      if (mafia < city) break;
       // Разжалуем рядовую мафию, дона трогаем в последнюю очередь.
       final idx = pool.lastIndexOf(RoleType.mafia) != -1
           ? pool.lastIndexOf(RoleType.mafia)

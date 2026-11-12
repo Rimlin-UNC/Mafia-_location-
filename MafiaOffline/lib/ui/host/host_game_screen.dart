@@ -21,7 +21,8 @@ class HostGameScreen extends StatefulWidget {
   State<HostGameScreen> createState() => _HostGameScreenState();
 }
 
-class _HostGameScreenState extends State<HostGameScreen> {
+class _HostGameScreenState extends State<HostGameScreen>
+    with WidgetsBindingObserver {
   HostController get c => widget.controller;
   bool _revealRoles = false;
   bool _sheetOpen = false;
@@ -30,6 +31,20 @@ class _HostGameScreenState extends State<HostGameScreen> {
   void initState() {
     super.initState();
     c.addListener(_update);
+    // Возврат из фона: экран ведущего гаснет чаще всех, и после долгой
+    // паузы состояние на экране может разойтись с реальным — например,
+    // пока процесс был заморожен, фаза успела смениться. Перерисовываем
+    // и просим контроллер пересобрать время по факту, а не по числу
+    // тиков (см. HostController.onResume).
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      c.onResume();
+      _update();
+    }
   }
 
   void _update() {
@@ -77,7 +92,21 @@ class _HostGameScreenState extends State<HostGameScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     c.removeListener(_update);
+    // Страховка от утечки сервера.
+    //
+    // Экран партии можно покинуть тремя путями: «Прервать» (там shutdown
+    // уже вызван), «В главное меню» на итогах (тоже) и системной кнопкой
+    // «Назад» — а на экране итогов её никто не перехватывал. В последнем
+    // случае экран исчезал, а HttpServer на 8088 продолжал жить в
+    // контроллере: следующая партия падала с «Address already in use»,
+    // и ведущий видел ошибку вместо игры.
+    //
+    // shutdown() вызывается ещё раз осознанно: он идемпотентен (stop()
+    // у сервера переносит null-проверки), а цена повторного вызова —
+    // ноль. Цена пропущенного — несоздаваемая игра.
+    c.shutdown();
     super.dispose();
   }
 
@@ -821,6 +850,23 @@ class _GameOverView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = controller.state!;
+    return PopScope(
+      // Партия окончена — удерживать ведущего здесь нечем. Но уходя,
+      // останавливаем сервер: иначе он остаётся висеть на порту 8088,
+      // и следующая игра не запустится.
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        await controller.shutdown();
+        if (context.mounted) {
+          Navigator.popUntil(context, (r) => r.isFirst);
+        }
+      },
+      child: _build(context, s),
+    );
+  }
+
+  Widget _build(BuildContext context, GameState s) {
     return Scaffold(
       appBar: AppBar(title: const Text('Игра окончена')),
       body: SafeArea(

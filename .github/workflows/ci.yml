@@ -118,6 +118,20 @@ jobs:
       - name: Table rules 1.2.0 / 1.3.0 (intro night, last word + re-vote, instant check)
         run: python3 tools/rules120.py
 
+      # ---- Отказоустойчивость и нагрузка ---------------------------------
+      # До 1.9.2 эти стенды запускались только руками: обрыв Wi-Fi у всех
+      # 20 игроков, возврат из фона, ход в момент разрыва, вторая вкладка.
+      # Это ровно те сценарии, из-за которых партия разваливается за столом,
+      # и проверять их «когда-нибудь» нельзя.
+      - name: Install websockets (resilience stands)
+        run: pip install --quiet websockets
+
+      - name: Resilience (drops, background return, duplicate tabs)
+        run: python3 tools/resilience.py
+
+      - name: Load (20 players join at once, response time)
+        run: python3 tools/load20.py
+
       # Версия в pubspec обязана иметь свой CHANGELOG: release.yml берёт
       # номер версии оттуда же, и релиз без описания выпускать нельзя.
       # Карточки правил для браузера лежат в assets/*/web/ и собираются

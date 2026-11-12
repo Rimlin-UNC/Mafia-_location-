@@ -68,3 +68,6 @@ for i in range(20): g.register(f'X{i}')
 chk("21-й получает отказ", g.register('X99'), ('DENY','game_full'))
 
 print(f"\n{ok} passed, {fail} failed")
+# Ненулевой код возврата обязателен: раньше стенд печатал «❌» и
+# завершался успешно, поэтому CI не замечал провала.
+sys.exit(1 if fail else 0)

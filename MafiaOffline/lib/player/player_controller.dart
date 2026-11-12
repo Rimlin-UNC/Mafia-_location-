@@ -648,8 +648,22 @@ class PlayerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool _disposed = false;
+
+  /// Оповещение с защитой от «после dispose».
+  ///
+  /// Сетевые колбэки и таймер игрока живут своей жизнью: сообщение от
+  /// ведущего может прийти в тот же кадр, когда экран уже закрыт.
+  /// Штатный `notifyListeners()` тогда бросает исключение и роняет кадр.
+  @override
+  void notifyListeners() {
+    if (_disposed) return;
+    super.notifyListeners();
+  }
+
   @override
   void dispose() {
+    _disposed = true;
     synced.cancelAll();
     AudioService.instance.stopAmbient();
     _localTick?.cancel();

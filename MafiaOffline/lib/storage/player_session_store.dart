@@ -34,13 +34,21 @@ class PlayerSession {
     final code = j['code'];
     final name = j['name'];
     if (code is! String || name is! String) return null;
+    // Мягкое чтение остальных полей: сессия лежит в JSON на телефоне
+    // игрока и могла быть записана прежней версией. Отказ одного поля не
+    // повод терять вход в партию — важны только код и имя, они проверены
+    // выше.
     return PlayerSession(
       code: code,
       name: name,
-      playerId: j['playerId'] as String?,
-      host: j['host'] as String?,
-      port: j['port'] as int? ?? 8088,
-      savedAt: j['savedAt'] as int? ?? 0,
+      playerId: j['playerId'] is String ? j['playerId'] as String : null,
+      host: j['host'] is String ? j['host'] as String : null,
+      port: j['port'] is int
+          ? j['port'] as int
+          : (j['port'] is num ? (j['port'] as num).toInt() : 8088),
+      savedAt: j['savedAt'] is int
+          ? j['savedAt'] as int
+          : (j['savedAt'] is num ? (j['savedAt'] as num).toInt() : 0),
     );
   }
 }
