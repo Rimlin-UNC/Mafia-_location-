@@ -137,8 +137,10 @@ async function dealRole(page, role, roleName) {
     check('кнопка «Принимаю» заблокирована', fresh.$('btn-offer').disabled === true);
     check('галочка доступна для отметки', fresh.$('in-offer').disabled === false);
     check('назван правообладатель', fresh.text('scr-offer').includes('Ямастер'));
+    check('названы реквизиты: ИНН', fresh.text('scr-offer').includes('4712030034'));
+    check('названы реквизиты: ОГРН', fresh.text('scr-offer').includes('1204700012483'));
     check('назван сайт', fresh.text('scr-offer').includes('ymaster.ru'));
-    check('назван номер редакции', fresh.text('offer-ver').includes('Редакция 1.1'));
+    check('назван номер редакции', fresh.text('offer-ver').includes('Редакция 1.2'));
     check('сказано, что права не переходят',
       fresh.text('offer-text').includes('не переходят'));
     // Исходники открыты — это должно быть названо прямо, иначе человек

@@ -210,7 +210,7 @@ const Screen = {
 // хранится в localStorage вместе с датой и редакцией — если оферту переработают
 // по существу, номер редакции меняется в ключе и галочку спросят заново.
 const OFFER_KEY = 'mafia_offer_v1';
-const OFFER_VERSION = '1.1 от 12.11.2026';
+const OFFER_VERSION = '1.2 от 12.11.2026';
 
 const Offer = {
   accepted() {
