@@ -160,6 +160,15 @@ class _OfferGateState extends State<OfferGate> {
                     icon: const Icon(Icons.menu_book_outlined, size: 18),
                     label: const Text('Правила и роли — что это за игра'),
                   ),
+                  const SizedBox(height: 6),
+                  // Что именно откроется, сказано заранее: человек решает,
+                  // читать полную инструкцию сейчас или после согласия.
+                  const Text(
+                    'Откроется полное описание игры: роли, фазы, способы '
+                    'убийства и спорные правила — то же, что у ведущего.',
+                    style: TextStyle(
+                        fontSize: 12, color: AppColors.dim, height: 1.35),
+                  ),
                 ],
               ),
             ),

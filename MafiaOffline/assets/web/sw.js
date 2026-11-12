@@ -21,8 +21,9 @@
  */
 'use strict';
 
-const VERSION = 'mafia-v7';
-const CORE = ['/', '/style.css', '/app.js', '/manifest.webmanifest'];
+const VERSION = 'mafia-v8';
+const CORE = ['/', '/style.css', '/app.js', '/manifest.webmanifest',
+              '/instructions/guides/01_host.jpg'];
 
 self.addEventListener('install', (e) => {
   // Не ждём закрытия старых вкладок: игрок обновляет страницу и хочет

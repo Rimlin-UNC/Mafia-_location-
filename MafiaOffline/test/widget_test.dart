@@ -452,6 +452,9 @@ void main() {
       // оферты, до галочки.
       final rulesButton = find.text('Правила и роли — что это за игра');
       expect(rulesButton, findsOneWidget);
+      // Рядом сказано, что за кнопкой: полное описание игры, а не выжимка.
+      expect(find.textContaining('полное описание игры'), findsOneWidget);
+      expect(find.textContaining('роли, фазы'), findsOneWidget);
 
       await tester.tap(rulesButton);
       await tester.pumpAndSettle();
@@ -472,6 +475,41 @@ void main() {
         );
         expect(find.text(title), findsWidgets, reason: 'секция «$title»');
       }
+
+      // Это не выжимка: с 1.8.0 экран открывается сразу как полная книга
+      // правил — та же, что игрок читает в браузере. Текст-пояснение живёт
+      // в шапке списка, поэтому до него тоже надо дойти.
+      await tester.scrollUntilVisible(
+        find.textContaining('Полная инструкция'),
+        300,
+        scrollable: find.byType(Scrollable).last,
+        maxScrolls: 20,
+      );
+      expect(find.textContaining('Полная инструкция'), findsOneWidget);
+    });
+
+    testWidgets('книга правил доходит до способов убийства и спорных правил',
+        (tester) async {
+      // Раньше игра показывала только роли и фазы; ниже — колода злодеяний
+      // и разбор спорных правил. Игрок должен увидеть и их, иначе «полное
+      // описание» — обещание, которого экран не выполняет.
+      await tester.pumpWidget(const MaterialApp(home: RulesScreen()));
+      await tester.pump();
+
+      for (final title in [
+        'Как мафия убирает игрока',
+        'Правила, о которых спорят',
+      ]) {
+        await tester.scrollUntilVisible(
+          find.text(title),
+          500,
+          scrollable: find.byType(Scrollable).last,
+          maxScrolls: 120,
+        );
+        expect(find.text(title), findsOneWidget, reason: 'секция «$title»');
+      }
+      // Название хотя бы одного способа убийства — из общего источника.
+      expect(find.text('Огнестрел'), findsWidgets);
     });
 
     testWidgets('из правил можно вернуться к оферте', (tester) async {

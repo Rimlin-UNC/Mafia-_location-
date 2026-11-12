@@ -274,3 +274,17 @@ body{
 .offer-check.disabled{opacity:.55;cursor:default}
 .offer-check input{width:20px;height:20px;margin:1px 0 0;accent-color:var(--acc);flex:none}
 .btn:disabled{opacity:.45}
+
+
+/* ---------- расширенные правила в браузере (1.8.0) ---------- */
+/* Карточка с иллюстрацией 2:3 — как в приложении на экране «Правила».
+   Картинки уже уменьшены до 560x840 (tools/web_images.py), поэтому
+   на телефоне они выглядят резко, а трафик через хотспот ведущего —
+   вчетверо меньше полноразмерных. */
+.rule-h{margin:18px 0 8px;font-size:12.5px;letter-spacing:.05em;color:var(--dim)}
+.rcard{background:var(--panel2);border:1px solid var(--line);border-radius:12px;
+  overflow:hidden;margin-bottom:10px}
+.rcard img{display:block;width:100%;aspect-ratio:2/3;object-fit:cover;background:#1a1c24}
+.rcard-t{padding:12px 13px 13px}
+.rcard-t b{display:block;font-size:14.5px;margin-bottom:5px}
+.rcard-t p{margin:0;font-size:13.5px;line-height:1.45;color:#c7cbdb;white-space:pre-line}

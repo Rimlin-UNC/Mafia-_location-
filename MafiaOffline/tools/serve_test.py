@@ -47,15 +47,23 @@ def resolve(path):
     if path in ROUTES:
         return ROOT / ROUTES[path]
     for pref, d in (('/cards/', 'cards'), ('/sounds/', 'sounds'),
-                    ('/images/', 'images')):
+                    ('/images/', 'images'), ('/crimes/', 'crimes'),
+                    ('/story/', 'story'), ('/court/', 'court'),
+                    ('/instructions/', 'instructions')):
         if path.startswith(pref):
             name = path[len(pref):]
-            if not name or '/' in name:
+            if not name:
                 return None
             if pref == '/sounds/' and name in LIGHT_AMBIENTS:
                 return ROOT / 'sounds/web' / name
-            if pref == '/cards/' and name.endswith('.jpg'):
-                return ROOT / 'cards/web' / name
+            # Облегчённые копии 560x840 — как в WebAssets._webDirs.
+            if pref in ('/cards/', '/crimes/', '/instructions/') \
+                    and name.endswith('.jpg'):
+                if '..' in name:
+                    return None
+                return ROOT / d / 'web' / name
+            if '/' in name:
+                return None
             return ROOT / d / name
     return None
 
@@ -210,6 +218,26 @@ def main():
     st, h, b = get('/' + urllib.parse.quote('какая-то-ерунда'))
     checks.append(('неизвестный путь → редирект на игру', st == 200))
 
+    # 4б. Карточки правил для браузера: те же пути, что в WebAssets.
+    #     Игрок открывает «Правила и роли» после согласия с офертой — без
+    #     этих файлов книга правил осталась бы текстом без картинок.
+    for path, orig_rel in (
+            ('/instructions/roles/01_mafia.jpg', 'instructions/roles/01_mafia.jpg'),
+            ('/instructions/phases/01_night.jpg', 'instructions/phases/01_night.jpg'),
+            ('/instructions/guides/01_host.jpg', 'instructions/guides/01_host.jpg'),
+            ('/crimes/01_shooting.jpg', 'crimes/01_shooting.jpg')):
+        st, h, b = get(path)
+        orig = (ROOT / orig_rel).stat().st_size
+        checks.append((f'{path} отдаётся', st == 200 and len(b) > 1000))
+        checks.append((f'{path} облегчён ({orig // 1024} → {len(b) // 1024} КБ)',
+                       len(b) < orig))
+
+    # Вложенность допустима только для разрешённых папок: выход за каталог
+    # по-прежнему закрыт.
+    st, h, b = get('/instructions/../lib/main.dart')
+    checks.append(('обход каталога карточек не проходит',
+                   b'material' not in b and b'runApp' not in b))
+
     # 7. Защита от выхода за каталог
     st, h, b = get('/cards/..%2f..%2fpubspec.yaml')
     checks.append(('обход каталога не проходит', st in (200, 302, 404)
@@ -224,12 +252,16 @@ def main():
     for p in ['/', '/style.css', '/app.js', '/manifest.webmanifest', '/sw.js',
               '/cards/card_back.jpg', '/cards/civilian.jpg',
               '/sounds/night_ambient.wav', '/sounds/day_ambient.wav',
-              '/sounds/vote_ambient.wav', '/images/bg_night.jpg']:
+              '/sounds/vote_ambient.wav', '/images/bg_night.jpg',
+              # Книга правил в браузере: без них первый же открытый раздел
+              # «Роли» останется без картинок.
+              '/instructions/roles/01_mafia.jpg',
+              '/instructions/phases/01_night.jpg']:
         _, _, bb = get(p, {'Accept-Encoding': 'gzip'})
         total += len(bb)
     print(f'\n  Первая загрузка игрока: {total / 1024 / 1024:.2f} МБ')
     print(f'  На 20 игроков:          {total * 20 / 1024 / 1024:.0f} МБ')
-    checks.append(('загрузка игрока меньше 2,5 МБ', total < 2.5 * 1024 * 1024))
+    checks.append(('загрузка игрока меньше 3 МБ', total < 3 * 1024 * 1024))
 
     srv.shutdown()
 
