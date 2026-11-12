@@ -138,9 +138,15 @@ async function dealRole(page, role, roleName) {
     check('галочка доступна для отметки', fresh.$('in-offer').disabled === false);
     check('назван правообладатель', fresh.text('scr-offer').includes('Ямастер'));
     check('назван сайт', fresh.text('scr-offer').includes('ymaster.ru'));
-    check('назван номер редакции', fresh.text('offer-ver').includes('Редакция 1.0'));
+    check('назван номер редакции', fresh.text('offer-ver').includes('Редакция 1.1'));
     check('сказано, что права не переходят',
       fresh.text('offer-text').includes('не переходят'));
+    // Исходники открыты — это должно быть названо прямо, иначе человек
+    // решит, что открытый GitHub и есть разрешение брать код.
+    check('сказано про открытый исходный код',
+      fresh.text('offer-text').includes('открыт'));
+    check('открытость названа «не разрешением»',
+      fresh.text('offer-text').includes('не разрешение'));
     check('сказано про офлайн и данные',
       fresh.text('offer-text').includes('офлайн'));
     check('в localStorage ничего не записано',
@@ -173,14 +179,10 @@ async function dealRole(page, role, roleName) {
       JSON.stringify({ accepted: true, version: '0.9 устаревшая' }));
     // Перезапускаем разбор: смотрим, что решит код на такой записи.
     check('редакция читается из кода приложения', !!OFFER_VERSION);
+    // Проверяем не свою копию условия, а решение самого приложения:
+    // на записи чужой редакции экран оферты должен показаться снова.
     check('запись чужой редакции не считается принятием',
-      (function () {
-        const w = re.w;
-        // Вызываем ту же проверку, что и приложение, на подложенной записи.
-        const raw = w.localStorage.getItem('mafia_offer_v1');
-        const o = JSON.parse(raw);
-        return !(o && o.version === OFFER_VERSION && o.accepted);
-      })());
+      !re.visible('scr-join') && re.visible('scr-offer'));
     stale.close(); re.close();
   }
 

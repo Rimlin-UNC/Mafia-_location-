@@ -359,7 +359,7 @@ void main() {
       expect(offerHighlights.join(' '), contains('Ямастер'));
       expect(offerHighlights.join(' '), contains('ymaster.ru'));
       expect(offerHighlights.join(' '), contains('2026'));
-      expect(offerVersion, contains('1.0'));
+      expect(offerVersion, contains('1.1'));
     });
 
     test('в условиях прямо сказано, что права не переходят', () {
@@ -496,6 +496,30 @@ void main() {
       await AppPrefs.setOfferAccepted(offerVersion: offerVersion);
       // Новый экземпляр AppPrefs читает те же prefs — как после перезапуска.
       expect(await AppPrefs.offerAccepted(), isTrue);
+    });
+
+    test('старая редакция не засчитывается как принятие', () async {
+      await AppPrefs.setOfferAccepted(offerVersion: '1.0 от 12.11.2026');
+
+      // Без указания редакции отметка есть — но текущую редакцию она не покрывает.
+      expect(await AppPrefs.offerAccepted(), isTrue);
+      expect(await AppPrefs.offerAccepted(currentVersion: '1.1 от 12.11.2026'),
+          isFalse,
+          reason: 'условия переработаны — галочку нужно спросить заново');
+      expect(await AppPrefs.offerAccepted(currentVersion: '1.0 от 12.11.2026'),
+          isTrue);
+    });
+
+    test('отметка без записанной редакции не засчитывается', () async {
+      // След приложения, где номер редакции ещё не сохранялся: флаг есть,
+      // версии нет. Воспроизводим не через setMockInitialValues (он в этом
+      // тесте мог уже отработать в setUp), а тем же хранилищем.
+      await AppPrefs.setOfferAccepted();
+      expect(await AppPrefs.offerVersionAccepted(), isNull,
+          reason: 'версия не передана — записана не была');
+      expect(await AppPrefs.offerAccepted(), isTrue);
+      expect(await AppPrefs.offerAccepted(currentVersion: offerVersion), isFalse,
+          reason: 'отметка без номера редакции не подтверждает текущий текст');
     });
   });
 }
