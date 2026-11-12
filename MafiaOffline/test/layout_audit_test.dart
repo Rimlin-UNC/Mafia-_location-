@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mafia_offline/main.dart';
-import 'package:mafia_offline/storage/app_prefs.dart';
 import 'package:mafia_offline/ui/card_gallery_screen.dart';
 import 'package:mafia_offline/ui/history_screen.dart';
 import 'package:mafia_offline/ui/host/setup_screen.dart';
-import 'package:mafia_offline/ui/menu_screen.dart';
 import 'package:mafia_offline/ui/offer_screen.dart';
 import 'package:mafia_offline/ui/rules_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';

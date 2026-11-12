@@ -648,7 +648,6 @@ class PlayerController extends ChangeNotifier {
     notifyListeners();
   }
 
-  @override
   bool _disposed = false;
 
   /// Оповещение с защитой от «после dispose».
@@ -662,6 +661,7 @@ class PlayerController extends ChangeNotifier {
     super.notifyListeners();
   }
 
+  @override
   void dispose() {
     _disposed = true;
     synced.cancelAll();
