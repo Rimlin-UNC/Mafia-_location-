@@ -136,23 +136,23 @@ class _OfferGateState extends State<OfferGate> {
       body: SafeArea(
         child: Column(
           children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(20, 18, 20, 10),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('🎭', style: TextStyle(fontSize: 34)),
-                  SizedBox(height: 6),
-                  Text(
+                  const Text('🎭', style: TextStyle(fontSize: 34)),
+                  const SizedBox(height: 6),
+                  const Text(
                     'Мафия Offline',
                     style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                   ),
-                  SizedBox(height: 2),
-                  Text(
+                  const SizedBox(height: 2),
+                  const Text(
                     '© 2026 ООО «Ямастер» · ymaster.ru',
                     style: TextStyle(color: AppColors.dim, fontSize: 12.5),
                   ),
-                  SizedBox(height: 10),
+                  const SizedBox(height: 10),
                   // Понимание игры — до согласия с условиями: сначала узнай,
                   // во что играешь, потом подписывайся.
                   OutlinedButton.icon(
