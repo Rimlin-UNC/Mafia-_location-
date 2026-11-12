@@ -136,43 +136,6 @@ class _OfferGateState extends State<OfferGate> {
       body: SafeArea(
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('🎭', style: TextStyle(fontSize: 34)),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Мафия Offline',
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 2),
-                  const Text(
-                    '© 2026 ООО «Ямастер» · ymaster.ru',
-                    style: TextStyle(color: AppColors.dim, fontSize: 12.5),
-                  ),
-                  const SizedBox(height: 10),
-                  // Понимание игры — до согласия с условиями: сначала узнай,
-                  // во что играешь, потом подписывайся.
-                  OutlinedButton.icon(
-                    onPressed: _openRules,
-                    icon: const Icon(Icons.menu_book_outlined, size: 18),
-                    label: const Text('Правила и роли — что это за игра'),
-                  ),
-                  const SizedBox(height: 6),
-                  // Что именно откроется, сказано заранее: человек решает,
-                  // читать полную инструкцию сейчас или после согласия.
-                  const Text(
-                    'Откроется полное описание игры: роли, фазы, способы '
-                    'убийства и спорные правила — то же, что у ведущего.',
-                    style: TextStyle(
-                        fontSize: 12, color: AppColors.dim, height: 1.35),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1, color: AppColors.line),
             Expanded(
               child: Scrollbar(
                 controller: _scrollController,
@@ -180,6 +143,46 @@ class _OfferGateState extends State<OfferGate> {
                   controller: _scrollController,
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
                   children: [
+                    // Шапка оферты — часть прокручиваемого списка, а не
+                    // отдельный блок сверху: на экране 320x480 она вместе с
+                    // текстом условий выше высоты экрана, а условия читать
+                    // всё равно надо (в тестах это проверяется).
+                    const Text('🎭', style: TextStyle(fontSize: 34)),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Мафия Offline',
+                      style: TextStyle(
+                          fontSize: 22, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 2),
+                    const Text(
+                      '© 2026 ООО «Ямастер» · ymaster.ru',
+                      style: TextStyle(color: AppColors.dim, fontSize: 12.5),
+                    ),
+                    const SizedBox(height: 10),
+                    // Понимание игры — до согласия с условиями: сначала узнай,
+                    // во что играешь, потом подписывайся. Кнопка ведёт на
+                    // полную инструкцию — ту же, что у ведущего в меню.
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton.icon(
+                        onPressed: _openRules,
+                        icon: const Icon(Icons.menu_book_outlined, size: 18),
+                        label: const Text('Правила и роли — что это за игра'),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    // Что именно откроется, сказано заранее: человек решает,
+                    // читать полную инструкцию сейчас или после согласия.
+                    const Text(
+                      'Откроется полное описание игры: роли, фазы, способы '
+                      'убийства и спорные правила — то же, что у ведущего.',
+                      style: TextStyle(
+                          fontSize: 12, color: AppColors.dim, height: 1.35),
+                    ),
+                    const SizedBox(height: 14),
+                    const Divider(height: 1, color: AppColors.line),
+                    const SizedBox(height: 6),
                     const Text(
                       'УСЛОВИЯ ИСПОЛЬЗОВАНИЯ',
                       style: TextStyle(
