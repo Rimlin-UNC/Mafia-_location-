@@ -100,7 +100,7 @@ void main() {
       expect(find.text('Настройки'), findsNothing);
     });
 
-    testWidgets('на типичном телефоне 360×640 видно всё без прокрутки',
+    testWidgets('на типичном телефоне 360×640 шторка выше прежнего потолка',
         (tester) async {
       tester.view.physicalSize = const Size(360, 640);
       tester.view.devicePixelRatio = 1.0;
@@ -115,14 +115,17 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-      // На обычном телефоне последний пункт обязан быть виден без прокрутки:
-      // раньше showModalBottomSheet резал шторку на 9/16 = 360 px из 640,
-      // и он оказывался за границей экрана.
-      final last = tester.getRect(
-          find.text('Режим игрока в приложении'));
-      expect(last.bottom, lessThanOrEqualTo(640),
-          reason: 'последний пункт настроек за границей экрана — '
-              'шторка обрезана до 9/16');
+
+      // Содержимое настроек — ~760 px, оно выше любого телефона; прокрутка
+      // для этого и нужна. Проверяем не «всё видно сразу», а то, что шторке
+      // разрешено занять больше прежнего потолка 9/16 экрана (360 px из 640).
+      final sheetHeight = tester.getSize(find.byType(SheetBody)).height;
+      expect(sheetHeight, greaterThan(640 * 9 / 16),
+          reason: 'шторка обрезана до 9/16 экрана — потолок вернулся');
+
+      // И до последнего пункта реально можно доскроллить.
+      await expectReachable(tester, find.text('Режим игрока в приложении'),
+          what: 'последний пункт настроек', within: sheetScroll);
     });
 
     testWidgets('переключатель сохраняет настройку и не закрывает шторку',
