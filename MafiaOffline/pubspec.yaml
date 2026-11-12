@@ -1,7 +1,7 @@
 name: mafia_offline
 description: "Мафия Offline — игра по локальной сети. Ведущий поднимает сервер прямо на телефоне."
 publish_to: 'none'
-version: 1.8.0+15
+version: 1.8.1+16
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -58,7 +58,15 @@ flutter:
     - assets/instructions/guides/
     # Те же карточки в 560x840 для веб-клиента: браузер игрока грузит их
     # через точку доступа ведущего, полный размер там ни к чему.
+    #
+    # ВАЖНО: каталог с завершающим слэшем означает «только файлы
+    # непосредственно в нём», подпапки не включаются. В web/ лежат
+    # roles/, phases/, guides/ — их надо объявлять поимённо, иначе
+    # картинки правил в браузере не отдаются (1.8.0: битые карточки).
     - assets/instructions/web/
+    - assets/instructions/web/roles/
+    - assets/instructions/web/phases/
+    - assets/instructions/web/guides/
     # Колода злодеяний: «как именно погиб игрок» (docs/ЗЛОДЕЯНИЯ.md).
     - assets/crimes/
     # Её веб-версия — в книге правил браузера.

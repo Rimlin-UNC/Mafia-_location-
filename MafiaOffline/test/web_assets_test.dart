@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mafia_offline/core/assets.dart';
 import 'package:mafia_offline/core/crime_deck.dart';
@@ -56,7 +59,7 @@ void main() {
         () {
       // Версия входит в ETag и в адрес app.js. Если она не изменилась,
       // сервис-воркер покажет игроку прошлую (короткую) книгу правил.
-      expect(WebAssets.assetVersion, 'v9');
+      expect(WebAssets.assetVersion, 'v10');
     });
   });
 
@@ -89,6 +92,89 @@ void main() {
         final url = urlOf(asset);
         expect(WebAssets.resolve(url), isNotNull, reason: url);
       }
+    });
+
+    // -----------------------------------------------------------------
+    // Ошибка 1.8.0: файлы лежали в подпапках assets/instructions/web/, а в
+    // pubspec.yaml был объявлен только сам .../web/. Flutter включает каталог
+    // с завершающим слэшем БЕЗ подпапок, поэтому в APK картинок не было:
+    // сервер отдавал редирект на главную вместо JPEG, и игрок в браузере
+    // видел пустые прямоугольники. Эти тесты проверяют именно упаковку.
+    // -----------------------------------------------------------------
+    test('каждая картинка правил объявлена в pubspec.yaml', () {
+      // flutter test запускает тесты из корня пакета (там, где pubspec.yaml).
+      final root = Directory.current;
+      final pubspec =
+          File('${root.path}/pubspec.yaml').readAsStringSync();
+      final declared = RegExp(r'^\s*-\s*(assets/[^\s#]+)', multiLine: true)
+          .allMatches(pubspec)
+          .map((m) => m.group(1)!)
+          .toList();
+
+      // Каталог с завершающим слэшем содержит только файлы внутри него.
+      bool covered(String file) => declared.any((d) {
+            if (!d.endsWith('/')) return d == file;
+            return file.startsWith(d) && !file.substring(d.length).contains('/');
+          });
+
+      final urls = <String>[
+        for (final t in RoleType.values) urlOf(A.guideRole(t)),
+        urlOf(A.guideHost),
+        urlOf(A.guideNight),
+        urlOf(A.guideDay),
+        urlOf(A.guideVote),
+        urlOf(A.guideWin),
+        for (final c in Crime.all) urlOf(c.image!),
+      ];
+      expect(urls.length, greaterThanOrEqualTo(20));
+
+      for (final url in urls) {
+        final bundle = WebAssets.resolve(url);
+        expect(bundle, isNotNull, reason: url);
+        expect(File('${root.path}/$bundle').existsSync(), isTrue,
+            reason: 'нет файла на диске: $bundle');
+        expect(covered(bundle!), isTrue,
+            reason: 'файл не попадёт в APK — каталог не объявлен: $bundle');
+      }
+    });
+
+    test('объявлены все подпапки веб-копий инструкций', () {
+      final pubspec = File('${Directory.current.path}/pubspec.yaml').readAsStringSync();
+      for (final dir in [
+        'assets/instructions/web/roles/',
+        'assets/instructions/web/phases/',
+        'assets/instructions/web/guides/',
+      ]) {
+        expect(pubspec.contains('- $dir'), isTrue, reason: dir);
+      }
+    });
+
+    // Самый прямой тест на ошибку 1.8.0: файл лежит на диске, объявление
+    // в pubspec.yaml есть — но подпапка не объявлена, и rootBundle (то, из
+    // чего реально читает сервер) файла не находит. В 1.8.0 этот тест
+    // падал на 12 карточках из 22.
+    testWidgets('сервер может прочитать каждую картинку из бандла',
+        (tester) async {
+      final urls = <String>[
+        for (final t in RoleType.values) urlOf(A.guideRole(t)),
+        urlOf(A.guideHost),
+        urlOf(A.guideNight),
+        for (final c in Crime.all) urlOf(c.image!),
+      ];
+      final broken = <String>[];
+      for (final url in urls) {
+        final bundle = WebAssets.resolve(url);
+        expect(bundle, isNotNull, reason: url);
+        try {
+          final data = await rootBundle.load(bundle!);
+          if (data.lengthInBytes < 1000) broken.add('$bundle — пустой файл');
+        } catch (e) {
+          broken.add('$bundle — не в бандле');
+        }
+      }
+      expect(broken, isEmpty,
+          reason: 'эти картинки не попадут в APK (не объявлен каталог '
+              'в pubspec.yaml): ${broken.join(', ')}');
     });
 
     test('у каждого способа убийства есть название, фраза и картинка', () {
