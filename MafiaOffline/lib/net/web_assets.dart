@@ -68,11 +68,23 @@ class WebAssets {
     '/crimes/': 'assets/crimes/',
     '/court/': 'assets/court/',
     '/story/': 'assets/story/',
+    // Карточки-инструкции: с 1.8.0 браузер показывает ту же книгу правил,
+    // что приложение на экране «Правила» — роли, фазы, ведущий.
+    '/instructions/': 'assets/instructions/',
+  };
+
+  /// Каталоги, отдаваемые из облегчённой копии (`assets/<dir>/web/`).
+  /// Для картинок это версии 560×840: на экране телефона разницы нет,
+  /// а трафик через точку доступа ведущего меньше вчетверо.
+  static const Map<String, String> _webDirs = {
+    '/cards/': 'assets/cards/web/',
+    '/instructions/': 'assets/instructions/web/',
+    '/crimes/': 'assets/crimes/web/',
   };
 
   /// Версия набора ассетов. Входит в ETag: подняли версию приложения —
   /// у всех игроков автоматически обновится кеш браузера.
-  static const String assetVersion = 'v8';
+  static const String assetVersion = 'v9';
 
   static String contentTypeFor(String path) {
     if (path.endsWith('.html') || path == '/') return 'text/html; charset=utf-8';
@@ -125,17 +137,20 @@ class WebAssets {
     for (final entry in _dirs.entries) {
       if (normalized.startsWith(entry.key)) {
         final name = normalized.substring(entry.key.length);
-        if (name.isEmpty || name.contains('/')) return null;
+        if (name.isEmpty) return null;
 
         if (entry.key == '/sounds/' && _lightweightAmbients.contains(name)) {
           return 'assets/sounds/web/$name';
         }
-        // Карты ролей: браузеру отдаём версию 560×840 вместо 700×1050.
-        // Карта занимает меньше половины экрана телефона, разницы не видно,
-        // а рубашку (самый крупный файл) грузит каждый игрок.
-        if (entry.key == '/cards/' && name.endsWith('.jpg')) {
-          return 'assets/cards/web/$name';
+        // Облегчённые копии: карты ролей, карточки инструкций, злодеяния.
+        // Для них допустима вложенность (instructions/roles/01_mafia.jpg),
+        // но выход за пределы каталога по-прежнему запрещён.
+        final light = _webDirs[entry.key];
+        if (light != null && name.endsWith('.jpg')) {
+          if (name.contains('..')) return null;
+          return '$light$name';
         }
+        if (name.contains('/')) return null;
         return '${entry.value}$name';
       }
     }

@@ -43,6 +43,18 @@ class RulesScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
         children: [
+          // С 1.8.0 это полная книга правил, и она же — в браузере у
+          // игроков после согласия с офертой (assets/web/app.js, rulesBook).
+          // Пояснение нужно, чтобы человек не искал «более полную» версию
+          // в репозитории и не решил, что видит сокращённую выжимку.
+          const Padding(
+            padding: EdgeInsets.only(bottom: 4),
+            child: Text(
+              'Полная инструкция: как устроена игра, все роли, фазы и спорные '
+              'правила. По ней нельзя понять вашу роль — читать можно при всех.',
+              style: TextStyle(fontSize: 12.5, color: AppColors.dim, height: 1.4),
+            ),
+          ),
           // Первым — то, о чём спорят посреди партии: «а карту открываем?»,
           // «а слово ему дают?». Общие правила ниже, их читают до игры.
           if (tableRules.isNotEmpty)

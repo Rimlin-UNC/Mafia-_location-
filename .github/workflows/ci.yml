@@ -120,6 +120,15 @@ jobs:
 
       # Версия в pubspec обязана иметь свой CHANGELOG: release.yml берёт
       # номер версии оттуда же, и релиз без описания выпускать нельзя.
+      # Карточки правил для браузера лежат в assets/*/web/ и собираются
+      # tools/web_images.py. Если карточку добавили, а копию для веба — нет,
+      # игрок увидит в книге правил пустую рамку. Проверяем до сборки:
+      # Pillow нужен один, ставится за секунды.
+      - name: Web images are fresh (rules book in browser)
+        run: |
+          pip install --quiet pillow
+          python3 tools/web_images.py --check
+
       - name: Version has a changelog
         run: |
           VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: *//' | cut -d+ -f1)

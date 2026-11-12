@@ -1,6 +1,6 @@
 # Mafia — офлайн-игра «Мафия» (локальный сервер на телефоне ведущего)
 
-Репозиторий содержит проект **«Мафия Offline» (v1.6.1+13, выпущенный APK — v1.6.1)** — игру, которая работает
+Репозиторий содержит проект **«Мафия Offline» (v1.8.0+15, выпущенный APK — v1.8.0)** — игру, которая работает
 **полностью без интернета**: ведущий разворачивает сервер на своём Android-телефоне
 (точка доступа Wi-Fi), а игроки заходят **в обычном браузере** по QR-коду — устанавливать
 им ничего не нужно.
@@ -100,23 +100,23 @@ UDP :45455 — автопоиск ведущего
 
 | Файл | Размер | Назначение |
 |---|---|---|
-| `MafiaOffline-1.6.1-universal.apk` | 47 МБ | **актуальная версия**, любой Android-телефон |
-| `MafiaOffline-1.6.1-arm64.apk` | 33 МБ | актуальная версия, 64-битные телефоны (2018+) |
-| `MafiaOffline-1.6.0-*.apk`, `1.4.0-*.apk` | — | архив |
+| `MafiaOffline-1.8.0-universal.apk` | 47 МБ | **актуальная версия**, любой Android-телефон |
+| `MafiaOffline-1.8.0-arm64.apk` | 33 МБ | актуальная версия, 64-битные телефоны (2018+) |
+| `MafiaOffline-1.7.0-*.apk`, `1.6.1-*.apk`, `1.6.0-*.apk`, `1.4.0-*.apk` | — | архив |
 | `MafiaOffline-1.0.6-universal.apk` | 38 МБ | архив |
 | `MafiaOffline-1.0.6-arm64.apk` | 24 МБ | архив |
 
-- **Все версии до 1.6.1 включительно выпущены как APK.** Сборка запускается
+- **Все версии до 1.8.0 включительно выпущены как APK.** Сборка запускается
   тегом `v*` на коммите `main` (`.github/workflows/release.yml`).
 - Готовые сборки публикуются в **GitHub Releases**: последний выпущенный —
-  [v1.6.1](https://github.com/Rimlin-UNC/Mafia-_location-/releases/tag/v1.6.1),
+  [v1.7.0](https://github.com/Rimlin-UNC/Mafia-_location-/releases/tag/v1.7.0),
   собирается автоматически по тегу `v*` (`.github/workflows/release.yml`).
   В git APK не коммитятся (`.gitignore`: `*.apk`).
 - **В релизе v1.0.5 оба файла были одной и той же arm64-сборкой** (по 26 054 443
   байта): второй `flutter build` перезаписывал `app-release.apk`. Исправлено в
-  конвейере, в v1.6.1 universal 47 МБ и arm64 33 МБ — разные файлы, и шаг сборки
-  падает, если universal не больше arm64 (проверено на v1.6.1: 49 496 986 >
-  34 672 924 байт).
+  конвейере, в v1.7.0 universal 47 МБ и arm64 33 МБ — разные файлы, и шаг сборки
+  падает, если universal не больше arm64 (проверено на v1.7.0: 49 498 425 >
+  34 673 640 байт).
 - Ключ подписи `MafiaOffline/keystore/debug.keystore` (SHA-256 `117b5d7e…9b6dff`)
   также в git не коммитится (`.gitignore`: `*.keystore`). Без него нельзя выпустить
   обновление поверх установленной версии — храните резервную копию отдельно.
@@ -134,6 +134,11 @@ UDP :45455 — автопоиск ведущего
 | [`MafiaOffline/docs/ВЕДУЩЕМУ.md`](MafiaOffline/docs/ВЕДУЩЕМУ.md) | как провести партию |
 | [`MafiaOffline/docs/УСТАНОВКА.md`](MafiaOffline/docs/УСТАНОВКА.md) | установка и первый запуск |
 | [`MafiaOffline/docs/ИГРОКАМ.md`](MafiaOffline/docs/ИГРОКАМ.md) | инструкция для игроков |
+| [`MafiaOffline/docs/CHANGELOG_1.8.0.md`](MafiaOffline/docs/CHANGELOG_1.8.0.md) | изменения 1.8.0 (полная инструкция по игре в браузере: роли, фазы, способы убийства) |
+| [`MafiaOffline/docs/CHANGELOG_1.7.0.md`](MafiaOffline/docs/CHANGELOG_1.7.0.md) | изменения 1.7.0 (правила и роли доступны до входа в партию и до согласия с офертой) |
+| [`MafiaOffline/docs/CHANGELOG_1.6.1.md`](MafiaOffline/docs/CHANGELOG_1.6.1.md) | изменения 1.6.1 (полные реквизиты правообладателя в оферте и лицензии) |
+| [`MafiaOffline/docs/CHANGELOG_1.6.0.md`](MafiaOffline/docs/CHANGELOG_1.6.0.md) | изменения 1.6.0 (оферта и галочка согласия перед игрой) |
+| [`MafiaOffline/docs/CHANGELOG_1.5.0.md`](MafiaOffline/docs/CHANGELOG_1.5.0.md) | изменения 1.5.0 (проприетарная лицензия) |
 | [`MafiaOffline/docs/CHANGELOG_1.3.0.md`](MafiaOffline/docs/CHANGELOG_1.3.0.md) | изменения 1.3.0 (комиссар видит ответ сразу; последнее слово и повторное голосование — игрок может остаться) |
 | [`MafiaOffline/docs/CHANGELOG_1.2.0.md`](MafiaOffline/docs/CHANGELOG_1.2.0.md) | изменения 1.2.0 (правила стола: ночь знакомства, последнее слово, проверка комиссара; экран игрока) |
 | [`MafiaOffline/docs/CHANGELOG_1.1.0.md`](MafiaOffline/docs/CHANGELOG_1.1.0.md) | изменения 1.1.0 (классические правила победы) |

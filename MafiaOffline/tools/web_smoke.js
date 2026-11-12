@@ -169,6 +169,13 @@ async function dealRole(page, role, roleName) {
     check('в правилах названы ночь и день',
       offerRules.toUpperCase().includes('НОЧЬ') && offerRules.toUpperCase().includes('ДЕНЬ'));
     check('в правилах сказано, кто побеждает', offerRules.toUpperCase().includes('ПОБЕЖДА'));
+    // До галочки — только выжимка, без полной книги правил, и честное
+    // обещание развёрнутой инструкции после подтверждения оферты.
+    check('до согласия полной книги правил нет — нет карточек ролей',
+      !pre.$('sheet-body').querySelector('.rcard'));
+    check('до согласия сказано, что полная инструкция будет после оферты',
+      offerRules.includes('ПОЛНАЯ ИНСТРУКЦИЯ')
+      && offerRules.includes('подтвердите условия оферты'));
     check('ошибок JavaScript нет (правила на оферте)', pre.errors.length === 0);
     pre.close();
 
@@ -181,6 +188,86 @@ async function dealRole(page, role, roleName) {
       post.text('sheet-body').toUpperCase().includes('НОЧЬ'));
     check('ошибок JavaScript нет (правила на входе)', post.errors.length === 0);
     post.close();
+  }
+
+  // ------------------------------------ полная книга правил после согласия
+  // Задача заказчика (1.8.0): игрок в браузере должен видеть ТУ ЖЕ
+  // инструкцию, что ведущий в приложении, — с карточками ролей, фазами
+  // и способами убийства, а не шесть абзацев текста.
+  console.log('Полная книга правил в браузере (как в приложении)');
+  {
+    const full = openPage({ acceptOffer: true });
+    full.click('btn-rules-join');
+    const body = full.text('sheet-body');
+    const node = full.$('sheet-body');
+
+    // 1. Разделы те же, что в lib/ui/rules_screen.dart, в том же порядке.
+    check('раздел «Как это устроено»', body.includes('КАК ЭТО УСТРОЕНО'));
+    check('раздел «Фазы партии»', body.includes('ФАЗЫ ПАРТИИ'));
+    check('раздел «Роли»', body.includes('РОЛИ'));
+    check('раздел «Как мафия убирает игрока»',
+      body.includes('КАК МАФИЯ УБИРАЕТ ИГРОКА'));
+    check('раздел «Правила, о которых спорят»',
+      body.includes('ПРАВИЛА, О КОТОРЫХ СПОРЯТ'));
+
+    // 2. Все семь ролей — с карточками и памяткой (ночью / днём / победа).
+    const roles = ['Мафия', 'Дон', 'Доктор', 'Комиссар', 'Проститутка', 'Маньяк',
+                   'Мирный житель'];
+    check('названы все 7 ролей', roles.every(r => body.includes(r)));
+    check('памятка роли: ночью, днём и условие победы',
+      body.includes('Ночью:') && body.includes('Днём:') && body.includes('Победа:'));
+    check('у каждой роли есть карточка', node.querySelectorAll('.rcard').length >= 7);
+    const imgs = [...node.querySelectorAll('.rcard img')].map(i => i.getAttribute('src'));
+    check('карточки ролей с картинками',
+      imgs.filter(s => s.includes('/instructions/roles/')).length === 7);
+    check('карточки фаз с картинками',
+      imgs.filter(s => s.includes('/instructions/phases/')).length === 4);
+    check('иллюстрация ведущего', imgs.includes('/instructions/guides/01_host.jpg'));
+    check('десять способов убийства с картинками',
+      imgs.filter(s => s.includes('/crimes/')).length === 10);
+    check('способ назван и озвучен вслух',
+      body.includes('Огнестрел') && body.includes('снят выстрелом в переулке'));
+
+    // 3. Тексты совпадают с приложением: берём фразы прямо из Dart-источников.
+    const dartGuide = fs.readFileSync(
+      path.join(__dirname, '..', 'lib', 'core', 'role_guide.dart'), 'utf8');
+    const dartCrime = fs.readFileSync(
+      path.join(__dirname, '..', 'lib', 'core', 'crime_deck.dart'), 'utf8');
+    // Первая фраза памятки каждой роли должна найтись и в браузере.
+    const sentences = [...dartGuide.matchAll(/atNight: '([^']{25,})/g)]
+      .map(m => m[1].slice(0, 24));
+    check('в Dart найдены памятки ролей', sentences.length >= 7);
+    check('все памятки ролей дословно есть в браузере',
+      sentences.every(t => body.includes(t.replace(/\s+/g, ' '))));
+    const phrases = [...dartCrime.matchAll(/phrase: '([^']+)'/g)].map(m => m[1]);
+    check('в Dart найдены фразы злодеяний', phrases.length === 10);
+    check('все способы убийства дословно есть в браузере',
+      phrases.every(t => body.includes(t)));
+
+    // 4. Правила стола идут первыми — но только когда стол уже известен.
+    check('вне партии раздела «Правила этого стола» нет',
+      !body.includes('ПРАВИЛА ЭТОГО СТОЛА'));
+    check('вне партии книга правил не открывается с пустым экраном',
+      node.children.length > 8);
+    check('ошибок JavaScript нет (полная книга правил)', full.errors.length === 0);
+    full.close();
+  }
+
+  // В лобби стол известен — первым идёт блок правил стола, дальше книга.
+  console.log('Книга правил в партии: правила стола первыми');
+  {
+    const inGame = openPage({ acceptOffer: true });
+    await join(inGame, 'Аня');
+    inGame.click('btn-rules-lobby');
+    const body = inGame.text('sheet-body');
+    check('первым блок «Правила этого стола»',
+      body.indexOf('ПРАВИЛА ЭТОГО СТОЛА') < body.indexOf('ФАЗЫ ПАРТИИ'));
+    check('длительность последнего слова из настроек стола',
+      body.includes('30 секунд'));
+    check('после правил стола — полная инструкция',
+      body.includes('КАК МАФИЯ УБИРАЕТ ИГРОКА') && body.includes('Мирный житель'));
+    check('ошибок JavaScript нет (книга правил в лобби)', inGame.errors.length === 0);
+    inGame.close();
   }
 
   console.log('Оферта: вернувшийся игрок не видит её снова');
