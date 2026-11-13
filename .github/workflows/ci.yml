@@ -252,10 +252,20 @@ jobs:
 
       # Сборку можно скачать со страницы запуска и поставить на телефон
       # до слияния. Подпись — debug-ключ, как и у релизов.
+      #
+      # Путь — dist/, а не MafiaOffline/dist/: у job задан
+      # working-directory: MafiaOffline, поэтому прежний путь указывал на
+      # несуществующую папку. Загрузка падала бы и без квоты.
+      #
+      # continue-on-error: артефакт — удобство, а не проверка. Квота
+      # хранилища общая на аккаунт и может быть занята другим проектом;
+      # из-за этого CI краснел при полностью успешной сборке APK. Сборка,
+      # размер и подпись проверены выше — этого достаточно.
       - name: Upload APK
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: MafiaOffline-${{ env.VERSION }}-arm64-ci
-          path: MafiaOffline/dist/*.apk
+          path: dist/*.apk
           retention-days: 14
-          if-no-files-found: error
+          if-no-files-found: warn
