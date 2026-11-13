@@ -182,6 +182,35 @@ CONTENT_DX = (305 - 227) / (794 - 227 + 1)
 CONTENT_DY = (268 - 225) / (758 - 225 + 1)
 
 
+def clean_transparent(img, eps=6):
+    """Обнуляет цвет там, где альфа практически ноль.
+
+    Ланцош после пересчёта из RGBa оставляет у кромки пиксели с альфой 1 и
+    цветом 255,255,255: вклад альфы почти нулевой, а цвет остался белым.
+    На светлом фоне такой ряд читается как белая кайма по верхней кромке
+    плитки. Здесь цвет в таких пикселях гасится в ноль.
+    """
+    a = np.asarray(img).copy()
+    faded = a[:, :, 3] < eps
+    a[faded] = 0
+    return Image.fromarray(a, 'RGBA')
+
+
+def render_maskable(size):
+    """Maskable-иконка PWA: содержимое внутри круга безопасной зоны.
+
+    Android рисует поверх иконки свою маску (круг, squircle) и срезает всё,
+    что вышло за 80% стороны. Обычная иконка занимает 86% холста и в этот
+    круг не влезает: уголки плитки срезаются. Поэтому плитка уменьшена до
+    62%, что даёт радиус содержимого ~0,76 стороны против допустимых 0,8.
+    """
+    inner = render(int(size * 0.62), content_scale=0.94)
+    canvas = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    off = (size - inner.width) // 2
+    canvas.alpha_composite(inner, (off, off))
+    return canvas
+
+
 def render(size, flat_bg=None, content_scale=0.94, card_ratio=0.86):
     """Иконка целиком.
 
@@ -239,7 +268,15 @@ def render(size, flat_bg=None, content_scale=0.94, card_ratio=0.86):
     out = Image.alpha_composite(out, shadow)
     out.alpha_composite(plate, (ox, oy))
 
-    out = out.resize((size, size), Image.LANCZOS)
+    # Ресайз через премультиплицированную альфу.
+    #
+    # PIL уменьшает RGBA покомпонентно, и в прозрачных пикселях рядом с
+    # кремовой надписью остаются её цвета (RGB 255,255,255 при альфе 0).
+    # На светлой подложке это даёт белую кайму по краю силуэта. В режиме
+    # RGBa цвет уже умножен на альфу, поэтому вклад прозрачных пикселей
+    # нулевой, и каймы не возникает.
+    out = out.convert('RGBa').resize((size, size), Image.LANCZOS).convert('RGBA')
+    out = clean_transparent(out)
     if flat_bg is not None:
         canvas = Image.new('RGB', (size, size), flat_bg)
         canvas.paste(out, (0, 0), out)
@@ -423,7 +460,7 @@ def main():
     if args.all or args.web:
         render(192).save(os.path.join(ROOT, 'assets', 'images', 'icon-192.png'))
         render(512).save(os.path.join(ROOT, 'assets', 'images', 'icon-512.png'))
-        render(512, content_scale=0.78).save(
+        render_maskable(512).save(
             os.path.join(ROOT, 'assets', 'images', 'icon-512-maskable.png'))
         print('web: icon-192, icon-512, icon-512-maskable')
     return 0
