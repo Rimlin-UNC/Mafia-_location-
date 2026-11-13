@@ -34,7 +34,18 @@ jobs:
         with:
           flutter-version: '3.24.5'
           channel: stable
-          cache: true
+          # Кэш тулчейна ОТКЛЮЧЁН осознанно.
+          #
+          # Он весит ~827 МБ на копию. Jobs стартуют одновременно и кэш
+          # друг друга не видят, поэтому каждая сборка оставляла свою
+          # копию: к 1.10.0 накопилось 4 версии и 3,3 ГБ. Вместе с
+          # артефактами это упёрлось в квоту хранилища GitHub — сборка
+          # APK проходила, а загрузка падала с «Artifact storage quota has
+          # been hit», и CI краснел на ровном месте.
+          #
+          # Цена отключения — около минуты на `flutter pub get` за job.
+          # Цена квоты — красный CI и разбор причины каждый выпуск.
+          cache: false
 
       - name: Flutter version
         run: flutter --version
@@ -199,7 +210,18 @@ jobs:
         with:
           flutter-version: '3.24.5'
           channel: stable
-          cache: true
+          # Кэш тулчейна ОТКЛЮЧЁН осознанно.
+          #
+          # Он весит ~827 МБ на копию. Jobs стартуют одновременно и кэш
+          # друг друга не видят, поэтому каждая сборка оставляла свою
+          # копию: к 1.10.0 накопилось 4 версии и 3,3 ГБ. Вместе с
+          # артефактами это упёрлось в квоту хранилища GitHub — сборка
+          # APK проходила, а загрузка падала с «Artifact storage quota has
+          # been hit», и CI краснел на ровном месте.
+          #
+          # Цена отключения — около минуты на `flutter pub get` за job.
+          # Цена квоты — красный CI и разбор причины каждый выпуск.
+          cache: false
 
       - name: Install dependencies
         run: flutter pub get
@@ -230,10 +252,20 @@ jobs:
 
       # Сборку можно скачать со страницы запуска и поставить на телефон
       # до слияния. Подпись — debug-ключ, как и у релизов.
+      #
+      # Путь — dist/, а не MafiaOffline/dist/: у job задан
+      # working-directory: MafiaOffline, поэтому прежний путь указывал на
+      # несуществующую папку. Загрузка падала бы и без квоты.
+      #
+      # continue-on-error: артефакт — удобство, а не проверка. Квота
+      # хранилища общая на аккаунт и может быть занята другим проектом;
+      # из-за этого CI краснел при полностью успешной сборке APK. Сборка,
+      # размер и подпись проверены выше — этого достаточно.
       - name: Upload APK
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: MafiaOffline-${{ env.VERSION }}-arm64-ci
-          path: MafiaOffline/dist/*.apk
+          path: dist/*.apk
           retention-days: 14
-          if-no-files-found: error
+          if-no-files-found: warn
