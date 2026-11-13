@@ -1,223 +1,373 @@
 #!/usr/bin/env python3
-"""Иконка «Мафия Offline»: чёрная федора на алом поле.
+"""Иконка «Мафия Offline»: плитка с джентльменом, без фона.
 
-Концепция
----------
-Один образ — шляпа гангстера. Никаких букв, рамок и второго символа.
+Откуда взялась картинка
+-----------------------
+Владелец прислал сгенерированное изображение: скруглённая красная плитка с
+силуэтом джентльмена в цилиндре и надписью «МАФИЯ». Плитка лежала на красном
+фоне, справа от неё шла диагональная тень, в правом нижнем углу — водяной
+знак «Шедеврум».
 
-Почему так (по рекомендациям из профильных источников):
-  * одна метафора на иконку — «иконка должна читаться в 48 px, всё шумное
-    безжалостно удаляется» (kokoc.com/blog/kak-sozdat-ikonku);
-  * силуэт прежде цвета — шляпа остаётся узнаваемой чёрным пятном
-    (blog.appfyl.com, silhouette-first);
-  * никакого текста — буквы в мелком размере превращаются в кашу
-    (habr.com/ru/post/492218);
-  * 2-3 цвета: алый, чёрный, кремовый — максимальный контраст.
+Что требовалось
+---------------
+Оставить саму плитку с эффектом выпуклости, убрать фон, тень и водяной знак,
+и поставить её вместо прежней иконки (федора) на всех платформах.
 
-Фон
----
-Подложка A из трёх проверенных: алый #DE2234 сверху, уходящий в глубокий
-бордовый #960C1C книзу. Причина: шляпа чёрная, и на ровном алом её нижние
-поля сливались с фоном. Затемнение снизу отделяет поля от подложки, а
-круглая маска Android не съедает контраст по краям.
+Почему плитка пересобирается, а не вырезается
+--------------------------------------------
+Вырезка по контуру тянет за собой диагональную тень: её цвет близок к
+красному краю плитки (R 110...135 против 190...205), порогом их не
+разделить чисто. Плюс кромка получается рваной. Поэтому:
+
+  * геометрия снята с исходника: x 227..794, y 225..758, радиус 92 px;
+  * заливка — вертикальный градиент, снятый с исходника;
+  * фаска — светлый кант по верхней и левой кромке, тёмный по нижней и
+    правой. Она и создаёт «выпуклость» — без неё плитка плоская;
+  * силуэт и надпись — маски по цвету, очищенные от красного свечения
+    по краям. Иначе на прозрачном фоне остаётся розовая кайма.
+
+Что на выходе
+-------------
+Иконка **без фона**: прозрачный PNG с плиткой и мягкой тенью по контуру.
+Для платформ, которые альфу не принимают (iOS, Play Market), прозрачный
+край подкладывается тёмным цветом темы — см. render(..., flat_bg=...).
 
 Запуск:
-    python3 tools/make_icon.py            # мастер 1024 + превью
+    python3 tools/make_icon.py            # мастер + превью в docs/иконки
     python3 tools/make_icon.py --all      # + Android, iOS, PWA
 """
 import argparse
-import math
 import os
 import sys
 
 try:
+    import numpy as np
     from PIL import Image, ImageDraw, ImageFilter
 except ImportError:  # pragma: no cover
-    print('Нужен Pillow: pip install pillow')
+    print('Нужны Pillow и numpy: pip install pillow numpy')
     sys.exit(2)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-RED_TOP = (222, 34, 52)
-RED_BOT = (150, 12, 28)
-BLACK = (18, 18, 22)
+# Исходник владельца лежит в репозитории: без него иконка невоспроизводима.
+SOURCE = os.path.join(ROOT, 'tools', 'icon_source', 'мафия-исходник.jpg')
+
+BLACK = (16, 16, 20)
 CREAM = (246, 241, 228)
+# Подложка для платформ без прозрачности: почти чёрный, как фон приложения.
+FLAT_BG = (22, 23, 29)
 
-S = 1024
-SS = 2          # суперсэмплинг
+# Геометрия плитки в координатах исходника (1024x1024), измерена по канту.
+CARD_X0, CARD_Y0, CARD_X1, CARD_Y1 = 227, 225, 794, 758
+CARD_R = 92
+# Контент (силуэт + надпись) внутри исходника.
+CONTENT = (305, 268, 718, 753)
+
+SS = 2  # суперсэмплинг: считаем вдвое крупнее, уменьшаем в конце
 
 
-def _bg(w):
-    """Фон: вертикальный градиент. Ровный, без пятен и виньеток."""
-    img = Image.new('RGB', (w, w), RED_TOP)
+# ---------------------------------------------------------------------------
+# Снятие масок с исходника
+# ---------------------------------------------------------------------------
+
+def load_masks():
+    """Маски силуэта и надписи, снятые по цвету.
+
+    Чёрный силуэт: яркость < 78 и красный канал < 95. Диагональная тень
+    имеет красный канал 110...135, поэтому в маску не попадает — именно
+    это разделение и позволило обойтись без вырезки по контуру.
+
+    Кремовая надпись: единственное светлое пятно внутри плитки.
+
+    Границы ограничены внутренней областью плитки (с отступом 6 px от
+    канта): иначе светлый кант попадал бы в маску надписи.
+    """
+    im = Image.open(SOURCE).convert('RGB')
+    if im.size != (1024, 1024):
+        im = im.resize((1024, 1024), Image.LANCZOS)
+    a = np.asarray(im).astype(float)
+    lum = 0.299 * a[:, :, 0] + 0.587 * a[:, :, 1] + 0.114 * a[:, :, 2]
+    red, green = a[:, :, 0], a[:, :, 1]
+
+    yy, xx = np.mgrid[0:1024, 0:1024]
+    inside = ((xx >= CARD_X0 + 6) & (xx <= CARD_X1 - 6) &
+              (yy >= CARD_Y0 + 6) & (yy <= CARD_Y1 - 6))
+
+    black = (lum < 78) & (red < 95) & inside
+    cream = (red > 165) & (green > 140) & inside
+
+    def soften(mask):
+        """Порог даёт «лестницу»; 0,8 px размытия возвращает полутона."""
+        return Image.fromarray((mask * 255).astype('uint8'), 'L').filter(
+            ImageFilter.GaussianBlur(0.8))
+
+    return soften(black), soften(cream)
+
+
+# ---------------------------------------------------------------------------
+# Детали плитки
+# ---------------------------------------------------------------------------
+
+def fill_gradient(w, h):
+    """Заливка плитки. Верх (222, 86, 76) → низ (198, 38, 31).
+
+    Не ровный красный: перепад вместе с фаской и даёт объём.
+    """
+    img = Image.new('RGB', (w, h))
     d = ImageDraw.Draw(img)
-    for y in range(w):
-        t = (y / max(1, w - 1)) ** 1.1
-        col = tuple(int(RED_TOP[i] + (RED_BOT[i] - RED_TOP[i]) * t) for i in range(3))
-        d.line([(0, y), (w, y)], fill=col)
+    top, bot = (222, 86, 76), (198, 38, 31)
+    for y in range(h):
+        t = (y / max(1, h - 1)) ** 1.15
+        d.line([(0, y), (w, y)],
+               fill=tuple(int(top[i] + (bot[i] - top[i]) * t) for i in range(3)))
     return img
 
 
-def hat_polygon(W, top_y, height):
-    """Силуэт федоры: тулья с вмятиной сверху + широкие поля с подъёмом.
+def rounded_mask(w, h, radius, scale=4):
+    """Маска скруглённого прямоугольника, сглаженная суперсэмплингом."""
+    big = Image.new('L', (w * scale, h * scale), 0)
+    ImageDraw.Draw(big).rounded_rectangle(
+        [0, 0, w * scale - 1, h * scale - 1],
+        radius=int(radius * scale), fill=255)
+    return big.resize((w, h), Image.LANCZOS)
 
-    Одна замкнутая форма — так её можно и залить, и превратить в монохромный
-    слой для themed icons Android.
+
+def bevel_ring(w, h, radius, width):
+    """Кольцо фаски: внешний контур минус тот же контур, сжатый внутрь."""
+    outer = np.asarray(rounded_mask(w, h, radius)) > 127
+    inner_mask = np.asarray(
+        rounded_mask(w - 2 * width, h - 2 * width, radius - width)) > 127
+    inner = np.zeros_like(outer)
+    inner[width:width + inner_mask.shape[0],
+          width:width + inner_mask.shape[1]] = inner_mask
+    ring = Image.fromarray(((outer & ~inner) * 255).astype('uint8'), 'L')
+    # Размытие смягчает обе границы кольца: кант не должен быть ступенькой.
+    return ring.filter(ImageFilter.GaussianBlur(max(0.6, width * 0.22)))
+
+
+def bevel_layer(w, h, radius, width):
+    """Слой фаски: свет сверху и слева, тень снизу и справа.
+
+    Градиент по вертикали вместо резкой границы половин: на плитке 92 px
+    скругления резкая граница читается как шов.
     """
-    cx = W / 2.0
-    h = height
-    bw = W * 0.84           # размах полей
-    cw = W * 0.30           # ширина тульи сверху
-    cy = top_y + h * 0.60   # линия перехода тульи в поля
-
-    def P(x, y):
-        return (cx + x, top_y + y)
-
-    # Обход по часовой: левое поле -> тулья -> правый край -> правое поле.
-    pts = [
-        P(-bw * 0.50, h * 0.655),                    # левый кончик полей
-        P(-bw * 0.36, h * 0.585),                    # подъём левого поля
-        P(-cw * 0.62, h * 0.375),                    # спад в тулью
-        P(-cw * 0.56, h * 0.145),                    # левая стенка тульи
-        P(-cw * 0.44, h * 0.055),                    # скругление к вмятине
-        P(-cw * 0.26, h * 0.075),                    # вмятина: спуск
-        P(-cw * 0.10, h * 0.128),                    # низ вмятины слева
-        P(0.0, h * 0.140),                           # дно вмятины
-        P(cw * 0.10, h * 0.128),                     # низ вмятины справа
-        P(cw * 0.26, h * 0.075),                     # вмятина: подъём
-        P(cw * 0.44, h * 0.055),                     # скругление
-        P(cw * 0.56, h * 0.145),                     # правая стенка
-        P(cw * 0.62, h * 0.375),                     # спад в поля
-        P(bw * 0.36, h * 0.585),                     # подъём правого поля
-        P(bw * 0.50, h * 0.66),                      # правый кончик полей
-    ]
-    # Низ полей — дуга от правого кончика к левому через низ.
-    arc = []
-    steps = 48
-    rx = bw * 0.50
-    ry = h * 0.285
-    for i in range(steps + 1):
-        a = math.pi * i / steps        # 0..pi
-        arc.append(P(rx * math.cos(a), h * 0.66 + ry * math.sin(a)))
-    pts += arc
-    return pts
+    layer = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    for y in range(h):
+        t = y / max(1, h - 1)
+        if t < 0.5:
+            k = 1.0 - t / 0.5                       # ярко у верха, гаснет к середине
+            d.line([(0, y), (w, y)], fill=(255, 220, 212, int(150 * k)))
+        else:
+            k = (t - 0.5) / 0.5                     # нарастает к низу
+            d.line([(0, y), (w, y)], fill=(120, 14, 16, int(96 * k)))
+    layer.putalpha(Image.composite(
+        layer.getchannel('A'), Image.new('L', (w, h), 0),
+        bevel_ring(w, h, radius, width)))
+    return layer
 
 
-def hat_band(W, top_y, height):
-    """Лента на тулье: полоса, повторяющая сужение тульи к полям.
+# ---------------------------------------------------------------------------
+# Сборка
+# ---------------------------------------------------------------------------
 
-    Ширина ленты задаётся стенками тульи на её высоте, а не константой —
-    иначе на скруглённой тулье лента вылезает за силуэт.
+# Доли, снятые с исходника. Рисунок занимает 0,729 ширины и 0,910 высоты
+# плитки: он большой и стоит не по центру — сверху воздуха мало, снизу
+# почти нет (надпись упирается в нижнюю кромку, так у автора картинки).
+# Если поставить рисунок «по центру и помельче», композиция рассыпается:
+# подбородок уходит вверх, надпись отрывается от края.
+CONTENT_W = (718 - 305 + 1) / (794 - 227 + 1)
+CONTENT_H = (753 - 268 + 1) / (758 - 225 + 1)
+CONTENT_DX = (305 - 227) / (794 - 227 + 1)
+CONTENT_DY = (268 - 225) / (758 - 225 + 1)
+
+
+def render(size, flat_bg=None, content_scale=0.94, card_ratio=0.86):
+    """Иконка целиком.
+
+    flat_bg — если задан, прозрачность заменяется этим цветом: iOS и Play
+    Market альфу не принимают.
+    content_scale — множитель размера рисунка относительно исходника.
+    0,94 — рисунок на 6% меньше авторского: ровно столько, чтобы нижние
+    засечки «МАФИЯ» не касались скругления. 0,78 — для maskable-иконки
+    PWA: Android обрезает её по кругу и требует запас по краям.
+    card_ratio — какую долю холста занимает плитка.
     """
-    cx = W / 2.0
-    h = height
-    cw = W * 0.30
-    y0, y1 = h * 0.335, h * 0.445
+    S = size * SS
+    # Пропорции плитки из исходника: 568 x 534.
+    card_w = int(S * card_ratio)
+    card_h = int(card_w * 534 / 568)
+    radius = card_w * (CARD_R / 568.0)
 
-    def wall(y):
-        """Позиция стенки тульи по вертикали (линейно между опорными точками)."""
-        # опорные точки стенки из hat_polygon: (0.145, 0.56cw) и (0.375, 0.62cw)
-        t = (y - 0.145) / (0.375 - 0.145)
-        t = max(0.0, min(1.0, t))
-        return cw * (0.56 + 0.06 * t)
+    # 1) Плитка: заливка под маской скругления.
+    plate = Image.new('RGBA', (card_w, card_h), (0, 0, 0, 0))
+    plate.paste(fill_gradient(card_w, card_h),
+                (0, 0), rounded_mask(card_w, card_h, radius))
 
-    return [
-        (cx - wall(y0), top_y + y0), (cx + wall(y0), top_y + y0),
-        (cx + wall(y1), top_y + y1), (cx - wall(y1), top_y + y1),
-    ]
+    # 2) Фаска — поверх кромки.
+    plate.alpha_composite(bevel_layer(card_w, card_h, radius,
+                                      max(2, int(card_w * 0.026))))
 
+    # 3) Силуэт и надпись — в тех же долях плитки, что у автора картинки.
+    black_m, cream_m = load_masks()
+    cx0, cy0, cx1, cy1 = CONTENT
+    content_w = int(card_w * CONTENT_W * content_scale)
+    content_h = int(card_h * CONTENT_H * content_scale)
+    # Сдвиг сохраняет верхний воздух исходника (0,08 карточки), а излишек
+    # высоты отдаётся низу: у автора картинки надпись стояла вплотную к
+    # кромке, и на иконке её нижние засечки резались скруглением.
+    free_x = card_w - int(card_w * CONTENT_W)
+    free_y = card_h - int(card_h * CONTENT_H)
+    px = int(card_w * CONTENT_DX + (free_x * (1 - content_scale)) / 2)
+    py = int(card_h * CONTENT_DY + (free_y * (1 - content_scale)) * 0.75)
+    box = (cx0, cy0, cx1 + 1, cy1 + 1)
+    for mask, colour in ((black_m, BLACK), (cream_m, CREAM)):
+        part = mask.crop(box).resize((content_w, content_h), Image.LANCZOS)
+        layer = Image.new('RGBA', part.size, colour + (0,))
+        layer.putalpha(part)
+        plate.alpha_composite(layer, (px, py))
 
-def render(size, mask=None, scale=1.0, offset_y=0.0):
-    """Иконка целиком. mask: None | 'circle' | 'rounded'."""
-    W = size * SS
-    img = _bg(W)
-    d = ImageDraw.Draw(img)
+    # 4) Холст: мягкая тень по контуру + плитка.
+    out = Image.new('RGBA', (S, S), (0, 0, 0, 0))
+    ox, oy = (S - card_w) // 2, (S - card_h) // 2
 
-    h = W * 0.60 * scale
-    top_y = (W - h) / 2.0 + W * offset_y
+    shadow_alpha = rounded_mask(card_w, card_h, radius).filter(
+        ImageFilter.GaussianBlur(S * 0.018))
+    shadow = Image.new('RGBA', (S, S), (0, 0, 0, 0))
+    shadow.paste((0, 0, 0, 255), (ox, oy + int(S * 0.012)),
+                 shadow_alpha.point(lambda v: int(v * 0.38)))
+    out = Image.alpha_composite(out, shadow)
+    out.alpha_composite(plate, (ox, oy))
 
-    shadow = Image.new('RGBA', (W, W), (0, 0, 0, 0))
-    sd = ImageDraw.Draw(shadow)
-    sd.polygon([(x, y + W * 0.012) for x, y in hat_polygon(W, top_y, h)],
-               fill=(60, 0, 8, 90))
-    shadow = shadow.filter(ImageFilter.GaussianBlur(W * 0.012))
-    img = Image.alpha_composite(img.convert('RGBA'), shadow).convert('RGB')
-    d = ImageDraw.Draw(img)
-
-    d.polygon(hat_polygon(W, top_y, h), fill=BLACK)
-    d.polygon(hat_band(W, top_y, h), fill=CREAM)
-
-    img = img.resize((size, size), Image.LANCZOS)
-
-    if mask == 'circle':
-        m = Image.new('L', (size, size), 0)
-        ImageDraw.Draw(m).ellipse([0, 0, size - 1, size - 1], fill=255)
-        out = Image.new('RGB', (size, size), (14, 15, 20))
-        out.paste(img, (0, 0), m)
-        img = out
-    elif mask == 'rounded':
-        m = Image.new('L', (size, size), 0)
-        ImageDraw.Draw(m).rounded_rectangle(
-            [0, 0, size - 1, size - 1], radius=int(size * 0.225), fill=255)
-        out = Image.new('RGB', (size, size), (14, 15, 20))
-        out.paste(img, (0, 0), m)
-        img = out
-    return img
+    out = out.resize((size, size), Image.LANCZOS)
+    if flat_bg is not None:
+        canvas = Image.new('RGB', (size, size), flat_bg)
+        canvas.paste(out, (0, 0), out)
+        return canvas
+    return out
 
 
 def render_layer(kind, size):
     """Слои адаптивной иконки Android (108dp).
 
-    Android обрезает слой до центральных 66 из 108 dp, поэтому знак в
-    переднем плане уменьшен до ~61% — иначе маска срежет поля шляпы.
+    Android обрезает слой до центральных 66 из 108 dp (безопасная зона —
+    72). Поэтому плитка в переднем плане занимает 74%: целиком внутри
+    безопасной зоны, но не мелкая.
     """
-    W = size * SS
     if kind == 'bg':
-        return _bg(W).resize((size, size), Image.LANCZOS)
+        # Фон — глубокий бордовый: не спорит с плиткой и даёт контур на
+        # любом лончере, включая светлый.
+        img = Image.new('RGB', (size, size))
+        d = ImageDraw.Draw(img)
+        top, bot = (122, 16, 22), (74, 8, 12)
+        for y in range(size):
+            t = y / max(1, size - 1)
+            d.line([(0, y), (size, y)],
+                   fill=tuple(int(top[i] + (bot[i] - top[i]) * t)
+                              for i in range(3)))
+        return img
 
-    img = Image.new('RGBA', (W, W), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    h = W * 0.60 * 0.615
-    top_y = (W - h) / 2.0
-    d.polygon(hat_polygon(W, top_y, h), fill=BLACK + (255,))
-    d.polygon(hat_band(W, top_y, h), fill=CREAM + (255,))
-    return img.resize((size, size), Image.LANCZOS)
+    # 0,74 — предел безопасной зоны: плитка целиком внутри круга, который
+    # рисует лончер (72 из 108 dp), и при этом не выглядит мелкой. На 0,615
+    # плитка занимала меньше половины иконки.
+    small = int(size * 0.74)
+    layer = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    layer.alpha_composite(render(small).resize((small, small), Image.LANCZOS),
+                          ((size - small) // 2, (size - small) // 2))
+    return layer
 
 
 def render_mono(size):
-    """Монохромный слой для themed icons Android 13+: только силуэт, альфа."""
-    W = size * SS
-    img = Image.new('RGBA', (W, W), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    h = W * 0.60 * 0.615
-    top_y = (W - h) / 2.0
-    d.polygon(hat_polygon(W, top_y, h), fill=(255, 255, 255, 255))
-    # лента вырезается, иначе в монохроме шляпа сливается в пятно
-    band = hat_band(W, top_y, h)
-    d.polygon(band, fill=(0, 0, 0, 0))
-    return img.resize((size, size), Image.LANCZOS)
+    """Монохромный слой для themed icons Android 13+.
+
+    Плитка не нужна: система рисует свою подложку. Отдаём белым силуэт и
+    надпись — их форма и есть узнаваемость.
+    """
+    black_m, cream_m = load_masks()
+    cx0, cy0, cx1, cy1 = CONTENT
+    S = size * SS
+    w = int(S * 0.74 * 0.86)
+    h = int(w * (cy1 - cy0) / (cx1 - cx0))
+    layer = Image.new('RGBA', (S, S), (0, 0, 0, 0))
+    for mask in (black_m, cream_m):
+        part = mask.crop((cx0, cy0, cx1 + 1, cy1 + 1)).resize((w, h),
+                                                               Image.LANCZOS)
+        white = Image.new('RGBA', part.size, (255, 255, 255, 255))
+        white.putalpha(part)
+        layer.alpha_composite(white, ((S - w) // 2, (S - h) // 2))
+    return layer.resize((size, size), Image.LANCZOS)
 
 
 def preview(path):
-    W, H = 1280, 520
-    sh = Image.new('RGB', (W, H), (14, 15, 20))
+    """Превью: прозрачный край на тёмном и светлом фоне + мелкие размеры.
+
+    Раскладка считается от реальных размеров: первая версия превью
+    ставила иконки с шагом 98 px и накладывала их друг на друга —
+    по такой картинке ничего не проверить.
+    """
+    sizes = (192, 128, 96, 72, 48, 32)
+    gap = 16
+    left_w = 2 * 240 + 3 * gap
+    row_w = sum(sizes) + gap * (len(sizes) - 1)
+    W = max(left_w, row_w) + 2 * gap
+    row_h = max(sizes)
+    H = 240 + row_h * 2 + 4 * gap
+
+    sh = Image.new('RGB', (W, H), (24, 26, 33))
     d = ImageDraw.Draw(sh)
-    sh.paste(render(230, 'rounded'), (50, 60))
-    sh.paste(render(230, 'circle'), (310, 60))
-    sh.paste(render(144, 'rounded'), (570, 103))
-    sh.paste(render(96, 'rounded'), (750, 127))
-    sh.paste(render(48, 'rounded'), (880, 151))
-    for i, col in enumerate([(40, 44, 58), (30, 34, 46)]):
-        d.rounded_rectangle([980 + i * 104, 127, 980 + i * 104 + 92, 219],
-                            radius=20, fill=col)
-    sh.paste(render(92, 'rounded'), (980, 127))
-    # на светлом фоне и в монохроме
-    d.rectangle([50, 330, 190, 470], fill=(236, 236, 240))
-    sh.paste(render(140, 'rounded'), (50, 330))
-    mono = Image.new('RGB', (140, 140), (210, 214, 224))
-    mono.paste(render_mono(140), (0, 0), render_mono(140))
-    sh.paste(mono, (230, 330))
+    d.rectangle([0, 0, W // 2 - 2, 240 + gap], fill=(28, 30, 38))
+    d.rectangle([W // 2 + 2, 0, W, 240 + gap], fill=(236, 236, 240))
+
+    # Крупно: прозрачный край на тёмном и на светлом фоне.
+    sh.paste(render(240), (gap, gap), render(240))
+    light = render(240)
+    sh.paste(light, (W // 2 + gap, gap), light)
+
+    # Мелкие размеры в два ряда: тёмный стол и светлый.
+    for row, (bg, y0) in enumerate(((None, 240 + 2 * gap),
+                                    ((236, 236, 240), 240 + 3 * gap + row_h))):
+        x = gap
+        for px in sizes:
+            img = render(px, flat_bg=bg)
+            # flat_bg возвращает RGB — маску передавать нельзя, только для RGBA.
+            if img.mode == 'RGBA':
+                sh.paste(img, (x, y0 + (row_h - px) // 2), img)
+            else:
+                sh.paste(img, (x, y0 + (row_h - px) // 2))
+            x += px + gap
     sh.save(path)
+
+
+# ---------------------------------------------------------------------------
+# Запись по платформам
+# ---------------------------------------------------------------------------
+
+def ios_sizes():
+    return {
+        'Icon-App-20x20@1x.png': 20, 'Icon-App-20x20@2x.png': 40,
+        'Icon-App-20x20@3x.png': 60, 'Icon-App-29x29@1x.png': 29,
+        'Icon-App-29x29@2x.png': 58, 'Icon-App-29x29@3x.png': 87,
+        'Icon-App-40x40@1x.png': 40, 'Icon-App-40x40@2x.png': 80,
+        'Icon-App-40x40@3x.png': 120, 'Icon-App-60x60@2x.png': 120,
+        'Icon-App-60x60@3x.png': 180, 'Icon-App-76x76@1x.png': 76,
+        'Icon-App-76x76@2x.png': 152, 'Icon-App-83.5x83.5@2x.png': 167,
+        'Icon-App-1024x1024@1x.png': 1024,
+    }
+
+
+def write_adaptive_xml(res):
+    d = os.path.join(res, 'mipmap-anydpi-v26')
+    os.makedirs(d, exist_ok=True)
+    body = ('<?xml version="1.0" encoding="utf-8"?>\n'
+            '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
+            '    <background android:drawable="@mipmap/ic_launcher_bg"/>\n'
+            '    <foreground android:drawable="@drawable/ic_launcher_fg"/>\n'
+            '    <monochrome android:drawable="@drawable/ic_launcher_mono"/>\n'
+            '</adaptive-icon>\n')
+    for name in ('ic_launcher.xml', 'ic_launcher_round.xml'):
+        with open(os.path.join(d, name), 'w', encoding='utf-8') as f:
+            f.write(body)
+    print('android: mipmap-anydpi-v26/ic_launcher.xml')
 
 
 def main():
@@ -228,9 +378,15 @@ def main():
     ap.add_argument('--web', action='store_true')
     args = ap.parse_args()
 
+    if not os.path.exists(SOURCE):
+        print('нет исходника:', SOURCE)
+        return 2
+
     docs = os.path.join(ROOT, 'docs', 'иконки')
     os.makedirs(docs, exist_ok=True)
     render(1024).save(os.path.join(docs, 'иконка-1024.png'))
+    render(1024, flat_bg=FLAT_BG).save(
+        os.path.join(docs, 'иконка-1024-на-тёмном.png'))
     preview(os.path.join(docs, 'иконка-превью.png'))
     print('мастер и превью:', docs)
 
@@ -239,21 +395,17 @@ def main():
         for dens, px in [('mdpi', 48), ('hdpi', 72), ('xhdpi', 96),
                          ('xxhdpi', 144), ('xxxhdpi', 192)]:
             p = os.path.join(res, f'mipmap-{dens}', 'ic_launcher.png')
-            render(px).save(p)
-            # Закруглённая версия для лончеров, которые её запрашивают
-            # (android:roundIcon). Начиная с API 26 берётся фигура из
-            # mipmap-anydpi-v26, поэтому старым устройствам нужен плотный PNG.
-            render(px, mask='circle').save(
+            render(px, flat_bg=FLAT_BG).save(p)
+            render(px, flat_bg=FLAT_BG).save(
                 os.path.join(res, f'mipmap-{dens}', 'ic_launcher_round.png'))
             print('android:', p)
 
-        # адаптивная иконка: слои 108dp по плотностям
         for dens, px in [('mdpi', 108), ('hdpi', 162), ('xhdpi', 216),
                          ('xxhdpi', 324), ('xxxhdpi', 432)]:
-            bg = render_layer('bg', px)
             for d2 in (f'mipmap-{dens}', f'drawable-{dens}'):
                 os.makedirs(os.path.join(res, d2), exist_ok=True)
-            bg.save(os.path.join(res, f'mipmap-{dens}', 'ic_launcher_bg.png'))
+            render_layer('bg', px).save(
+                os.path.join(res, f'mipmap-{dens}', 'ic_launcher_bg.png'))
             render_layer('fg', px).save(
                 os.path.join(res, f'drawable-{dens}', 'ic_launcher_fg.png'))
             render_mono(px).save(
@@ -265,51 +417,16 @@ def main():
         iconset = os.path.join(ROOT, 'ios', 'Runner', 'Assets.xcassets',
                                'AppIcon.appiconset')
         for name, px in ios_sizes().items():
-            render(px).save(os.path.join(iconset, name))
+            render(px, flat_bg=FLAT_BG).save(os.path.join(iconset, name))
         print('ios: собрано', len(ios_sizes()), 'файлов')
 
     if args.all or args.web:
         render(192).save(os.path.join(ROOT, 'assets', 'images', 'icon-192.png'))
         render(512).save(os.path.join(ROOT, 'assets', 'images', 'icon-512.png'))
-        render(512, scale=0.78).save(
+        render(512, content_scale=0.78).save(
             os.path.join(ROOT, 'assets', 'images', 'icon-512-maskable.png'))
         print('web: icon-192, icon-512, icon-512-maskable')
     return 0
-
-
-def ios_sizes():
-    base = {
-        'Icon-App-20x20@1x.png': 20, 'Icon-App-20x20@2x.png': 40,
-        'Icon-App-20x20@3x.png': 60, 'Icon-App-29x29@1x.png': 29,
-        'Icon-App-29x29@2x.png': 58, 'Icon-App-29x29@3x.png': 87,
-        'Icon-App-40x40@1x.png': 40, 'Icon-App-40x40@2x.png': 80,
-        'Icon-App-40x40@3x.png': 120, 'Icon-App-60x60@2x.png': 120,
-        'Icon-App-60x60@3x.png': 180, 'Icon-App-76x76@1x.png': 76,
-        'Icon-App-76x76@2x.png': 152, 'Icon-App-83.5x83.5@2x.png': 167,
-        'Icon-App-1024x1024@1x.png': 1024,
-    }
-    return base
-
-
-def write_adaptive_xml(res):
-    """ic_launcher.xml для API 26+: фон + передний план + монохром."""
-    d = os.path.join(res, 'mipmap-anydpi-v26')
-    os.makedirs(d, exist_ok=True)
-    with open(os.path.join(d, 'ic_launcher.xml'), 'w', encoding='utf-8') as f:
-        f.write('<?xml version="1.0" encoding="utf-8"?>\n'
-                '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
-                '    <background android:drawable="@mipmap/ic_launcher_bg"/>\n'
-                '    <foreground android:drawable="@drawable/ic_launcher_fg"/>\n'
-                '    <monochrome android:drawable="@drawable/ic_launcher_mono"/>\n'
-                '</adaptive-icon>\n')
-    with open(os.path.join(d, 'ic_launcher_round.xml'), 'w', encoding='utf-8') as f:
-        f.write('<?xml version="1.0" encoding="utf-8"?>\n'
-                '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
-                '    <background android:drawable="@mipmap/ic_launcher_bg"/>\n'
-                '    <foreground android:drawable="@drawable/ic_launcher_fg"/>\n'
-                '    <monochrome android:drawable="@drawable/ic_launcher_mono"/>\n'
-                '</adaptive-icon>\n')
-    print('android: mipmap-anydpi-v26/ic_launcher.xml')
 
 
 if __name__ == '__main__':
