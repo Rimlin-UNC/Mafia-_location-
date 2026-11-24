@@ -416,7 +416,10 @@ class _BotSetupCard extends StatelessWidget {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  icon: const Icon(Icons.person_play, size: 18),
+                  // person_play появился в Material Symbols позже 3.24.5:
+                  // со старым Icons сборка APK не компилируется вовсе,
+                  // а CI (analyze) падает с undefined_getter.
+                  icon: const Icon(Icons.person_add_alt_1, size: 18),
                   label: Text(humans == 0 ? 'Играть одному' : 'Ведущий тоже играет'),
                   style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.accent),
@@ -448,7 +451,8 @@ class _BotSetupCard extends StatelessWidget {
                   TextButton.icon(
                     icon: const Icon(Icons.group_add, size: 17),
                     label: Text('Добрать до ${Rules.minPlayers}'),
-                    onPressed: () => controller.fillBotsTo(Rules.minPlayers),
+                    onPressed: () =>
+                        controller.fillBotsTo(Rules.minPlayers),
                   ),
               ],
             ),

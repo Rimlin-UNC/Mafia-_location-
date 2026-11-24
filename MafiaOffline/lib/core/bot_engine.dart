@@ -297,20 +297,35 @@ class BotEngine {
   /// Кого прикрыть телохранителю-боту.
   ///
   /// Правило простое и честное: прикрываем того, кого считаем своим.
-  /// Улики те же, что у живого игрока, — свои проверки комиссара и
-  /// собственное мнение о команде. Никакого чтения ролей.
+  /// Улики те же, что у живого игрока, — свои проверки комиссара, голоса
+  /// прошлого дня и собственное мнение о команде.
+  ///
+  /// ВАЖНО: настоящую роль цели бот не читает — иначе он играл бы не
+  /// хуже читера. Первая версия этой функции искала в целях живого
+  /// комиссара по `role.type`, то есть подглядывала; от этого отказались.
   static Player _guardTarget(
     GameState s,
     Player bot,
     List<Player> targets,
     Random random,
   ) {
-    // Тот, кого город уже слышал в этой роли, — самая ценная защита.
-    final claimed = targets
-        .where((t) => t.role?.type == RoleType.commissioner)
-        .toList();
-    if (claimed.isNotEmpty) return _pick(claimed, random);
+    // Кого город уже публично защищал вчера — того и прикрываем: это
+    // наблюдаемая улика, а не служебная информация.
+    final defended = _defendedTarget(s, targets);
+    if (defended != null) return defended;
     return _trustedTarget(s, bot, targets, random);
+  }
+
+  /// Кого вчерашнее голосование почти выгнало (лидер по голосам среди
+  /// живых целей): значит, за него вступались.
+  static Player? _defendedTarget(GameState s, List<Player> targets) {
+    final allowed = targets.map((t) => t.id).toList();
+    final leader = _voteLeader(s, allowed);
+    if (leader == null) return null;
+    for (final t in targets) {
+      if (t.id == leader) return t;
+    }
+    return null;
   }
 
   /// Самый «свой» из списка: сначала проверенные чистые, потом остальные.

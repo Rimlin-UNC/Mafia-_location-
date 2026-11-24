@@ -146,7 +146,7 @@ void main() {
       expect(botWord(11), 'ботов');
       expect(botWord(21), 'бот');
       expect(botWord(22), 'бота');
-      expect(LobbyPlan(players: 5, planned: 10, bots: 0).startLabel,
+      expect(const LobbyPlan(players: 5, planned: 10, bots: 0).startLabel,
           'Начать — добрать 1 бот');
     });
 
@@ -494,10 +494,25 @@ void main() {
                 .toList();
           }
           final record = checkRecordFor(s, outcome);
+          // Состояние ночи переносим так же, как это делает ведущий
+          // (HostController.announceNight). С 1.12.0 одной смерти мало:
+          // последствия щита, шантажа и метки живут в GameState, и без
+          // переноса следующая ночь считалась бы по неверным данным.
           s = s.copyWith(
             players: players,
             lastHealedId: outcome.healedId,
             clearLastHealed: outcome.healedId == null,
+            lastGuardedId: outcome.guardedId,
+            clearLastGuarded: outcome.guardedId == null,
+            silencedId: outcome.silencedId,
+            silencedRound: round,
+            clearSilenced: outcome.silencedId == null,
+            watchTargetId: outcome.watchedId,
+            watchActed: outcome.watchedActed,
+            watchRound: round,
+            clearWatch: outcome.watchedId == null,
+            hunterMarkId: outcome.hunterMarkId,
+            clearHunterMark: outcome.hunterMarkId == null,
             checks: record == null ? s.checks : [...s.checks, record],
           );
           final afterNight = s.checkWinner();

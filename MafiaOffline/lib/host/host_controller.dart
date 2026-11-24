@@ -817,50 +817,55 @@ class HostController extends ChangeNotifier {
   /// Добавить в слот ведущего его собственного игрока. Роль будет
   /// показана на экране ведущего; WebSocket для этого не нужен.
   String? addLocalPlayer({String name = 'Ведущий'}) {
-    var s = _state;
-    if (s == null) return 'Партия не запущена';
-    if (s.phase != GamePhase.waiting) return 'Игрок уже не может войти в лобби';
-    if (s.localPlayer != null) return null;
+    var st = _state;
+    if (st == null) return 'Партия не запущена';
+    if (st.phase != GamePhase.waiting) return 'Игрок уже не может войти в лобби';
+    if (st.localPlayer != null) return null;
 
     // Стол мог быть занят ботами под завязку: человек нажал «+1 бот»,
     // а потом решил сыграть сам. Освобождаем место за счёт бота, иначе
     // «Играть одному» упиралось бы в «нет свободного места» на ровном
     // месте — и партия из одних автоматов оставалась единственным выходом.
-    while (botRoomFor(players: s.players.length, planned: s.plannedPlayers) ==
-            0 &&
-        s.bots.isNotEmpty) {
-      final lastBot = s.bots.last;
-      s = s.copyWith(
-        players: s.players.where((p) => p.id != lastBot.id).toList(),
-      );
+    //
+    // Работаем с локальной копией явно не-nullable: тело цикла меняет
+    // состояние, и промоушен `_state` внутри while анализатор не держит.
+    var players = st.players;
+    var planned = st.plannedPlayers;
+    while (botRoomFor(players: players.length, planned: planned) == 0 &&
+        players.any((p) => p.isBot)) {
+      final lastBot = players.lastWhere((p) => p.isBot);
+      players = players.where((p) => p.id != lastBot.id).toList();
     }
-    if (botRoomFor(players: s.players.length, planned: s.plannedPlayers) == 0) {
+    if (botRoomFor(players: players.length, planned: planned) == 0) {
       return 'В лобби нет свободного места';
+    }
+    if (players.length != st.players.length) {
+      st = st.copyWith(players: players);
     }
 
     final base = name.trim().isEmpty ? 'Ведущий' : name.trim();
-    final used = s.players.map((p) => p.name.toLowerCase()).toSet();
+    final used = st.players.map((p) => p.name.toLowerCase()).toSet();
     var unique = base;
     var suffix = 2;
     while (used.contains(unique.toLowerCase())) {
       unique = '$base $suffix';
       suffix++;
     }
-    final usedColors = s.players.map((p) => p.colorHex).toSet();
-    var color = colorForSlot(s.players.length);
+    final usedColors = st.players.map((p) => p.colorHex).toSet();
+    var color = colorForSlot(st.players.length);
     if (usedColors.contains(color)) {
       color = kPlayerColors.firstWhere(
         (c) => !usedColors.contains(c),
-        orElse: () => colorForSlot(s.players.length),
+        orElse: () => colorForSlot(st.players.length),
       );
     }
 
     var index = 1;
-    while (s.players.any((p) => p.id == 'local-$index')) {
+    while (st.players.any((p) => p.id == 'local-$index')) {
       index++;
     }
-    _state = s.copyWith(players: [
-      ...s.players,
+    _state = st.copyWith(players: [
+      ...st.players,
       Player(
         id: 'local-$index',
         name: unique,
