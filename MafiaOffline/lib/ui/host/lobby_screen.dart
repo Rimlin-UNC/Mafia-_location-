@@ -448,9 +448,11 @@ class _BotSetupCard extends StatelessWidget {
                         },
                 ),
                 if (!enough && s.players.isNotEmpty)
+                  // const: подпись складывается из константы, а обработчик
+                  // не захватывает ничего, кроме самого контроллера.
                   TextButton.icon(
                     icon: const Icon(Icons.group_add, size: 17),
-                    label: Text('Добрать до ${Rules.minPlayers}'),
+                    label: const Text('Добрать до ${Rules.minPlayers}'),
                     onPressed: () =>
                         controller.fillBotsTo(Rules.minPlayers),
                   ),

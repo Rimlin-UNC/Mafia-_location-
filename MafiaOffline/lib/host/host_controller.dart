@@ -852,11 +852,15 @@ class HostController extends ChangeNotifier {
       suffix++;
     }
     final usedColors = st.players.map((p) => p.colorHex).toSet();
-    var color = colorForSlot(st.players.length);
+    // Снимок длины — ДО возможного изменения состава. Иначе замыкание
+    // orElse захватывает переменную, которую анализатор уже не считает
+    // non-nullable, и падает с unchecked_use_of_nullable_value.
+    final seatCount = st.players.length;
+    var color = colorForSlot(seatCount);
     if (usedColors.contains(color)) {
       color = kPlayerColors.firstWhere(
         (c) => !usedColors.contains(c),
-        orElse: () => colorForSlot(st.players.length),
+        orElse: () => colorForSlot(seatCount),
       );
     }
 
