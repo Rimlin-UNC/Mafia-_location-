@@ -10,6 +10,7 @@ import 'package:mafia_offline/models/game_state.dart';
 import 'package:mafia_offline/models/player.dart';
 import 'package:mafia_offline/models/role.dart';
 import 'package:mafia_offline/net/protocol.dart';
+import 'package:mafia_offline/ui/history_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Тесты рекомендаций разработчика (РЕКОМЕНДАЦИИ_РАЗРАБОТЧИКА.md §5).
@@ -317,6 +318,67 @@ void main() {
       );
       expect(text, contains('Мафия'));
       expect(text, contains('Протокол пуст'));
+    });
+
+    test('новые роли 1.12.0 печатаются по-русски, а не служебным именем', () {
+      // Ровно то, что пришло со скриншота: в истории лежит RoleType.name,
+      // и после партии игроки видели «hunter», «blackmailer», «civilian».
+      final text = ProtocolExport.build(
+        name: 'x',
+        createdAt: DateTime(2026),
+        rounds: 1,
+        winnerTitle: 'Победила мафия',
+        players: <Map<String, dynamic>>[
+          {'name': 'Снежана', 'role': 'hunter', 'isAlive': true},
+          {'name': 'Кристина', 'role': 'blackmailer', 'isAlive': false},
+          {'name': 'Гоша', 'role': 'witness', 'isAlive': true},
+          {'name': 'Тимофей', 'role': 'bodyguard', 'isAlive': true},
+          {'name': 'Ведущий', 'role': 'civilian', 'isAlive': true},
+        ],
+        log: const [],
+      );
+      expect(text, contains('Снежана — Охотник (выжил)'));
+      expect(text, contains('Кристина — Шантажист (выбыл)'));
+      expect(text, contains('Гоша — Свидетель (выжил)'));
+      expect(text, contains('Тимофей — Телохранитель (выжил)'));
+      expect(text, contains('Ведущий — Мирный житель (выжил)'));
+      for (final wire in ['hunter', 'blackmailer', 'witness', 'bodyguard']) {
+        expect(text, isNot(contains(wire)), reason: wire);
+      }
+    });
+
+    test('счётчики в истории склоняются по-русски', () {
+      // «7 раундов» и «20 игроков» читались в интерфейсе как ошибка.
+      expect(HistoryScreen.roundsRu(1), '1 раунд');
+      expect(HistoryScreen.roundsRu(2), '2 раунда');
+      expect(HistoryScreen.roundsRu(5), '5 раундов');
+      expect(HistoryScreen.roundsRu(7), '7 раундов');
+      expect(HistoryScreen.roundsRu(11), '11 раундов');
+      expect(HistoryScreen.roundsRu(21), '21 раунд');
+      expect(HistoryScreen.roundsRu(22), '22 раунда');
+      expect(HistoryScreen.playersRu(1), '1 игрок');
+      expect(HistoryScreen.playersRu(3), '3 игрока');
+      expect(HistoryScreen.playersRu(20), '20 игроков');
+      expect(HistoryScreen.playersRu(0), '0 игроков');
+      expect(HistoryScreen.playersRu(111), '111 игроков');
+    });
+
+    test('боты и ведущий помечены в протоколе', () {
+      final text = ProtocolExport.build(
+        name: 'С ботом',
+        createdAt: DateTime(2026),
+        rounds: 2,
+        winnerTitle: 'Победила мафия',
+        players: <Map<String, dynamic>>[
+          {'name': 'Ведущий', 'role': 'civilian', 'isAlive': true, 'isLocal': true},
+          {'name': 'Марк', 'role': 'mafia', 'isAlive': false, 'isBot': true},
+          {'name': 'Аня', 'role': 'doctor', 'isAlive': true},
+        ],
+        log: const [],
+      );
+      expect(text, contains('Ведущий (ведущий) — Мирный житель (выжил)'));
+      expect(text, contains('Марк (бот) — Мафия (выбыл)'));
+      expect(text, contains('Аня — Доктор (выжил)'));
     });
 
     test('неизвестная роль не ломает вывод', () {

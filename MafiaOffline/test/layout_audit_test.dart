@@ -78,6 +78,33 @@ void main() {
       await open(tester, const HistoryScreen());
     });
 
+    testWidgets('расклад партии: длинные роли на узком экране', (tester) async {
+      // «Телохранитель» и «Шантажист» — самые длинные подписи ролей.
+      // В истории они стоят справа от имени игрока; на 320 px с крупным
+      // системным шрифтом строка обязана остаться читаемой и не дать
+      // полос переполнения.
+      phone(tester, textScale: 1.3);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListView(children: [
+            for (final role in ['bodyguard', 'blackmailer', 'hunter', 'civilian'])
+              HistoryPlayerRow(player: {
+                'name': 'Очень длинное имя игрока',
+                'role': role,
+                'isAlive': true,
+                'isBot': true,
+              }),
+          ]),
+        ),
+      ));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(find.text('Телохранитель'), findsOneWidget);
+      expect(find.text('Шантажист'), findsOneWidget);
+      // Служебное имя не должно попасть на экран ни в каком виде.
+      expect(find.text('bodyguard'), findsNothing);
+    });
+
     testWidgets('новая игра (состав и правила)', (tester) async {
       phone(tester);
       await open(tester, const SetupScreen());

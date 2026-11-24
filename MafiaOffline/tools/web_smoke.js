@@ -639,9 +639,25 @@ async function dealRole(page, role, roleName) {
   // ------------------------------------------------------------------ финал
   p.push('game_over', {
     winner: 'nobody', title: 'Ничья — в городе не осталось никого',
-    reveal: [{ name: 'Аня', role: 'Комиссар', emoji: '🕵', isAlive: false }],
+    // Хост присылает служебные имена ролей (RoleType.name), а не подписи:
+    // раньше экран печатал их как есть и после партии игроки видели
+    // «civilian», «hunter», «blackmailer».
+    reveal: [
+      { name: 'Аня', role: 'commissioner', emoji: '🕵', isAlive: false },
+      { name: 'Гоша', role: 'hunter', emoji: '🎯', isAlive: true },
+      { name: 'Кристина', role: 'blackmailer', emoji: '🕶', isAlive: true },
+      { name: 'Ведущий', role: 'civilian', emoji: '👤', isAlive: true },
+    ],
   });
   check('итоговый экран показан', p.visible('scr-over') && p.text('over-title').includes('Ничья'));
+  const revealText = p.text('reveal-list');
+  check('расклад после партии: комиссар по-русски', revealText.includes('Комиссар'));
+  check('расклад после партии: охотник по-русски', revealText.includes('Охотник'));
+  check('расклад после партии: шантажист по-русски', revealText.includes('Шантажист'));
+  check('расклад после партии: мирный житель по-русски', revealText.includes('Мирный житель'));
+  for (const wire of ['commissioner', 'hunter', 'blackmailer', 'civilian']) {
+    check(`расклад после партии: без служебного «${wire}»`, !revealText.includes(wire));
+  }
   check('ошибок JavaScript нет (партия комиссара)', p.errors.length === 0);
   if (p.errors.length) console.log(p.errors.slice(0, 3).join('\n'));
   p.close();

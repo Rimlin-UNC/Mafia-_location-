@@ -229,6 +229,26 @@ class Role {
     }
   }
 
+  /// Русское название типа роли по «проволочному» имени (`RoleType.name`).
+  ///
+  /// Единственный словарь для всего приложения. Раньше такие таблицы жили
+  /// отдельно в протоколе партии и в веб-клиенте, а любой новый экран
+  /// печатал тип как есть — именно так в истории партий появилось
+  /// «civilian» и «hunter» вместо «Мирный житель» и «Охотник».
+  ///
+  /// Неизвестное имя возвращаем как есть, но не пустым: в истории,
+  /// сохранённой старой версией, может лежать что угодно.
+  static String nameRuFor(String? wire) {
+    for (final t in RoleType.values) {
+      if (t.name == wire) return fromType(t).name;
+    }
+    return wire ?? '';
+  }
+
+  /// Русское название по ссылке на тип (для экранов, где тип уже есть).
+  static String nameRu(RoleType? type) =>
+      type == null ? '' : fromType(type).name;
+
   static Role? tryParse(String? wire) {
     if (wire == null) return null;
     for (final t in RoleType.values) {

@@ -89,6 +89,16 @@ const ROLE_RU = {
   blackmailer: 'Шантажист',
 };
 
+/// Подпись роли по служебному имени.
+///
+/// В итоговом раскладе хост присылает `RoleType.name` (см. Msg.gameOver),
+/// а не готовую подпись. Раньше этот экран печатал имя как есть, и после
+/// партии игроки видели «civilian» и «hunter» вместо русских названий.
+function roleRu(wire) {
+  if (!wire) return '';
+  return ROLE_RU[wire] || wire;
+}
+
 
 // ------------------------------------------------------- синхронизация часов
 // Телефоны имеют разные часы (расхождение бывает в десятки секунд), поэтому
@@ -1048,7 +1058,7 @@ function renderReveal() {
   $('reveal-list').innerHTML = S.reveal.map(r => `
     <div class="p ${r.isAlive ? '' : 'dead'}">
       <div class="av" style="background:#2b2f40;color:#fff">${r.emoji || '?'}</div>
-      <div class="nm">${esc(r.name)}<span class="sub">${esc(r.role || '')}</span></div>
+      <div class="nm">${esc(r.name)}<span class="sub">${esc(roleRu(r.role))}</span></div>
       <span class="dim tiny">${r.isAlive ? 'выжил' : 'выбыл'}</span>
     </div>`).join('');
 }
