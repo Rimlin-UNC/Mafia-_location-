@@ -409,7 +409,10 @@ void main() {
           (id: 'c2', role: RoleType.civilian, alive: true),
           (id: 'c3', role: RoleType.civilian, alive: true),
         ],
-      ).copyWith(silencedId: 'c2', silencedRound: 1);
+      ).copyWith(round: 1, silencedId: 'c2', silencedRound: 1);
+      // Раунд задаём явно: шантаж действует только в свой день (см. тест
+      // «шантаж кончается вместе со своим днём»), а buildState по
+      // умолчанию собирает состояние с round = 0.
       expect(s.isSilencedNow(s.byId('c2')), isTrue);
       expect(s.voters.map((p) => p.id), isNot(contains('c2')));
       expect(s.voters.map((p) => p.id), contains('c1'));
