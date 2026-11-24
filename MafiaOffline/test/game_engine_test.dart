@@ -4,10 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mafia_offline/core/assets.dart';
 import 'package:mafia_offline/core/game_engine.dart';
 import 'package:mafia_offline/core/role_guide.dart';
-import 'package:mafia_offline/services/synced_audio.dart';
+import 'package:mafia_offline/models/game_phase.dart';
 import 'package:mafia_offline/models/game_state.dart';
 import 'package:mafia_offline/models/player.dart';
 import 'package:mafia_offline/models/role.dart';
+import 'package:mafia_offline/services/synced_audio.dart';
 
 /// Сборка тестового состояния.
 GameState buildState({
@@ -16,6 +17,9 @@ GameState buildState({
   String? lastHealed,
   String? lastGuarded,
   String? hunterMark,
+  // Ночная фаза по умолчанию: списки целей (`legalTargetsFor`) вне ночи
+  // пусты по правилам, и без этого тесты целей проверяли бы пустоту.
+  GamePhase phase = GamePhase.night,
 }) {
   return GameState(
     id: 'g1',
@@ -32,6 +36,7 @@ GameState buildState({
           isAlive: s.alive,
         ),
     ],
+    phase: phase,
     nightActions: actions,
     lastHealedId: lastHealed,
     lastGuardedId: lastGuarded,

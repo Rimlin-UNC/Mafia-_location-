@@ -108,10 +108,11 @@ class GameEngine {
       if (type == RoleType.mafia || type == RoleType.don) {
         candidates = candidates.where((c) => c.role?.side != Side.mafia);
       }
-      // Шантажист запугивает только горожан: пугать своих незачем.
+      // Шантажист запугивает только живых горожан: пугать своих незачем,
+      // а мёртвых — бессмысленно (голоса у них уже нет).
       if (type == RoleType.blackmailer) {
         candidates = candidates.where((c) =>
-            c.id != player.id && c.role?.side != Side.mafia);
+            c.id != player.id && c.isAlive && c.role?.side != Side.mafia);
       }
       // Эти роли не выбирают себя: спасать, прикрывать, проверять,
       // блокировать или забирать с собой самого себя бессмысленно.
