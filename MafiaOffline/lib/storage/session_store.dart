@@ -95,6 +95,7 @@ class SessionStore {
         // показалась бы второй раз.
         'storySeen': s.storySeen,
         'noDeathsStreak': s.noDeathsStreak,
+        'lastBotSpeechRound': s.lastBotSpeechRound,
         'roleSetup': {
           for (final e in s.roleSetup.entries) e.key.name: e.value,
         },
@@ -132,8 +133,10 @@ class SessionStore {
         if (p is Map) {
           players.add(
             Player.fromStorageJson(Map<String, dynamic>.from(p))
-                // После перезапуска связи ни с кем нет, пока не переподключатся.
-                .copyWith(isConnected: false),
+                // После перезапуска связи ни с кем нет, пока не
+                // переподключатся. Боты и локальный игрок — исключение:
+                // их соединение не зависит от сети и не могло пропасть.
+                .copyWith(isConnected: p['isBot'] == true || p['isLocal'] == true),
           );
         }
       }
@@ -215,6 +218,7 @@ class SessionStore {
       checks: checks,
       storySeen: strList(m['storySeen']),
       noDeathsStreak: _int(m['noDeathsStreak']) ?? 0,
+      lastBotSpeechRound: _int(m['lastBotSpeechRound']) ?? 0,
       roleSetup: setup,
       players: players,
       log: log,

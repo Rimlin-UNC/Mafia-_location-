@@ -656,6 +656,46 @@ async function dealRole(page, role, roleName) {
   }
   check('текст на экране мафии и мирного совпадает', screens.mafia === screens.civilian);
 
+  // --------------------------------------------------- боты (1.11.0)
+  console.log('\nБоты: пометка в лобби и реплики в журнале');
+  {
+    const b = openPage();
+    await join(b, 'Аня');
+    const withBot = PLAYERS.map(p => ({ ...p }))
+      .concat([{ id: 'bot-1', name: 'Марк', color: '#33FFF5', isAlive: true,
+                 isConnected: true, isBot: true }]);
+    b.push('lobby', { gameName: 'Тестовая партия', planned: 5, players: withBot, rules: RULES });
+    const lobbyText = b.text('lobby-list');
+    check('бот помечен 🤖 в лобби', lobbyText.includes('🤖 Марк'));
+    check('у бота подпись «бот», а не «подключён»', /бот/.test(lobbyText));
+    check('живые люди остались с прежней подписью',
+      lobbyText.includes('Аня') && lobbyText.includes('это вы'));
+
+    // Реплика бота: старый ведущий её не пришлёт, новый — присылает.
+    b.push('bot_speech', { playerId: 'bot-1', name: 'Марк', text: 'Присматриваюсь.', round: 1 });
+    check('реплика бота видна баннером', b.text('banner').includes('Марк'));
+    check('реплика бота попала в журнал', b.text('log').includes('Присматриваюсь'));
+
+    // Пустой текст (битый пакет) не должен оставлять «Марк: None».
+    const bannerBefore = b.text('banner');
+    const logRowsBefore = b.$('log').children.length;
+    b.push('bot_speech', { playerId: 'bot-1', name: 'Марк', text: '' });
+    check('пустая реплика не затирает баннер', b.text('banner') === bannerBefore);
+    check('пустая реплика не добавляет строку в журнал',
+      b.$('log').children.length === logRowsBefore);
+
+    // Таблица за столом тоже отличает бота от выбывшего.
+    b.push('phase', {
+      phase: 'day', round: 2, time: 100, paused: false, isAlive: true, canAct: false,
+      prompt: 'Обсуждайте', alive: 5, total: 5, targets: [],
+    });
+    b.click('table-line');
+    check('в таблице за столом бот подписан', b.text('sheet-body').includes('бот'));
+    check('ошибок JavaScript нет (боты)', b.errors.length === 0);
+    if (b.errors.length) console.log(b.errors.slice(0, 3).join('\n'));
+    b.close();
+  }
+
   // ----------------------------------------------- ведущий старой версии
   console.log('\nСовместимость: ведущий на 1.1.x (без новых полей)');
   const o = openPage();

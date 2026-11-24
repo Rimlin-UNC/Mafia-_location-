@@ -96,7 +96,8 @@ class PlayerController extends ChangeNotifier {
   String? selectedTargetId;
 
   /// Публичный список игроков в лобби.
-  List<({String name, String color, bool alive, bool online})> lobby = const [];
+  List<({String name, String color, bool alive, bool online, bool bot})> lobby =
+      const [];
 
   List<String> eventLog = [];
   String? banner;
@@ -206,6 +207,7 @@ class PlayerController extends ChangeNotifier {
                   color: p['color'] as String? ?? '#888888',
                   alive: p['isAlive'] as bool? ?? true,
                   online: p['isConnected'] as bool? ?? true,
+                  bot: p['isBot'] as bool? ?? false,
                 ))
             .toList();
         final rules = msg.get<Map>('rules');
@@ -352,6 +354,16 @@ class PlayerController extends ChangeNotifier {
                   alive: r['isAlive'] as bool? ?? false,
                 ))
             .toList();
+        break;
+
+      case Msg.botSpeech:
+        final name = msg.get<String>('name') ?? 'Бот';
+        final text = msg.get<String>('text');
+        if (text != null && text.isNotEmpty) {
+          final line = '$name: $text';
+          banner = line;
+          eventLog.insert(0, line);
+        }
         break;
 
       case Msg.rename:

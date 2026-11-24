@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../core/constants.dart';
 import '../core/game_engine.dart';
+import '../core/lobby_plan.dart';
 import '../core/story_deck.dart';
 import '../models/game_event.dart';
 import '../models/game_phase.dart';
@@ -12,6 +13,7 @@ import '../models/game_state.dart';
 import '../models/player.dart';
 import '../models/role.dart';
 import '../core/assets.dart';
+import '../core/bot_engine.dart';
 import '../net/host_server.dart';
 import '../net/protocol.dart';
 import '../services/audio_service.dart';
@@ -33,6 +35,11 @@ class HostController extends ChangeNotifier {
 
   Timer? _tick;
   Timer? _sync;
+
+  /// Когда боты должны сделать очередной ход/голос или высказаться днём.
+  /// null — в текущей фазе делать нечего. Время не сохраняется: после
+  /// восстановления партии пауза назначается заново.
+  DateTime? _botsAt;
   String? _lastError;
   String? get lastError => _lastError;
 
@@ -183,6 +190,18 @@ class HostController extends ChangeNotifier {
     if (saved == null) return false;
 
     _state = saved;
+    // Бот не может нажать «Понятно». Если сохранение пришло из версии,
+    // где флаг не выставлялся, гейт первой ночи завис бы навсегда:
+    // живые уже готовы, а ждём бота, который этого не сделает.
+    if (saved.phase == GamePhase.rolesCheck && saved.bots.isNotEmpty) {
+      _state = saved.copyWith(
+        players: saved.players
+            .map((p) => p.isBot && !p.roleAcknowledged
+                ? p.copyWith(roleAcknowledged: true)
+                : p)
+            .toList(),
+      );
+    }
     try {
       hostAddress = await server.start(
         gameCode: saved.code,
@@ -227,6 +246,10 @@ class HostController extends ChangeNotifier {
     // Таймер запускаем — но состояние paused держит его на месте,
     // пока ведущий не нажмёт «Продолжить».
     _startTimer();
+    // Боты после перезапуска приложения не должны «ждать» ведущего:
+    // дедлайн их хода в сохранении не лежит, поэтому назначаем новый.
+    // Флаг paused сам остановит ход до снятия паузы (см. _maybeRunBots).
+    _scheduleBots();
 
     // Ловушка восстановления: приложение могло упасть между последним
     // «Понятно» и стартом ночи. Тогда все уже подтвердили, а фаза осталась
@@ -464,8 +487,10 @@ class HostController extends ChangeNotifier {
       }
     }
 
-    if (player == null) {
-      // Игрока нет — например, партия перезапущена.
+    if (player == null || player.isBot || player.isLocal) {
+      // Игрока нет — например, партия перезапущена. Слоты ботов и
+      // локального игрока по сети недоступны: иначе по имени можно
+      // получить чужую роль через sync.
       server.sendToConn(conn,
           Envelope(Msg.registerDenied, {'reason': DenyReason.gameStarted}));
       return;
@@ -514,18 +539,27 @@ class HostController extends ChangeNotifier {
   }
 
   void _handleNightAction(Envelope msg) {
-    final s = _state!;
-    if (s.phase != GamePhase.night) return;
     final playerId = msg.get<String>('playerId');
-    if (playerId == null) return;
+    if (playerId != null) _applyNightAction(playerId, msg.get<String>('targetId'));
+  }
+
+  /// Общий путь для ночного хода из сети и для локального игрока.
+  void _applyNightAction(String playerId, String? target) {
+    final s = _state;
+    if (s == null || s.phase != GamePhase.night) return;
     final player = s.byId(playerId);
-    if (player == null || !player.isAlive) return;
+    if (player == null || !player.isAlive || player.isBot) return;
     // actsTonight учитывает ночь знакомства: ход убийцы в первую ночь
     // сервер не примет, даже если клиент его пришлёт.
     if (!s.actsTonight(player)) return;
     if (s.nightActions.containsKey(playerId)) return; // повторно нельзя
+    // Проверка цели обязательна: иначе изменённый клиент мог бы вылечить
+    // себя, застрелить мафию по своей команде или выбрать мёртвого.
+    final legal = GameEngine.legalTargetsFor(s, player)
+        .map((p) => p.id)
+        .toSet();
+    if (target != null && !legal.contains(target)) return;
 
-    final target = msg.get<String>('targetId');
     final actions = Map<String, String?>.from(s.nightActions);
     actions[playerId] = target;
     _state = s.copyWith(nightActions: actions);
@@ -538,9 +572,20 @@ class HostController extends ChangeNotifier {
     _deliverCheck();
     notifyListeners();
 
-    if (_state!.allNightActionsIn) {
-      finishNight();
-    }
+    _afterHumanAction();
+  }
+
+  /// Ход локального игрока (ведущий сам играет против ботов или людей).
+  void submitLocalNightAction(String? targetId) {
+    final local = _state?.localPlayer;
+    if (local != null) _applyNightAction(local.id, targetId);
+  }
+
+  void _afterHumanAction() {
+    final s = _state;
+    if (s == null || s.phase != GamePhase.night) return;
+    if (s.humanNightActionsIn) _fillBotNightActions();
+    if (_state!.allNightActionsIn) finishNight();
   }
 
   /// Сообщить комиссару результат проверки, как только он известен.
@@ -573,23 +618,25 @@ class HostController extends ChangeNotifier {
   }
 
   void _handleVote(Envelope msg) {
-    final s = _state!;
-    if (s.phase != GamePhase.voting) return;
     final voterId = msg.get<String>('playerId');
-    if (voterId == null) return;
+    if (voterId != null) _applyVote(voterId, msg.get<String>('targetId'));
+  }
+
+  void _applyVote(String voterId, String? target) {
+    final s = _state;
+    if (s == null || s.phase != GamePhase.voting) return;
     final voter = s.byId(voterId);
-    if (voter == null || !voter.isAlive) return;
+    if (voter == null || !voter.isAlive || voter.isBot) return;
     // В повторном голосовании обвиняемый не голосует за самого себя.
     if (s.isVerdictVote && voterId == s.verdictId) return;
     if (s.votes.containsKey(voterId)) return; // один голос за тур
 
-    var target = msg.get<String>('targetId');
-    // Во втором туре принимаем голоса только за кандидатов тура.
-    if (s.runoffCandidates.isNotEmpty &&
-        target != null &&
-        !s.runoffCandidates.contains(target)) {
-      target = null;
-    }
+    final legal = GameEngine.legalTargetsFor(s, voter)
+        .map((p) => p.id)
+        .toSet();
+    // Некорректная цель от старого/изменённого клиента считается
+    // воздержанием: человека нельзя лишать голоса целиком.
+    if (target != null && !legal.contains(target)) target = null;
 
     final votes = Map<String, String?>.from(s.votes);
     votes[voterId] = target;
@@ -599,9 +646,15 @@ class HostController extends ChangeNotifier {
     _persist();
     notifyListeners();
 
-    if (_state!.allVotesIn) {
-      closeVoting();
-    }
+    if (_state!.humanVotesIn) _fillBotVotes();
+    if (_state!.allVotesIn) closeVoting();
+  }
+
+  /// Голос локального игрока. null — «воздержаться» или «оставить»
+  /// в повторном голосовании, тот же смысл, что и у обычного клиента.
+  void submitLocalVote(String? targetId) {
+    final local = _state?.localPlayer;
+    if (local != null) _applyVote(local.id, targetId);
   }
 
   void _onPlayerLost(String playerId) {
@@ -647,6 +700,135 @@ class HostController extends ChangeNotifier {
       // спрашивает посреди партии, откроют ли карту выбывшего.
       'rules': TableRules.toWire(s),
     }));
+  }
+
+  // ==================== боты и локальный игрок ====================
+
+  int get botCount => _state?.bots.length ?? 0;
+  bool get hasLocalPlayer => _state?.localPlayer != null;
+
+  /// План лобби для экрана: сколько мест, сколько ботов, можно ли стартовать.
+  /// Правило живёт в [LobbyPlan], чтобы его проверял тест без виджетов.
+  LobbyPlan? get lobbyPlan {
+    final s = _state;
+    if (s == null) return null;
+    return LobbyPlan(
+      players: s.players.length,
+      planned: s.plannedPlayers,
+      bots: s.bots.length,
+    );
+  }
+
+  /// Добавить ботов в лобби. Возвращает, сколько добавлено фактически
+  /// (при заполненном столе — меньше запрошенного или ноль).
+  int addBots({int count = 1}) {
+    final s = _state;
+    if (s == null || s.phase != GamePhase.waiting) return 0;
+    final before = s.players.length;
+    // Размер стола — тоже граница: «+1 бот» не должен превращать
+    // партию на 8 в партию на 9, если ведущий так не задумывал.
+    final room =
+        botRoomFor(players: s.players.length, planned: s.plannedPlayers);
+    if (count > room) count = room;
+    _state = BotEngine.addBots(s, count);
+    final added = _state!.players.length - before;
+    if (added > 0) {
+      _addLog(EventType.info,
+          'Ведущий добавил ботов: $added (всего ${_state!.bots.length})',
+          visibleToPlayers: false);
+      _broadcastLobby();
+      _persist();
+      notifyListeners();
+    }
+    return added;
+  }
+
+  int fillBotsTo(int target) {
+    final s = _state;
+    if (s == null) return 0;
+    final bounded = target < 0
+        ? 0
+        : (target > Rules.maxPlayers ? Rules.maxPlayers : target);
+    return addBots(count: bounded - s.players.length);
+  }
+
+  /// Добавить в слот ведущего его собственного игрока. Роль будет
+  /// показана на экране ведущего; WebSocket для этого не нужен.
+  String? addLocalPlayer({String name = 'Ведущий'}) {
+    var s = _state;
+    if (s == null) return 'Партия не запущена';
+    if (s.phase != GamePhase.waiting) return 'Игрок уже не может войти в лобби';
+    if (s.localPlayer != null) return null;
+
+    // Стол мог быть занят ботами под завязку: человек нажал «+1 бот»,
+    // а потом решил сыграть сам. Освобождаем место за счёт бота, иначе
+    // «Играть одному» упиралось бы в «нет свободного места» на ровном
+    // месте — и партия из одних автоматов оставалась единственным выходом.
+    while (botRoomFor(players: s.players.length, planned: s.plannedPlayers) ==
+            0 &&
+        s.bots.isNotEmpty) {
+      final lastBot = s.bots.last;
+      s = s.copyWith(
+        players: s.players.where((p) => p.id != lastBot.id).toList(),
+      );
+    }
+    if (botRoomFor(players: s.players.length, planned: s.plannedPlayers) == 0) {
+      return 'В лобби нет свободного места';
+    }
+
+    final base = name.trim().isEmpty ? 'Ведущий' : name.trim();
+    final used = s.players.map((p) => p.name.toLowerCase()).toSet();
+    var unique = base;
+    var suffix = 2;
+    while (used.contains(unique.toLowerCase())) {
+      unique = '$base $suffix';
+      suffix++;
+    }
+    final usedColors = s.players.map((p) => p.colorHex).toSet();
+    var color = colorForSlot(s.players.length);
+    if (usedColors.contains(color)) {
+      color = kPlayerColors.firstWhere(
+        (c) => !usedColors.contains(c),
+        orElse: () => colorForSlot(s.players.length),
+      );
+    }
+
+    var index = 1;
+    while (s.players.any((p) => p.id == 'local-$index')) {
+      index++;
+    }
+    _state = s.copyWith(players: [
+      ...s.players,
+      Player(
+        id: 'local-$index',
+        name: unique,
+        colorHex: color,
+        isConnected: true,
+        isLocal: true,
+      ),
+    ]);
+    _addLog(EventType.info, 'Ведущий тоже играет: $unique',
+        visibleToPlayers: false);
+    _broadcastLobby();
+    _persist();
+    notifyListeners();
+    return null;
+  }
+
+  /// Путь «играть одному»: локальный игрок + боты до выбранного размера
+  /// стола. Существующие подключения людей не заменяются ботами.
+  String? startSolo() {
+    final s = _state;
+    if (s == null) return 'Партия не запущена';
+    final error = addLocalPlayer();
+    if (error != null) return error;
+    fillBotsTo(s.plannedPlayers > 0 ? s.plannedPlayers : Rules.minPlayers);
+    return null;
+  }
+
+  void acknowledgeLocalRole() {
+    final local = _state?.localPlayer;
+    if (local != null) _applyRoleAck(local.id);
   }
 
   /// Переименование игрока ведущим.
@@ -713,10 +895,13 @@ class HostController extends ChangeNotifier {
       _state?.phase == GamePhase.rolesCheck && !allRolesAcknowledged;
 
   void _handleRoleAck(Envelope msg) {
+    final ackId = msg.get<String>('playerId');
+    if (ackId != null) _applyRoleAck(ackId);
+  }
+
+  void _applyRoleAck(String ackId) {
     final s = _state;
     if (s == null) return;
-    final ackId = msg.get<String>('playerId');
-    if (ackId == null) return;
 
     // Само правило — в GameEngine.applyRoleAck: чистая функция, покрыта
     // тестами, не зависит от сервера.
@@ -774,7 +959,10 @@ class HostController extends ChangeNotifier {
     final p = s.byId(playerId);
     if (p == null) return 'Игрок не найден';
     if (p.role == null) return 'Роли ещё не розданы';
-    if (!server.isOnline(p.id)) return 'Игрок не на связи';
+    // У бота нет экрана: снять у него «роль прочитана» значило бы навсегда
+    // остановить гейт первой ночи — вернуть флаг больше некому.
+    if (p.isBot) return 'Бот не читает роль на экране';
+    if (!p.isLocal && !server.isOnline(p.id)) return 'Игрок не на связи';
 
     _updatePlayer(p.id, (x) => x.copyWith(roleAcknowledged: false));
     server.sendTo(
@@ -821,6 +1009,7 @@ class HostController extends ChangeNotifier {
       startNight();
       return;
     }
+    _persist();
     notifyListeners();
   }
 
@@ -833,14 +1022,33 @@ class HostController extends ChangeNotifier {
   void startGame() {
     final s = _state;
     if (s == null || s.players.isEmpty) return;
+    // Партия из одних ботов — не игра: смотреть, как автоматы голосуют
+    // друг за друга, ведущему неинтересно и выглядит это как поломка.
+    // Экран лобби такую кнопку и не включает, но проверка нужна и здесь:
+    // старт зовут и другие места (восстановление, автостарт).
+    if (s.humans.isEmpty) {
+      _lastError = 'За столом нет живых игроков. Нажмите «Играть одному»';
+      _addLog(EventType.info,
+          'Старт отменён: за столом только боты. Нажмите «Играть одному».');
+      notifyListeners();
+      return;
+    }
 
+    // Недостающих до минимально играбельного стола добавляем только
+    // при старте: в лобби человек всё ещё может подключиться и занять слот.
+    if (s.players.length < Rules.minPlayers) {
+      fillBotsTo(Rules.minPlayers);
+    }
+    final current = _state!;
     final withRoles = GameEngine.assignRoles(
-      players: s.players,
-      setup: s.roleSetup,
+      players: current.players,
+      setup: current.roleSetup,
       random: _rnd,
-    );
+    ).map((p) => p.copyWith(
+      roleAcknowledged: p.isBot ? true : p.roleAcknowledged,
+    )).toList();
 
-    _state = s.copyWith(
+    _state = current.copyWith(
       players: withRoles,
       round: 0,
       phase: GamePhase.rolesCheck,
@@ -862,7 +1070,9 @@ class HostController extends ChangeNotifier {
       );
     }
 
-    _addLog(EventType.info, 'Игра началась. Игроков: ${withRoles.length}');
+    _addLog(EventType.info,
+        'Игра началась. Игроков: ${withRoles.length} '
+        '(людей: ${current.humans.length}, ботов: ${current.bots.length})');
     // В лог, а значит и в протокол партии: через месяц никто не вспомнит,
     // с открытой ли картой играли, а спор «так не договаривались» будет.
     _addLog(EventType.info,
@@ -889,6 +1099,83 @@ class HostController extends ChangeNotifier {
               'isAlive': m.isAlive,
             })
         .toList();
+  }
+
+  // ==================== автоматические ходы ботов ====================
+
+  void _scheduleBots() {
+    final s = _state;
+    if (s == null || !s.hasBots) {
+      _botsAt = null;
+      return;
+    }
+    final seconds = Rules.botActMinSeconds +
+        _rnd.nextInt(Rules.botActMaxSeconds - Rules.botActMinSeconds + 1);
+    _botsAt = DateTime.now().add(Duration(seconds: seconds));
+  }
+
+  void _maybeRunBots() {
+    final s = _state;
+    if (s == null || s.paused || !s.hasBots || _botsAt == null) return;
+    if (DateTime.now().isBefore(_botsAt!)) return;
+    _botsAt = null;
+
+    switch (s.phase) {
+      case GamePhase.night:
+        _fillBotNightActions();
+        if (_state!.allNightActionsIn) finishNight();
+        break;
+      case GamePhase.voting:
+        _fillBotVotes();
+        if (_state!.allVotesIn) closeVoting();
+        break;
+      case GamePhase.day:
+        _emitBotSpeech();
+        break;
+      default:
+        break;
+    }
+  }
+
+  void _fillBotNightActions() {
+    final s = _state;
+    if (s == null || s.phase != GamePhase.night) return;
+    final additions = BotEngine.nightActionsFor(s, _rnd);
+    if (additions.isEmpty) return;
+    _state = s.copyWith(nightActions: {...s.nightActions, ...additions});
+    _deliverCheck();
+    _persist();
+    notifyListeners();
+  }
+
+  void _fillBotVotes() {
+    final s = _state;
+    if (s == null || s.phase != GamePhase.voting) return;
+    final additions = BotEngine.votesFor(s, _rnd);
+    if (additions.isEmpty) return;
+    _state = s.copyWith(votes: {...s.votes, ...additions});
+    _persist();
+    notifyListeners();
+  }
+
+  void _emitBotSpeech() {
+    final s = _state;
+    if (s == null || s.phase != GamePhase.day || !s.hasBots) return;
+    if (s.lastBotSpeechRound == s.round) return;
+    final lines = BotEngine.dayLinesFor(s, _rnd);
+    for (final line in lines) {
+      final text = '${s.nameOf(line.playerId)}: ${line.text}';
+      _addLog(EventType.info, text);
+      server.broadcast(Envelope(Msg.botSpeech, {
+        'playerId': line.playerId,
+        'name': s.nameOf(line.playerId),
+        'text': line.text,
+        'round': s.round,
+      }));
+    }
+    _state = _state!.copyWith(lastBotSpeechRound: s.round);
+    _persist();
+    notifyListeners();
   }
 
   // ==================== фазы ====================
@@ -925,6 +1212,7 @@ class HostController extends ChangeNotifier {
     _ambient(A.ambNight);
     _broadcastPhase();
     _startTimer();
+    _scheduleBots();
     // «Город засыпает» — на входе в первую ночь. Раньше карточку
     // выбирали только утром, и она показывалась после ночи, а не до.
     if (_state!.round == 1) _maybeShowStory();
@@ -937,9 +1225,14 @@ class HostController extends ChangeNotifier {
     if (s == null || s.phase != GamePhase.night) return;
     if (s.pendingNight != null) return; // сводка уже посчитана
     _stopTimer();
+    _botsAt = null;
+    // Даже при ручном завершении ночи боты должны успеть сходить:
+    // иначе кнопка ведущего «Далее» отнимала бы у города их ходы.
+    _fillBotNightActions();
+    final current = _state!;
 
-    final outcome = GameEngine.resolveNight(s, random: _rnd);
-    _state = s.copyWith(pendingNight: outcome, paused: true);
+    final outcome = GameEngine.resolveNight(current, random: _rnd);
+    _state = current.copyWith(pendingNight: outcome, paused: true);
     _persist();
     // Ночь закрыта: если комиссар ждал хода проститутки, а она так
     // и не сходила, ответ уходит ему сейчас — до рассвета.
@@ -1082,6 +1375,7 @@ class HostController extends ChangeNotifier {
     _ambient(A.ambDay);
     _broadcastPhase();
     _startTimer();
+    _scheduleBots();
     notifyListeners();
   }
 
@@ -1137,6 +1431,7 @@ class HostController extends ChangeNotifier {
     }
     _broadcastPhase();
     _startTimer();
+    _scheduleBots();
     notifyListeners();
   }
 
@@ -1146,7 +1441,10 @@ class HostController extends ChangeNotifier {
     if (s == null || s.phase != GamePhase.voting) return;
     if (s.awaitingVoteConfirm) return; // уже закрыто
     _stopTimer();
-    _state = s.copyWith(paused: true, awaitingVoteConfirm: true);
+    _botsAt = null;
+    _fillBotVotes();
+    _state = _state!.copyWith(paused: true, awaitingVoteConfirm: true);
+    _persist();
     notifyListeners();
   }
 
@@ -1303,6 +1601,8 @@ class HostController extends ChangeNotifier {
     _lastTickAt = DateTime.now();
 
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      // Сначала — автоматы: они могут завершить фазу до тика таймера.
+      _maybeRunBots();
       final s = _state;
       if (s == null || s.paused) {
         // На паузе время не идёт: сдвигаем точку отсчёта, чтобы после
@@ -1376,6 +1676,7 @@ class HostController extends ChangeNotifier {
     _tick = null;
     _sync?.cancel();
     _sync = null;
+    _botsAt = null;
   }
 
   void _onTimeout() {
@@ -1406,6 +1707,11 @@ class HostController extends ChangeNotifier {
     final s = _state;
     if (s == null) return;
     _state = s.copyWith(paused: !s.paused);
+    if (_state!.paused) {
+      _botsAt = null;
+    } else {
+      _scheduleBots();
+    }
     // Пауза и её снятие — тоже сдвиг точки отсчёта: пока стояли,
     // реальное время шло, и без этого первая же проверка вычла бы
     // всё время простоя.
@@ -1520,38 +1826,12 @@ class HostController extends ChangeNotifier {
     }
   }
 
-  /// Список допустимых целей. Мафия не может выбрать своего.
-  List<Map<String, dynamic>> _targetsFor(Player p) {
-    final s = _state!;
-    Iterable<Player> candidates = s.alive;
-
-    if (s.phase == GamePhase.night) {
-      final type = p.role?.type;
-      if (type == RoleType.mafia || type == RoleType.don) {
-        candidates = candidates.where((c) =>
-            c.role?.type != RoleType.mafia && c.role?.type != RoleType.don);
-      }
-      // Себя не выбирают: проститутка, комиссар и доктор (классика —
-      // доктор себя не лечит, см. resolveNight).
-      if (type == RoleType.prostitute ||
-          type == RoleType.commissioner ||
-          type == RoleType.doctor) {
-        candidates = candidates.where((c) => c.id != p.id);
-      }
-      if (type == RoleType.doctor && s.lastHealedId != null) {
-        candidates = candidates.where((c) => c.id != s.lastHealedId);
-      }
-    } else if (s.phase == GamePhase.voting) {
-      candidates = candidates.where((c) => c.id != p.id);
-      if (s.runoffCandidates.isNotEmpty) {
-        candidates = candidates.where((c) => s.runoffCandidates.contains(c.id));
-      }
-    }
-
-    return candidates
-        .map((c) => {'id': c.id, 'name': c.name, 'color': c.colorHex})
-        .toList();
-  }
+  /// Список допустимых целей. Правило — в GameEngine, чтобы сервер,
+  /// браузерный игрок и бот не могли выбрать разные вещи.
+  List<Map<String, dynamic>> _targetsFor(Player p) =>
+      GameEngine.legalTargetsFor(_state!, p)
+          .map((c) => {'id': c.id, 'name': c.name, 'color': c.colorHex})
+          .toList();
 
   String _promptFor(Player p) {
     final s = _state!;
@@ -1606,39 +1886,70 @@ class HostController extends ChangeNotifier {
     if (s == null) return '';
     switch (s.phase) {
       case GamePhase.rolesCheck:
-        final waiting = s.unacknowledged;
-        if (waiting.isEmpty) return 'Все прочитали роль — начинаем ночь.';
-        return 'Роли изучают (${s.players.length - waiting.length} '
-            'из ${s.players.length}): ${waiting.map((p) => p.name).join(', ')}';
+        // Боты роль «прочитали» в момент раздачи: просить их нажать
+        // «Понятно» бессмысленно, и в подсказке они только мешают.
+        final waiting = s.unacknowledged.where((p) => !p.isBot).toList();
+        if (s.unacknowledged.isEmpty) {
+          return 'Все прочитали роль — начинаем ночь.';
+        }
+        if (waiting.isEmpty) {
+          return 'Все люди готовы — осталось дождаться ботов.';
+        }
+        // Считаем по всем игрокам, а не по отфильтрованному списку:
+        // иначе при одном «молчащем» боте выходило бы «6 из 6».
+        final ready = s.players.length - s.unacknowledged.length;
+        return 'Роли изучают ($ready из ${s.players.length}): '
+            '${waiting.map((p) => p.name).join(', ')}';
       case GamePhase.night:
-        final waiting = s.pendingActors;
+        // Ботов в списке ожидания нет: они ходят сами через 2–5 секунд,
+        // и ведущий не должен искать их за столом.
+        final waiting = s.pendingActors.where((p) => !p.isBot).toList();
+        final botsPending = s.pendingActors.any((p) => p.isBot);
         if (s.isIntroNight) {
+          if (waiting.isEmpty && !botsPending) {
+            return 'Ночь знакомства: мафия узнала своих. Можно будить город — '
+                'сегодня никто не погибает.';
+          }
           return waiting.isEmpty
-              ? 'Ночь знакомства: мафия узнала своих. Можно будить город — '
-                  'сегодня никто не погибает.'
+              ? 'Ночь знакомства: комиссар из ботов проверяет — это 2–5 секунд.'
               : 'Ночь знакомства: мафия узнаёт своих, комиссар проверяет. '
                   'Ждём: ${waiting.map((p) => p.name).join(', ')}';
         }
-        if (waiting.isEmpty) return 'Все действия собраны. Можно завершать ночь.';
-        return 'Ожидаем выбор от: ${waiting.map((p) => p.name).join(', ')}';
+        if (waiting.isEmpty && !botsPending) {
+          return 'Все действия собраны. Можно завершать ночь.';
+        }
+        if (waiting.isEmpty) {
+          return 'Все люди сходили — боты доигрывают свой ход (2–5 секунд).';
+        }
+        return 'Ожидаем выбор от: ${waiting.map((p) => p.name).join(', ')}'
+            '${botsPending ? ' (боты ходят сами)' : ''}';
       case GamePhase.day:
         if (s.lastWordId != null) {
           return 'Последнее слово: ${s.nameOf(s.lastWordId)}. '
               'Договорил раньше — нажмите «Слово сказано». '
               'Дальше стол голосует ещё раз: выгнать или оставить.';
         }
-        return 'Идёт обсуждение. Живых: ${s.alive.length}';
+        return s.hasBots
+            ? 'Идёт обсуждение. Живых: ${s.alive.length}. '
+                'Боты высказываются сами — прочитайте их реплики в журнале.'
+            : 'Идёт обсуждение. Живых: ${s.alive.length}';
       case GamePhase.voting:
-        final waiting = s.pendingVoters;
+        final waiting = s.pendingVoters.where((p) => !p.isBot).toList();
         if (s.isVerdictVote) {
           final name = s.nameOf(s.verdictId);
           if (waiting.isEmpty) {
-            return 'Повторное голосование по игроку $name: все высказались.';
+            return s.allVotesIn
+                ? 'Повторное голосование по игроку $name: все высказались.'
+                : 'Повторное голосование по игроку $name: люди высказались, '
+                    'боты доголосуют сами.';
           }
           return 'Выгнать $name или оставить? Не проголосовали: '
               '${waiting.map((p) => p.name).join(', ')}';
         }
-        if (waiting.isEmpty) return 'Все проголосовали.';
+        if (s.allVotesIn) return 'Все проголосовали.';
+        if (waiting.isEmpty) {
+          return 'Люди проголосовали — боты доголосуют сами (2–5 секунд).';
+        }
         return 'Не проголосовали: ${waiting.map((p) => p.name).join(', ')}';
       default:
         return '';
@@ -1755,6 +2066,7 @@ class HostController extends ChangeNotifier {
                 'role': p.role?.name,
                 'emoji': p.role?.emoji,
                 'isAlive': p.isAlive,
+                'isBot': p.isBot,
               })
           .toList(),
     }));

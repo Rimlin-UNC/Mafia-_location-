@@ -69,6 +69,16 @@ class Rules {
   static const int dayPerPlayerSeconds = 45;
   static const int dayMaxSeconds = 600;
 
+  /// Обсуждение в партии с одним живым человеком (ведущий против ботов).
+  /// Достаточно, чтобы прочитать несколько реплик и перейти к голосованию;
+  /// при желании ведущий по-прежнему завершает фазу кнопкой «Далее».
+  static const int soloDaySeconds = 20;
+
+  /// Боты не должны выбирать цель мгновенно: короткая пауза имитирует
+  /// «подумал и выбрал» и не даёт ночному экрану мигнуть без восприятия.
+  static const int botActMinSeconds = 2;
+  static const int botActMaxSeconds = 5;
+
   /// Голосование = base + perPlayer * (число живых)
   static const int votingBaseSeconds = 20;
   static const int votingPerPlayerSeconds = 4;

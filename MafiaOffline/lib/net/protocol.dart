@@ -35,6 +35,10 @@ class Msg {
   /// Ведущий изменил имя игрока — клиент обязан его принять.
   static const rename = 'rename';
 
+  /// Публичная реплика бота в дневном обсуждении. Не содержит роли
+  /// и не требует ответа; нужен только для живого дневного стола.
+  static const botSpeech = 'bot_speech';
+
   /// Игрок вернулся в свой слот после перезапуска приложения.
   static const reclaimed = 'reclaimed';
   static const pong = 'pong';

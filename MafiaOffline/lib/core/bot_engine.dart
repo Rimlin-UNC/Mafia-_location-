@@ -1,0 +1,318 @@
+import 'dart:math';
+
+import '../core/constants.dart';
+import '../models/game_phase.dart';
+import '../models/game_state.dart';
+import '../models/player.dart';
+import '../models/role.dart';
+import 'game_engine.dart';
+
+/// Одна реплика бота в дневном обсуждении.
+class BotSpeech {
+  final String playerId;
+  final String text;
+
+  const BotSpeech({required this.playerId, required this.text});
+}
+
+/// Боты для партии, в которой не хватает людей.
+///
+/// Важно: бот не читает чужие роли. Ему доступны только те сведения,
+/// которые есть у живого игрока с той же ролью:
+///  * мафия знает свою команду;
+///  * комиссар помнит собственные проверки;
+///  * все видят публичные события и текущие голоса.
+///
+/// Отдельный класс, а не ветки в HostController: цели и реплики —
+/// чистые функции, которые можно прогнать на сотнях партий без сервера.
+class BotEngine {
+  static const List<String> names = [
+    'Алекс', 'Марина', 'Глеб', 'Снежана', 'Борис',
+    'Кристина', 'Эдуард', 'Анжела', 'Тимофей', 'Изольда',
+    'Гоша', 'Лариса', 'Милана', 'Аркадий', 'Жанна',
+    'Валера', 'Геннадий', 'Полина', 'Роман', 'Вера',
+  ];
+
+  static const List<String> _chatter = [
+    'Пока ни в кого не верю. Присматриваюсь.',
+    'Давайте сначала услышаем тех, кто ещё не говорил.',
+    'Мне кажется, кто-то слишком старается казаться мирным.',
+    'У меня пока только вопросы. К ночи вернёмся к фактам.',
+    'Не торопитесь с голосованием: ошибка стоит городу игрока.',
+    'Я сегодня с алиби: спал и никого не видел.',
+    'Слишком тихий стол. Молчание тоже бывает показанием.',
+    'Предлагаю проверить самого активного говоруна.',
+  ];
+
+  static const List<String> _suspect = [
+    'Мне не нравится {x}. Пока это только ощущение, но запомню его.',
+    'Мой кандидат на сегодня — {x}.',
+    '{x} как-то слишком уверенно всё объясняет.',
+    'Голосую за {x}, если никто не приведёт более веский аргумент.',
+  ];
+
+  static const List<String> _foundMafia = [
+    'Раскрываюсь: я комиссар. Проверка этой ночи: {x} — мафия!',
+    'У меня есть факт, а не догадка: {x} — мафия. Проверено этой ночью.',
+  ];
+
+  /// Добавить [count] ботов, не выходя за лимит стола.
+  static GameState addBots(GameState state, int count) {
+    if (count <= 0 || state.phase != GamePhase.waiting) return state;
+    final players = List<Player>.from(state.players);
+    final room = Rules.maxPlayers - players.length;
+    final toAdd = count > room ? room : count;
+    for (var i = 0; i < toAdd; i++) {
+      players.add(_newBot(players));
+    }
+    return state.copyWith(players: players);
+  }
+
+  static Player _newBot(List<Player> players) {
+    final usedNames = players
+        .map((p) => p.name.trim().toLowerCase())
+        .toSet();
+    final base = names.firstWhere(
+      (name) => !usedNames.contains(name.toLowerCase()),
+      orElse: () => 'Бот ${players.length + 1}',
+    );
+    var name = base;
+    var suffix = 2;
+    while (usedNames.contains(name.toLowerCase())) {
+      name = '$base $suffix';
+      suffix++;
+    }
+
+    var index = 1;
+    while (players.any((p) => p.id == 'bot-$index')) {
+      index++;
+    }
+
+    final usedColors = players.map((p) => p.colorHex).toSet();
+    var color = colorForSlot(players.length);
+    if (usedColors.contains(color)) {
+      color = kPlayerColors.firstWhere(
+        (c) => !usedColors.contains(c),
+        orElse: () => colorForSlot(players.length),
+      );
+    }
+
+    return Player(
+      id: 'bot-$index',
+      name: name,
+      colorHex: color,
+      isConnected: true,
+      isBot: true,
+    );
+  }
+
+  /// Ночные ходы ботов, которые ещё не сходили.
+  ///
+  /// Возвращает только новые записи; уже принятые ходы людей не трогает.
+  static Map<String, String?> nightActionsFor(GameState s, Random random) {
+    final actions = <String, String?>{};
+    for (final bot in s.pendingActors.where((p) => p.isBot)) {
+      final targets = _nightTargetsFor(s, bot);
+      if (targets.isEmpty) {
+        actions[bot.id] = null; // осознанный пропуск
+        continue;
+      }
+
+      Player target;
+      switch (bot.role?.type) {
+        case RoleType.commissioner:
+          // Не проверяем одного и того же по кругу. Проверка донa
+          // врёт, но бот об этом не знает — как и человек-комиссар.
+          final successful = s.checksBy(bot.id).where((c) => !c.blocked);
+          final checked = successful.map((c) => c.targetId).toSet();
+          final fresh = targets.where((t) => !checked.contains(t.id)).toList();
+          target = _pick(fresh.isEmpty ? targets : fresh, random);
+          break;
+        case RoleType.doctor:
+          // Доктор не знает цель мафии и чужие проверки, поэтому
+          // выбирает случайную допустимую цель — как человек без информации.
+          target = _pick(targets, random);
+          break;
+        case RoleType.prostitute:
+          target = _pick(targets, random);
+          break;
+        case RoleType.maniac:
+          target = _pick(targets, random);
+          break;
+        default:
+          target = _pick(targets, random);
+          break;
+      }
+      actions[bot.id] = target.id;
+    }
+    return actions;
+  }
+
+  /// Список целей ночного хода. Мафия выбирает из всех живых, кроме
+  /// своей команды: если бы список строился по чужим ролям, боты читали
+  /// расклад и их нельзя было бы назвать честными противниками.
+  static List<Player> _nightTargetsFor(GameState s, Player bot) {
+    final type = bot.role?.type;
+    if (type == RoleType.mafia || type == RoleType.don) {
+      final teammates = s.mafiaTeam.map((p) => p.id).toSet();
+      return s.alive
+          .where((p) => p.id != bot.id && !teammates.contains(p.id))
+          .toList();
+    }
+    return GameEngine.legalTargetsFor(s, bot);
+  }
+
+  /// Голоса ботов в текущем туре. Может частично следовать уже открытым
+  /// голосам, но не знает, кто как проголосовал тайно.
+  static Map<String, String?> votesFor(GameState s, Random random) {
+    final votes = <String, String?>{};
+    var working = s;
+    for (final bot in s.pendingVoters.where((p) => p.isBot)) {
+      final targets = GameEngine.legalTargetsFor(working, bot);
+      final ownMafia = bot.role?.type == RoleType.mafia ||
+          bot.role?.type == RoleType.don;
+      final foundMafia = _foundMafiaFor(s, bot);
+
+      String? choice;
+      if (s.isVerdictVote) {
+        final accusedId = s.verdictId;
+        if (accusedId == null) {
+          choice = null;
+        } else if (ownMafia && _isMafia(s, accusedId)) {
+          choice = null; // своих не сдаём
+        } else if (foundMafia.contains(accusedId)) {
+          choice = accusedId;
+        } else if (bot.role?.type == RoleType.commissioner &&
+            _hasCleanCheck(s, bot, accusedId) &&
+            random.nextDouble() < 0.75) {
+          choice = null;
+        } else {
+          // Без доказательств боты чаще дают обвиняемому шанс, но
+          // не обязаны делать это всегда: иначе последнее слово теряло смысл.
+          choice = random.nextDouble() < 0.35 ? null : accusedId;
+        }
+      } else {
+        final candidates = targets.map((p) => p.id).toList();
+        if (candidates.isEmpty) {
+          choice = null;
+        } else if (ownMafia) {
+          final teammates = s.mafiaTeam.map((p) => p.id).toSet();
+          final town = candidates.where((id) => !teammates.contains(id)).toList();
+          choice = town.isEmpty ? null : _pick(town, random);
+        } else {
+          var pool = candidates.toList();
+          final knownMafia = pool.where(foundMafia.contains).toList();
+          if (bot.role?.type == RoleType.commissioner) {
+            final clean = pool.where((id) => _hasCleanCheck(s, bot, id)).toList();
+            if (clean.isNotEmpty && random.nextDouble() < 0.8) {
+              pool = pool.where((id) => !clean.contains(id)).toList();
+            }
+          }
+          if (knownMafia.isNotEmpty) {
+            // Найденная комиссаром мафия — не повод воздержаться.
+            choice = _pick(knownMafia, random);
+          } else if (pool.isEmpty || random.nextDouble() < 0.12) {
+            choice = null; // воздержаться
+          } else {
+            final leader = _voteLeader(working, pool);
+            choice = leader != null && random.nextDouble() < 0.35
+                ? leader
+                : _pick(pool, random);
+          }
+        }
+      }
+      votes[bot.id] = choice;
+      working = working.copyWith(votes: {...working.votes, bot.id: choice});
+    }
+    return votes;
+  }
+
+  /// Реплики дня. Максимум три, чтобы одиночная партия не превращалась
+  /// в простыню текста; комиссар раскрывается только при найденной мафии.
+  static List<BotSpeech> dayLinesFor(GameState s, Random random) {
+    final bots = s.alive.where((p) => p.isBot).toList()..shuffle(random);
+    final lines = <BotSpeech>[];
+
+    for (final bot in bots) {
+      if (bot.role?.type != RoleType.commissioner) continue;
+      final check = s.checksBy(bot.id).where((c) => c.round == s.round).toList();
+      if (check.isEmpty) continue;
+      final found = check.first;
+      final target = s.byId(found.targetId);
+      if (found.isMafia && !found.blocked && target != null && target.isAlive) {
+        lines.add(BotSpeech(
+          playerId: bot.id,
+          text: _foundMafia[random.nextInt(_foundMafia.length)]
+              .replaceAll('{x}', target.name),
+        ));
+        break;
+      }
+    }
+
+    for (final bot in bots) {
+      if (lines.length >= 3) break;
+      if (lines.any((line) => line.playerId == bot.id)) continue;
+      if (lines.isNotEmpty && random.nextDouble() < 0.45) continue;
+
+      final ownMafia = bot.role?.type == RoleType.mafia ||
+          bot.role?.type == RoleType.don;
+      if (ownMafia) {
+        final teammates = s.mafiaTeam.map((p) => p.id).toSet();
+        final targets = s.alive
+            .where((p) => p.id != bot.id && !teammates.contains(p.id))
+            .toList();
+        if (targets.isNotEmpty) {
+          final target = _pick(targets, random);
+          lines.add(BotSpeech(
+            playerId: bot.id,
+            text: _suspect[random.nextInt(_suspect.length)]
+                .replaceAll('{x}', target.name),
+          ));
+          continue;
+        }
+      }
+      lines.add(BotSpeech(
+        playerId: bot.id,
+        text: _chatter[random.nextInt(_chatter.length)],
+      ));
+    }
+    return lines;
+  }
+
+  static Set<String> _foundMafiaFor(GameState s, Player bot) {
+    if (bot.role?.type != RoleType.commissioner) return const {};
+    return s.checksBy(bot.id)
+        .where((c) => c.isMafia && !c.blocked)
+        .map((c) => c.targetId)
+        .toSet();
+  }
+
+  static bool _hasCleanCheck(GameState s, Player bot, String targetId) =>
+      bot.role?.type == RoleType.commissioner &&
+      s.checksBy(bot.id).any((c) =>
+          c.targetId == targetId && !c.isMafia && !c.blocked);
+
+  static bool _isMafia(GameState s, String id) {
+    final type = s.byId(id)?.role?.type;
+    return type == RoleType.mafia || type == RoleType.don;
+  }
+
+  static String? _voteLeader(GameState s, List<String> allowed) {
+    final tally = <String, int>{};
+    for (final target in s.votes.values) {
+      if (target != null && allowed.contains(target)) {
+        tally[target] = (tally[target] ?? 0) + 1;
+      }
+    }
+    if (tally.isEmpty) return null;
+    final max = tally.values.reduce((a, b) => a > b ? a : b);
+    final leaders = tally.entries
+        .where((e) => e.value == max)
+        .map((e) => e.key)
+        .toList();
+    return leaders.length == 1 ? leaders.first : null;
+  }
+
+  static T _pick<T>(List<T> values, Random random) =>
+      values[random.nextInt(values.length)];
+}

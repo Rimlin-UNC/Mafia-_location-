@@ -193,6 +193,11 @@ class GameState {
   /// Все состоявшиеся проверки комиссара за партию.
   final List<CheckRecord> checks;
 
+  /// Раунд, в котором боты уже высказались днём. Номер раунда, а не bool:
+  /// после восстановления партии или повторной сборки экрана реплики
+  /// текущего дня не должны отправляться второй раз.
+  final int lastBotSpeechRound;
+
   const GameState({
     required this.id,
     required this.name,
@@ -224,6 +229,7 @@ class GameState {
     this.lastWordId,
     this.verdictId,
     this.checks = const [],
+    this.lastBotSpeechRound = 0,
   });
 
   GameState copyWith({
@@ -254,6 +260,7 @@ class GameState {
     String? lastWordId,
     String? verdictId,
     List<CheckRecord>? checks,
+    int? lastBotSpeechRound,
     bool clearLastWord = false,
     bool clearVerdict = false,
     bool clearStory = false,
@@ -292,6 +299,8 @@ class GameState {
       lastWordId: clearLastWord ? null : (lastWordId ?? this.lastWordId),
       verdictId: clearVerdict ? null : (verdictId ?? this.verdictId),
       checks: checks ?? this.checks,
+      lastBotSpeechRound:
+          lastBotSpeechRound ?? this.lastBotSpeechRound,
     );
   }
 
@@ -300,6 +309,20 @@ class GameState {
   List<Player> get alive => players.where((p) => p.isAlive).toList();
 
   List<Player> get dead => players.where((p) => !p.isAlive).toList();
+
+  List<Player> get humans => players.where((p) => !p.isBot).toList();
+
+  List<Player> get bots => players.where((p) => p.isBot).toList();
+
+  bool get hasBots => bots.isNotEmpty;
+
+  /// Локальный игрок: ведущий, который сам участвует в партии.
+  Player? get localPlayer {
+    for (final p in players) {
+      if (p.isLocal) return p;
+    }
+    return null;
+  }
 
   Player? byId(String? id) {
     if (id == null) return null;
@@ -365,6 +388,12 @@ class GameState {
 
   bool get allNightActionsIn => pendingActors.isEmpty;
 
+  /// Все живые люди, которым есть чем ходить этой ночью, уже сходили.
+  /// После этого боты могут сделать свои ходы не дожидаясь таймера.
+  bool get humanNightActionsIn => nightActive
+      .where((p) => !p.isBot)
+      .every((p) => nightActions.containsKey(p.id));
+
   /// Кто из игроков ещё не подтвердил, что прочитал свою роль.
   List<Player> get unacknowledged =>
       players.where((p) => !p.roleAcknowledged).toList();
@@ -389,6 +418,11 @@ class GameState {
 
   bool get allVotesIn => pendingVoters.isEmpty;
 
+  /// Все люди уже проголосовали; остальные голоса можно отдать ботам.
+  bool get humanVotesIn => voters
+      .where((p) => !p.isBot)
+      .every((p) => votes.containsKey(p.id));
+
   // ---------- длительности фаз ----------
 
   /// Длительность ночи.
@@ -406,6 +440,10 @@ class GameState {
   }
 
   int get dayDuration {
+    // В соло-партии обсуждение нужно только чтобы прочитать реплики ботов:
+    // живого спора между несколькими людьми нет, и пять минут таймера
+    // превращали бы игру в ожидание.
+    if (humans.length <= 1) return Rules.soloDaySeconds;
     final raw = Rules.dayPerPlayerSeconds * alive.length;
     return raw > Rules.dayMaxSeconds ? Rules.dayMaxSeconds : raw;
   }

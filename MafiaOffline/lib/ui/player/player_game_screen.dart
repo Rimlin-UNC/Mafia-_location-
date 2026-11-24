@@ -198,8 +198,15 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
             child: PlayerTile(
               name: p.name,
               colorHex: p.color,
-              subtitle: p.name == c.playerName ? 'это вы' : 'подключён',
-              trailing: StatusDot(p.online ? AppColors.ok : AppColors.bad),
+              subtitle: p.name == c.playerName
+                  ? 'это вы'
+                  : p.bot
+                      ? 'бот'
+                      : (p.online ? 'подключён' : 'нет связи'),
+              // У бота нет сокета: красная точка «нет связи» на нём
+              // читалась бы как проблема, которой нет.
+              trailing:
+                  StatusDot(p.bot || p.online ? AppColors.ok : AppColors.bad),
             ),
           ),
       ],

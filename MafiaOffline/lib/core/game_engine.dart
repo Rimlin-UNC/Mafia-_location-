@@ -87,6 +87,44 @@ class GameEngine {
     return null;
   }
 
+  /// Допустимые цели для ночного хода или голосования.
+  ///
+  /// Единственный источник этого списка для людей, ботов и серверной
+  /// проверки: цель, которой нет здесь, не может уйти по протоколу.
+  /// Мафия не стреляет по своим, доктор не лечит себя и не повторяет
+  /// прошлоночную цель, в голосовании нельзя выбрать себя.
+  static List<Player> legalTargetsFor(GameState s, Player player) {
+    Iterable<Player> candidates = s.alive;
+
+    if (s.phase == GamePhase.night) {
+      final type = player.role?.type;
+      if (type == RoleType.mafia || type == RoleType.don) {
+        candidates = candidates.where((c) =>
+            c.role?.type != RoleType.mafia &&
+            c.role?.type != RoleType.don);
+      }
+      if (type == RoleType.prostitute ||
+          type == RoleType.commissioner ||
+          type == RoleType.doctor ||
+          type == RoleType.maniac) {
+        candidates = candidates.where((c) => c.id != player.id);
+      }
+      if (type == RoleType.doctor && s.lastHealedId != null) {
+        candidates = candidates.where((c) => c.id != s.lastHealedId);
+      }
+    } else if (s.phase == GamePhase.voting) {
+      candidates = candidates.where((c) => c.id != player.id);
+      if (s.runoffCandidates.isNotEmpty) {
+        candidates =
+            candidates.where((c) => s.runoffCandidates.contains(c.id));
+      }
+    } else {
+      return const [];
+    }
+
+    return candidates.toList();
+  }
+
   /// Результат «прочитать роль»: кто подтвердил и кто ещё нет.
   ///
   /// Чистая функция — её можно проверить без сервера и без виджетов,
@@ -527,6 +565,11 @@ RegisterVerdict resolveRegister({
 
   if (index != -1) {
     final existing = state.players[index];
+    // Бот и локальный игрок не имеют сокета. Без этой проверки любой
+    // мог бы «вернуться» в их слот по имени и получить чужую роль.
+    if (existing.isBot || existing.isLocal) {
+      return RegisterVerdict.denyNameTaken;
+    }
     final online = isOnline(existing.id);
     final sameDevice = deviceId != null &&
         existing.deviceId != null &&

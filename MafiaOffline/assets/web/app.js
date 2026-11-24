@@ -490,6 +490,12 @@ function onMessage(m) {
       renderLobby();
       break;
 
+    case 'bot_speech': {
+      const line = `${m.name || 'Бот'}: ${m.text || ''}`;
+      if (m.text) { banner(line, 'info'); addLog(line); }
+      break;
+    }
+
     // Результат проверки — только комиссару, ночью, сразу после выбора.
     // Ни баннера, ни вибро: ответ рисует ночной экран (см. nightCheck),
     // а вибрация в тишине ночи выдала бы комиссара соседям.
@@ -984,9 +990,9 @@ function renderLobby() {
   $('lobby-list').innerHTML = S.lobby.map(p => `
     <div class="p ${p.isAlive === false ? 'dead' : ''}">
       <div class="av" style="background:${esc(p.color || '#8d93a8')}">${esc((p.name || '?')[0])}</div>
-      <div class="nm">${esc(p.name)}
-        <span class="sub">${p.name === S.name ? 'это вы' : (p.isConnected === false ? 'нет связи' : 'подключён')}</span></div>
-      <span class="dot ${p.isConnected === false ? 'off' : ''}"></span>
+      <div class="nm">${p.isBot ? '🤖 ' : ''}${esc(p.name)}
+        <span class="sub">${p.name === S.name ? 'это вы' : p.isBot ? 'бот' : (p.isConnected === false ? 'нет связи' : 'подключён')}</span></div>
+      <span class="dot ${p.isBot || p.isConnected !== false ? '' : 'off'}"></span>
     </div>`).join('');
 }
 
@@ -1340,8 +1346,8 @@ function openTable() {
   const rows = S.lobby.map(p => `
     <div class="p ${p.isAlive === false ? 'dead' : ''}">
       <div class="av" style="background:${esc(p.color || '#8d93a8')}">${esc((p.name || '?')[0])}</div>
-      <div class="nm">${esc(p.name)}
-        <span class="sub">${p.name === S.name ? 'это вы' : (p.isAlive === false ? 'выбыл' : 'в игре')}</span></div>
+      <div class="nm">${p.isBot ? '🤖 ' : ''}${esc(p.name)}
+        <span class="sub">${p.name === S.name ? 'это вы' : p.isBot ? (p.isAlive === false ? 'бот · выбыл' : 'бот') : (p.isAlive === false ? 'выбыл' : 'в игре')}</span></div>
       <span class="tiny dim">${p.isAlive === false ? '☠' : ''}</span>
     </div>`).join('');
   $('sheet-body').innerHTML = `
