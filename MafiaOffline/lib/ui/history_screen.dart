@@ -12,6 +12,26 @@ import 'widgets.dart';
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
 
+  /// «20 игроков» — верный падеж для счётчика в списке партий.
+  static String playersRu(int n) {
+    final mod100 = n % 100;
+    final mod10 = n % 10;
+    if (mod100 >= 11 && mod100 <= 14) return '$n игроков';
+    if (mod10 == 1) return '$n игрок';
+    if (mod10 >= 2 && mod10 <= 4) return '$n игрока';
+    return '$n игроков';
+  }
+
+  /// «7 раундов» — неверный падеж; склоняем по-русски.
+  static String roundsRu(int n) {
+    final mod100 = n % 100;
+    final mod10 = n % 10;
+    if (mod100 >= 11 && mod100 <= 14) return '$n раундов';
+    if (mod10 == 1) return '$n раунд';
+    if (mod10 >= 2 && mod10 <= 4) return '$n раунда';
+    return '$n раундов';
+  }
+
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
 }
@@ -89,27 +109,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
   /// Специально без share_plus: лишняя зависимость ради одного действия,
   /// а на Android «Поделиться» из буфера доступно в любом мессенджере.
   /// Если понадобится прямая отправка в Telegram/WhatsApp — это отдельный PR.
-
-  /// «20 игроков» — верный падеж для счётчика в списке партий.
-  static String playersRu(int n) {
-    final mod100 = n % 100;
-    final mod10 = n % 10;
-    if (mod100 >= 11 && mod100 <= 14) return '$n игроков';
-    if (mod10 == 1) return '$n игрок';
-    if (mod10 >= 2 && mod10 <= 4) return '$n игрока';
-    return '$n игроков';
-  }
-
-  /// «7 раундов» — неверный падеж; склоняем по-русски.
-  static String roundsRu(int n) {
-    final mod100 = n % 100;
-    final mod10 = n % 10;
-    if (mod100 >= 11 && mod100 <= 14) return '$n раундов';
-    if (mod10 == 1) return '$n раунд';
-    if (mod10 >= 2 && mod10 <= 4) return '$n раунда';
-    return '$n раундов';
-  }
-
   Future<void> _copyProtocol(GameSummary g, List<GameEvent> log) async {
     final text = ProtocolExport.build(
       name: g.name,
