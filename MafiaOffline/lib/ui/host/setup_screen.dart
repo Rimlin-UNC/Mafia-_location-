@@ -35,12 +35,19 @@ class _SetupScreenState extends State<SetupScreen> {
   /// Комиссар видит результат проверки на своём экране.
   bool _privateCheck = true;
 
+  // Набор по умолчанию — привычная «классика» на 10: двух мафиози
+  // хватает, и ни одна из новых ролей не появляется без согласия стола.
+  // Новые роли включаются в пресетах по размеру стола (см. _applyPreset).
   final Map<RoleType, int> _setup = {
     RoleType.mafia: 2,
     RoleType.don: 1,
+    RoleType.blackmailer: 0,
     RoleType.doctor: 1,
     RoleType.commissioner: 1,
+    RoleType.bodyguard: 0,
     RoleType.prostitute: 1,
+    RoleType.witness: 0,
+    RoleType.hunter: 0,
     RoleType.maniac: 0,
   };
 
@@ -74,8 +81,12 @@ class _SetupScreenState extends State<SetupScreen> {
 
   int get _special => _setup.values.fold(0, (a, b) => a + b);
   int get _civilians => _total - _special;
+  /// Шантажист — тоже мафия: он входит в её победу, поэтому и в оценку
+  /// шансов сторон обязан попадать.
   int get _mafiaCount =>
-      (_setup[RoleType.mafia] ?? 0) + (_setup[RoleType.don] ?? 0);
+      (_setup[RoleType.mafia] ?? 0) +
+      (_setup[RoleType.don] ?? 0) +
+      (_setup[RoleType.blackmailer] ?? 0);
 
   bool get _overflow => _special > _total;
   /// Партия нежизнеспособна, только если против мафии остаётся
@@ -172,37 +183,56 @@ class _SetupScreenState extends State<SetupScreen> {
   void _applyPreset(int players) {
     setState(() {
       _total = players;
+      // Пресеты — это «рекомендованный состав», а не закон. Новые роли
+      // появляются постепенно и только на большом столе: на шестерых
+      // четыре специальные роли уже перегруз, а на двадцати — норма.
       if (players <= 8) {
         _setup
           ..[RoleType.mafia] = 1
           ..[RoleType.don] = 1
+          ..[RoleType.blackmailer] = 0
           ..[RoleType.doctor] = 1
           ..[RoleType.commissioner] = 1
+          ..[RoleType.bodyguard] = 0
           ..[RoleType.prostitute] = 0
+          ..[RoleType.witness] = 0
+          ..[RoleType.hunter] = 0
           ..[RoleType.maniac] = 0;
       } else if (players <= 12) {
         _setup
           ..[RoleType.mafia] = 2
           ..[RoleType.don] = 1
+          ..[RoleType.blackmailer] = 0
           ..[RoleType.doctor] = 1
           ..[RoleType.commissioner] = 1
+          ..[RoleType.bodyguard] = 0
           ..[RoleType.prostitute] = 1
+          ..[RoleType.witness] = 0
+          ..[RoleType.hunter] = 0
           ..[RoleType.maniac] = 0;
       } else if (players <= 16) {
         _setup
           ..[RoleType.mafia] = 3
           ..[RoleType.don] = 1
+          ..[RoleType.blackmailer] = 1
           ..[RoleType.doctor] = 1
           ..[RoleType.commissioner] = 1
+          ..[RoleType.bodyguard] = 1
           ..[RoleType.prostitute] = 1
+          ..[RoleType.witness] = 0
+          ..[RoleType.hunter] = 0
           ..[RoleType.maniac] = 1;
       } else {
         _setup
           ..[RoleType.mafia] = 4
           ..[RoleType.don] = 1
+          ..[RoleType.blackmailer] = 1
           ..[RoleType.doctor] = 1
           ..[RoleType.commissioner] = 1
+          ..[RoleType.bodyguard] = 1
           ..[RoleType.prostitute] = 1
+          ..[RoleType.witness] = 1
+          ..[RoleType.hunter] = 1
           ..[RoleType.maniac] = 1;
       }
     });
@@ -557,7 +587,20 @@ class _RoleRow extends StatelessWidget {
           Text(role.emoji, style: const TextStyle(fontSize: 18)),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(role.name, style: const TextStyle(fontSize: 14.5)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(role.name, style: const TextStyle(fontSize: 14.5)),
+                // Одна строка «что делает»: на экране настройки состав
+                // собирают до партии, и ведущему негде прочитать памятку.
+                Text(
+                  role.description,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 10.5, color: AppColors.dim),
+                ),
+              ],
+            ),
           ),
           _StepButton(icon: Icons.remove, onTap: onMinus),
           SizedBox(

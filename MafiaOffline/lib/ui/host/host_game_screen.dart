@@ -544,6 +544,11 @@ class _HostGameScreenState extends State<HostGameScreen>
           : const StatusDot(AppColors.warn);
     }
     if (s.phase == GamePhase.voting) {
+      // Запуганный шантажистом в этот день не голосует. Без пометки
+      // ведущий ждал бы его голос до конца таймера.
+      if (s.isSilencedNow(p)) {
+        return const Text('🕶', style: TextStyle(fontSize: 14));
+      }
       return s.votes.containsKey(p.id)
           ? const Icon(Icons.check, color: AppColors.ok, size: 20)
           : const StatusDot(AppColors.warn);
@@ -957,6 +962,14 @@ class _LocalPlayerPanelState extends State<_LocalPlayerPanel> {
           return 'Кого заблокировать?';
         case RoleType.maniac:
           return 'Кого убить?';
+        case RoleType.bodyguard:
+          return 'Кого прикрыть собой?';
+        case RoleType.witness:
+          return 'За кем наблюдать?';
+        case RoleType.hunter:
+          return 'Кого забрать с собой?';
+        case RoleType.blackmailer:
+          return 'Кого запугать на завтра?';
         default:
           return 'Спите';
       }
@@ -993,6 +1006,16 @@ class _LocalPlayerPanelState extends State<_LocalPlayerPanel> {
     final checks = s.privateCheck && role.type == RoleType.commissioner
         ? s.checksBy(local.id).reversed.take(5).toList()
         : const <CheckRecord>[];
+    // Свидетель видит ровно один факт — за кем следил и выходил ли тот.
+    final watchName =
+        role.type == RoleType.witness ? s.nameOf(s.watchTargetId) : null;
+    final watchActed = s.watchActed == true;
+    final silenced = s.isSilencedNow(local);
+    // Охотник видит свою метку всегда: она переживает ночи, и забыть,
+    // на кого она стоит, — самая дорогая ошибка в его игре.
+    final hunterMark = role.type == RoleType.hunter && s.hunterMarkId != null
+        ? s.nameOf(s.hunterMarkId)
+        : null;
 
     return PanelCard(
       child: Padding(
@@ -1121,6 +1144,12 @@ class _LocalPlayerPanelState extends State<_LocalPlayerPanel> {
                   ],
                 ),
               ],
+            ] else if (silenced && s.phase == GamePhase.voting) ...[
+              const Text(
+                '🤐 Вас запугал шантажист: сегодня вы не голосуете. '
+                'Скажите об этом вслух — стол вправе это учесть.',
+                style: TextStyle(fontSize: 12.5, color: AppColors.warn),
+              ),
             ] else ...[
               if (s.paused)
                 const Text('⏸ Пауза — действия временно недоступны.',
@@ -1146,6 +1175,26 @@ class _LocalPlayerPanelState extends State<_LocalPlayerPanel> {
               else
                 const Text('Сейчас от вас не требуется действий.',
                     style: TextStyle(fontSize: 12.5, color: AppColors.dim)),
+            ],
+            if (watchName != null && s.watchTargetId != null) ...[
+              const SizedBox(height: 8),
+              const Text('Ваше наблюдение',
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+              Text(
+                watchActed
+                    ? '${s.nameOf(s.watchTargetId)} выходил из дома ночью'
+                    : '${s.nameOf(s.watchTargetId)} не выходил из дома',
+                style: TextStyle(
+                    fontSize: 12,
+                    color: watchActed ? AppColors.warn : AppColors.dim),
+              ),
+            ],
+            if (hunterMark != null) ...[
+              const SizedBox(height: 8),
+              const Text('Ваша метка',
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+              Text('$hunterMark погибнет вместе с вами — от ножа или от голосования',
+                  style: const TextStyle(fontSize: 12, color: AppColors.warn)),
             ],
             if (checks.isNotEmpty) ...[
               const SizedBox(height: 8),

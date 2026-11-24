@@ -101,6 +101,51 @@ void main() {
       expect(s!.code, '123456', reason: 'остальные поля обязаны сохраниться');
     });
 
+    // 1.12.0: пять новых полей состояния. Сохранение из 1.11.x их не знает,
+    // а испорченное поле не должно стирать партию — правило то же, что для
+    // остальных.
+    test('партия из 1.11.0 без новых полей читается', () async {
+      await putRaw(validSaved());
+      final s = await SessionStore().load();
+      expect(s, isNotNull);
+      expect(s!.silencedId, isNull);
+      expect(s.watchTargetId, isNull);
+      expect(s.hunterMarkId, isNull);
+      expect(s.lastGuardedId, isNull);
+      expect(s.watchRound, 0);
+    });
+
+    test('новые поля 1.12.0 переживают сохранение', () async {
+      final saved = validSaved()
+        ..['silencedId'] = 'p2'
+        ..['silencedRound'] = 2
+        ..['watchTargetId'] = 'p1'
+        ..['watchActed'] = true
+        ..['watchRound'] = 2
+        ..['hunterMarkId'] = 'p1'
+        ..['lastGuardedId'] = 'p2';
+      await putRaw(saved);
+      final s = await SessionStore().load();
+      expect(s, isNotNull);
+      expect(s!.silencedId, 'p2');
+      expect(s.watchTargetId, 'p1');
+      expect(s.watchActed, isTrue);
+      expect(s.hunterMarkId, 'p1');
+      expect(s.lastGuardedId, 'p2');
+    });
+
+    test('испорченные новые поля не стирают партию', () async {
+      final saved = validSaved()
+        ..['silencedId'] = [1, 2]
+        ..['hunterMarkId'] = {'a': 1}
+        ..['watchActed'] = 'да';
+      await putRaw(saved);
+      final s = await SessionStore().load();
+      expect(s, isNotNull);
+      expect(s!.code, '123456');
+      expect(s.players.length, 2);
+    });
+
     test('массив вместо строки в коде игры', () async {
       final saved = validSaved()..['code'] = [1, 2, 3];
       await putRaw(saved);

@@ -223,6 +223,16 @@ def main():
     #     этих файлов книга правил осталась бы текстом без картинок.
     for path, orig_rel in (
             ('/instructions/roles/01_mafia.jpg', 'instructions/roles/01_mafia.jpg'),
+            # 1.12.0: четыре новые роли в книге правил. Без этих файлов
+            # игрок увидел бы названия ролей без карточек.
+            ('/instructions/roles/08_bodyguard.jpg',
+             'instructions/roles/08_bodyguard.jpg'),
+            ('/instructions/roles/09_witness.jpg',
+             'instructions/roles/09_witness.jpg'),
+            ('/instructions/roles/10_hunter.jpg',
+             'instructions/roles/10_hunter.jpg'),
+            ('/instructions/roles/11_blackmailer.jpg',
+             'instructions/roles/11_blackmailer.jpg'),
             ('/instructions/phases/01_night.jpg', 'instructions/phases/01_night.jpg'),
             ('/instructions/guides/01_host.jpg', 'instructions/guides/01_host.jpg'),
             ('/crimes/01_shooting.jpg', 'crimes/01_shooting.jpg')):

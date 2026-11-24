@@ -21,15 +21,37 @@ def play(seed,setup,n_players,names=None):
         if g.phase==NIGHT:
             for p in list(g.night_active):
                 t=g.targets_for(p)
-                if p.role in (MAFIA,DON) and any(x.role in (MAFIA,DON) for x in t):
+                # 1.12.0: «своими» считается вся мафия, включая шантажиста.
+                if p.role in (MAFIA,DON) and any(SIDE[x.role]=='mafia' for x in t):
                     bug('MAFIA_SEES_OWN',f'seed{seed}')
+                if p.role==BLACK and any(SIDE[x.role]=='mafia' for x in t):
+                    bug('BLACK_SEES_OWN',f'seed{seed}')
                 g.night_action(p.id, g.rnd.choice(t).id if t else None)
             if g.pending_night is None: g.finish_night()
-            # инвариант: убитых не больше 2 за ночь
+            # Инварианты ночи. С 1.12.0 «естественных» смертей по-прежнему
+            # не больше двух, но третьим может стать отмеченный охотником —
+            # поэтому лишние смерти разрешены только как месть.
             o=g.pending_night
-            if o and len(o['killed'])>2: bug('KILL_GT2',f"seed{seed}: {len(o['killed'])}")
-            if o and o['healed'] and o['healed'] in o['killed']:
-                bug('HEAL_FAILED',f'seed{seed}: вылеченный погиб')
+            if o:
+                rev=o.get('revenge') or []
+                if len(o['killed'])>2 and not rev:
+                    bug('KILL_GT2',f"seed{seed}: {len(o['killed'])}")
+                if len(o['killed'])>3:
+                    bug('KILL_GT3',f'seed{seed}: {len(o["killed"])}')
+                if o['healed'] and o['healed'] in o['killed'] and o['healed'] not in rev:
+                    bug('HEAL_FAILED',f'seed{seed}: вылеченный погиб')
+                if o.get('guarded') and o['guarded'] in o['killed'] and o['guarded'] not in rev:
+                    bug('GUARD_FAILED',f'seed{seed}: прикрытый погиб')
+                if o.get('guard_died'):
+                    # Щит умирает вместо прикрытого ровно один раз — или
+                    # не умирает вовсе, если доктор успел его вылечить.
+                    n=o['killed'].count(o['guard_died'])
+                    if n>1 or (n==0 and o.get('healed')!=o['guard_died']):
+                        bug('GUARD_DOUBLE',f'seed{seed}')
+                if o.get('silenced') and SIDE[g.by_id(o['silenced']).role]=='mafia':
+                    bug('SILENCE_OWN',f'seed{seed}')
+                if o.get('watched') and o.get('watched_acted') is None:
+                    bug('WATCH_NO_ANSWER',f'seed{seed}')
             g.announce_night()
         elif g.phase==DAY: g.start_voting()
         elif g.phase==VOTING:
@@ -62,10 +84,20 @@ def play(seed,setup,n_players,names=None):
 
 print("="*66); print("НАГРУЗОЧНЫЙ ТЕСТ"); print("="*66)
 S20={MAFIA:4,DON:1,DOCTOR:1,COM:1,PROS:1,MANIAC:1}
+# 1.12.0: тот же стол на 20, но со всеми новыми ролями — как в пресете
+# приложения для 17+ игроков.
+S20N={MAFIA:3,DON:1,BLACK:1,DOCTOR:1,COM:1,GUARD:1,PROS:1,WITNESS:1,HUNTER:1,MANIAC:1}
 res=Counter(); rounds=[]
 for seed in range(400):
     g=play(seed,S20,20); res[g.winner]+=1; rounds.append(g.round)
 print(f"\n400 партий по 20 игроков:")
+for w,c in res.most_common(): print(f"   {str(w):<12} {c:>4}  ({c/4:.0f}%)")
+print(f"   раундов: мин {min(rounds)}  сред {sum(rounds)/len(rounds):.1f}  макс {max(rounds)}")
+
+print(f"\n400 партий по 20 игроков со всеми ролями 1.12.0:")
+res=Counter(); rounds=[]
+for seed in range(400):
+    g=play(seed,S20N,20); res[g.winner]+=1; rounds.append(g.round)
 for w,c in res.most_common(): print(f"   {str(w):<12} {c:>4}  ({c/4:.0f}%)")
 print(f"   раундов: мин {min(rounds)}  сред {sum(rounds)/len(rounds):.1f}  макс {max(rounds)}")
 
@@ -75,7 +107,9 @@ cases=[("6 игроков, минимум",{MAFIA:1,DON:1},6),
        ("20, мафии почти половина",{MAFIA:8,DON:1},20),
        ("20, только мирные+1 мафия",{MAFIA:1},20),
        ("20, два маньяка нет — 1",{MANIAC:1,MAFIA:3,DON:1},20),
-       ("8, ролей больше чем игроков",{MAFIA:5,DON:1,DOCTOR:1,COM:1,PROS:1,MANIAC:1},8)]
+       ("8, ролей больше чем игроков",{MAFIA:5,DON:1,DOCTOR:1,COM:1,PROS:1,MANIAC:1},8),
+       ("6, только новые роли",{MAFIA:1,DON:1,GUARD:1,WITNESS:1,HUNTER:1,BLACK:1},6),
+       ("20, без стрелков — один шантажист",{BLACK:1},20)]
 for label,setup,n in cases:
     r=Counter(); rr=[]
     for seed in range(60):

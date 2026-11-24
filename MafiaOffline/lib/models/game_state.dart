@@ -33,6 +33,23 @@ class NightOutcome {
   final String? checkedId;
   final bool? checkResultIsMafia;
 
+  /// Кого этой ночью прикрывал телохранитель и кому это стоило жизни.
+  final String? guardedId;
+  final String? guardDiedId;
+
+  /// Кого запугивал шантажист: наступающий день этот игрок не голосует.
+  final String? silencedId;
+
+  /// За кем наблюдал свидетель и выходил ли тот из дома.
+  final String? watchedId;
+  final bool? watchedActed;
+
+  /// Кого охотник отметил перед этой ночью.
+  final String? hunterMarkId;
+
+  /// Кого забрал с собой погибший охотник (кроме целей убийц).
+  final List<String> revengeIds;
+
   const NightOutcome({
     this.killedIds = const [],
     this.mafiaTargetId,
@@ -41,6 +58,13 @@ class NightOutcome {
     this.blockedId,
     this.checkedId,
     this.checkResultIsMafia,
+    this.guardedId,
+    this.guardDiedId,
+    this.silencedId,
+    this.watchedId,
+    this.watchedActed,
+    this.hunterMarkId,
+    this.revengeIds = const [],
   });
 
   NightOutcome copyWith({
@@ -51,6 +75,13 @@ class NightOutcome {
     String? blockedId,
     String? checkedId,
     bool? checkResultIsMafia,
+    String? guardedId,
+    String? guardDiedId,
+    String? silencedId,
+    String? watchedId,
+    bool? watchedActed,
+    String? hunterMarkId,
+    List<String>? revengeIds,
   }) {
     return NightOutcome(
       killedIds: killedIds ?? this.killedIds,
@@ -60,6 +91,13 @@ class NightOutcome {
       blockedId: blockedId ?? this.blockedId,
       checkedId: checkedId ?? this.checkedId,
       checkResultIsMafia: checkResultIsMafia ?? this.checkResultIsMafia,
+      guardedId: guardedId ?? this.guardedId,
+      guardDiedId: guardDiedId ?? this.guardDiedId,
+      silencedId: silencedId ?? this.silencedId,
+      watchedId: watchedId ?? this.watchedId,
+      watchedActed: watchedActed ?? this.watchedActed,
+      hunterMarkId: hunterMarkId ?? this.hunterMarkId,
+      revengeIds: revengeIds ?? this.revengeIds,
     );
   }
 }
@@ -147,6 +185,11 @@ class GameState {
   /// Кого лечил доктор прошлой ночью — нельзя повторять.
   final String? lastHealedId;
 
+  /// Кого прикрывал телохранитель прошлой ночью — тоже нельзя повторять.
+  /// Правило то же, что у доктора: иначе щит просто ставился бы на самого
+  /// сильного игрока и больше не менялся.
+  final String? lastGuardedId;
+
   /// Показывать ли всем роль выбывшего игрока. По умолчанию закрыта:
   /// раскрытая карта упрощает город, но убивает интригу первого круга.
   final bool openCards;
@@ -193,6 +236,22 @@ class GameState {
   /// Все состоявшиеся проверки комиссара за партию.
   final List<CheckRecord> checks;
 
+  /// Кого шантажист запугал прошлой ночью: в эту дату (раунд + фаза)
+  /// он не голосует. Храним раунд, а не bool: «молчание» живёт ровно
+  /// один день, и после смены раунда снимается само.
+  final String? silencedId;
+  final int silencedRound;
+
+  /// Последнее наблюдение свидетеля: за кем следил и выходил ли тот.
+  final String? watchTargetId;
+  final bool? watchActed;
+  final int watchRound;
+
+  /// Кого охотник заберёт с собой, если погибнет. Действует со
+  /// следующей ночи: метка ставится ночью, значит убийца этой же ночи
+  /// ещё о ней «не знает».
+  final String? hunterMarkId;
+
   /// Раунд, в котором боты уже высказались днём. Номер раунда, а не bool:
   /// после восстановления партии или повторной сборки экрана реплики
   /// текущего дня не должны отправляться второй раз.
@@ -219,6 +278,7 @@ class GameState {
     this.log = const [],
     this.winner,
     this.lastHealedId,
+    this.lastGuardedId,
     this.openCards = false,
     this.storyId,
     this.storySeen = const [],
@@ -230,6 +290,12 @@ class GameState {
     this.verdictId,
     this.checks = const [],
     this.lastBotSpeechRound = 0,
+    this.silencedId,
+    this.silencedRound = 0,
+    this.watchTargetId,
+    this.watchActed,
+    this.watchRound = 0,
+    this.hunterMarkId,
   });
 
   GameState copyWith({
@@ -250,6 +316,7 @@ class GameState {
     List<GameEvent>? log,
     WinnerSide? winner,
     String? lastHealedId,
+    String? lastGuardedId,
     bool? openCards,
     String? storyId,
     List<String>? storySeen,
@@ -261,11 +328,21 @@ class GameState {
     String? verdictId,
     List<CheckRecord>? checks,
     int? lastBotSpeechRound,
+    String? silencedId,
+    int? silencedRound,
+    String? watchTargetId,
+    bool? watchActed,
+    int? watchRound,
+    String? hunterMarkId,
+    bool clearSilenced = false,
+    bool clearWatch = false,
+    bool clearHunterMark = false,
     bool clearLastWord = false,
     bool clearVerdict = false,
     bool clearStory = false,
     bool clearPendingNight = false,
     bool clearLastHealed = false,
+    bool clearLastGuarded = false,
   }) {
     return GameState(
       id: id,
@@ -289,6 +366,8 @@ class GameState {
       log: log ?? this.log,
       winner: winner ?? this.winner,
       lastHealedId: clearLastHealed ? null : (lastHealedId ?? this.lastHealedId),
+      lastGuardedId:
+          clearLastGuarded ? null : (lastGuardedId ?? this.lastGuardedId),
       openCards: openCards ?? this.openCards,
       storyId: clearStory ? null : (storyId ?? this.storyId),
       storySeen: storySeen ?? this.storySeen,
@@ -301,6 +380,13 @@ class GameState {
       checks: checks ?? this.checks,
       lastBotSpeechRound:
           lastBotSpeechRound ?? this.lastBotSpeechRound,
+      silencedId: clearSilenced ? null : (silencedId ?? this.silencedId),
+      silencedRound: clearSilenced ? 0 : (silencedRound ?? this.silencedRound),
+      watchTargetId: clearWatch ? null : (watchTargetId ?? this.watchTargetId),
+      watchActed: clearWatch ? null : (watchActed ?? this.watchActed),
+      watchRound: clearWatch ? 0 : (watchRound ?? this.watchRound),
+      hunterMarkId:
+          clearHunterMark ? null : (hunterMarkId ?? this.hunterMarkId),
     );
   }
 
@@ -363,11 +449,34 @@ class GameState {
   List<CheckRecord> checksBy(String playerId) =>
       checks.where((c) => c.commissionerId == playerId).toList();
 
+  /// Убийцы мафии: те, чей ночной ход — выстрел, и чьи голоса складываются
+  /// в общую жертву. Шантажист в этот список НЕ входит: его ход — не
+  /// выстрел, и если считать его «голосом за жертву», мафия по ошибке
+  /// убивала бы того, кого он всего лишь запугал.
   List<Player> get mafiaTeam => players
       .where((p) =>
           p.isAlive &&
           (p.role?.type == RoleType.mafia || p.role?.type == RoleType.don))
       .toList();
+
+  /// Вся мафия, включая шантажиста: для «своих не трогаем», союзников на
+  /// карточке и подсчёта победы.
+  List<Player> get mafiaSiders =>
+      players.where((p) => p.isAlive && p.role?.side == Side.mafia).toList();
+
+  Player? get bodyguard => _firstAliveOfType(RoleType.bodyguard);
+  Player? get witness => _firstAliveOfType(RoleType.witness);
+  Player? get hunter => _firstAliveOfType(RoleType.hunter);
+  Player? get blackmailer => _firstAliveOfType(RoleType.blackmailer);
+
+  /// Запуган ли этот игрок прямо сейчас: шантаж действует только на
+  /// следующий за ночью день и только один раз.
+  bool isSilencedNow(Player? p) =>
+      p != null && silencedId != null && silencedId == p.id;
+
+  /// Свидетель узнал что-то в этом раунде.
+  bool get hasFreshWatch =>
+      watchTargetId != null && watchRound == round;
 
   Player? get don => _firstAliveOfType(RoleType.don);
   Player? get doctor => _firstAliveOfType(RoleType.doctor);
@@ -408,9 +517,15 @@ class GameState {
 
   /// Кто голосует в текущем туре. В повторном голосовании обвиняемый
   /// не голосует: его голос «оставить» был бы голосом за самого себя.
-  List<Player> get voters => isVerdictVote
-      ? alive.where((p) => p.id != verdictId).toList()
-      : alive;
+  ///
+  /// Запуганный шантажистом игрок в этот день не голосует вообще: его нет
+  /// в списке голосующих, поэтому фаза не ждёт его хода.
+  List<Player> get voters {
+    final base = isVerdictVote
+        ? alive.where((p) => p.id != verdictId).toList()
+        : alive;
+    return base.where((p) => !isSilencedNow(p)).toList();
+  }
 
   /// Кто из голосующих ещё не проголосовал.
   List<Player> get pendingVoters =>

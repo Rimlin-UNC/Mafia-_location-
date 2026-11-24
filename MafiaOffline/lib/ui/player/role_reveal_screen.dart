@@ -195,6 +195,16 @@ Future<void> showRoleSheet(
                         text: c.checks.map((k) => k.line).join('\n'),
                         color: AppColors.warn,
                       ),
+                    // Свидетель: одно наблюдение, и то — только если оно
+                    // было. Хранится на телефоне, чтобы после сворачивания
+                    // приложения не пришлось смотреть заново.
+                    if (type == RoleType.witness && c.watch != null)
+                      _Block(
+                        icon: Icons.visibility_outlined,
+                        title: 'Ваше наблюдение',
+                        text: c.watch!.line,
+                        color: AppColors.warn,
+                      ),
                     if (guide.tips.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       const Text('Советы',

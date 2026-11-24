@@ -1,7 +1,34 @@
 /// Роли и их способности.
 library;
 
-enum RoleType { mafia, don, doctor, commissioner, prostitute, maniac, civilian }
+enum RoleType {
+  mafia,
+  don,
+  doctor,
+  commissioner,
+  prostitute,
+  maniac,
+  civilian,
+
+  // ---- 1.12.0: четыре роли, которые меняют тактику стола ----
+  //
+  // Все четыре намеренно сделаны из примитивов, которые движок уже умеет
+  // разрешать (убийство, лечение, блокировка, проверка). Новых «фаз» и
+  // «подфаз» они не создают: партия остаётся такой же предсказуемой,
+  // какой была до них.
+
+  /// Городской телохранитель: прикрывает игрока собой.
+  bodyguard,
+
+  /// Городской свидетель: узнаёт, выходил ли игрок ночью из дома.
+  witness,
+
+  /// Городской охотник: перед смертью забирает выбранного с собой.
+  hunter,
+
+  /// Мафия: лишает игрока голоса на один день.
+  blackmailer,
+}
 
 /// Сторона, за которую играет роль.
 ///
@@ -103,6 +130,57 @@ class Role {
     nightOrder: 1,
   );
 
+  static const Role bodyguard = Role(
+    type: RoleType.bodyguard,
+    name: 'Телохранитель',
+    emoji: '🛡',
+    description: 'Каждую ночь прикрывает одного игрока собой. '
+        'Если этой ночью его попытаются убить, погибнете вы, а он выживет. '
+        'Себя прикрывать нельзя, одного и того же — две ночи подряд.',
+    side: Side.civilians,
+    isActiveAtNight: true,
+    nightOrder: 2,
+  );
+
+  static const Role witness = Role(
+    type: RoleType.witness,
+    name: 'Свидетель',
+    emoji: '👁',
+    description: 'Каждую ночь наблюдает за одним игроком и утром узнаёт, '
+        'выходил ли тот из дома. Кто ночью не спал — тот не мирный житель, '
+        'но и не обязательно мафия.',
+    side: Side.civilians,
+    isActiveAtNight: true,
+    nightOrder: 5,
+  );
+
+  static const Role hunter = Role(
+    type: RoleType.hunter,
+    name: 'Охотник',
+    emoji: '🎯',
+    description: 'Перед каждой ночью выбирает, кого заберёт с собой. '
+        'Если охотника убьют или выгонят голосованием, выбранный погибает '
+        'вместе с ним.',
+    side: Side.civilians,
+    isActiveAtNight: true,
+    nightOrder: 5,
+  );
+
+  static const Role blackmailer = Role(
+    type: RoleType.blackmailer,
+    name: 'Шантажист',
+    emoji: '🕶',
+    description: 'Мафия. Каждую ночь запугивает одного горожанина: '
+        'на следующий день тот не голосует. Убивать не умеет — только '
+        'пугать, зато его жертва молчит в самый нужный момент.',
+    side: Side.mafia,
+    isActiveAtNight: true,
+    // Намеренно НЕ canBlock: шантажист не отменяет ночной ход, он лишает
+    // голоса днём. Флаг читают экраны как «блокирует чужой ход», и врать
+    // им нельзя.
+    nightOrder: 1,
+  );
+
   static const Role maniac = Role(
     type: RoleType.maniac,
     name: 'Маньяк',
@@ -140,6 +218,14 @@ class Role {
         return maniac;
       case RoleType.civilian:
         return civilian;
+      case RoleType.bodyguard:
+        return bodyguard;
+      case RoleType.witness:
+        return witness;
+      case RoleType.hunter:
+        return hunter;
+      case RoleType.blackmailer:
+        return blackmailer;
     }
   }
 
@@ -155,9 +241,17 @@ class Role {
   static const List<RoleType> configurable = [
     RoleType.mafia,
     RoleType.don,
+    RoleType.blackmailer,
     RoleType.doctor,
     RoleType.commissioner,
+    RoleType.bodyguard,
     RoleType.prostitute,
+    RoleType.witness,
+    RoleType.hunter,
     RoleType.maniac,
   ];
+
+  /// Есть ли у роли ночной ход, кроме убийства. Нужно подсказкам ведущего
+  /// и памяти ботов: «ходит, но не стреляет» — это другой класс роли.
+  bool get isUtility => isActiveAtNight && !canKill;
 }

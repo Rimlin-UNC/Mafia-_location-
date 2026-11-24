@@ -41,6 +41,18 @@ class CheckInfo {
       : 'Ночь $round: $name — ${isMafia ? 'МАФИЯ' : 'не мафия'}';
 }
 
+/// Итог наблюдения свидетеля.
+class WatchInfo {
+  final int round;
+  final String name;
+  final bool acted;
+  const WatchInfo(this.round, this.name, this.acted);
+
+  String get line => acted
+      ? 'Ночь $round: $name выходил из дома'
+      : 'Ночь $round: $name не выходил из дома';
+}
+
 /// Состояние клиента-игрока. Тонкий: не содержит игровой логики,
 /// только отображает то, что прислал ведущий.
 class PlayerController extends ChangeNotifier {
@@ -129,6 +141,16 @@ class PlayerController extends ChangeNotifier {
   /// ТОЛЬКО внутри «Моя роль»: телефон лежит на столе экраном вверх,
   /// и любая отметка, которая бывает только у комиссара, выдала бы его.
   List<CheckInfo> checks = const [];
+
+  /// Наблюдение свидетеля (у остальных ролей всегда null).
+  WatchInfo? watch;
+
+  /// Ведущий-шантажист запугал этого игрока: сегодня он не голосует.
+  bool silenced = false;
+
+  /// Имя того, на кого охотник поставил метку (у остальных ролей всегда
+  /// null). Метка переживает ночи, поэтому приходит и в sync.
+  String? hunterMark;
 
   /// Ответ на проверку текущей ночи — для ночного экрана комиссара.
   /// null — не ночь, ответа ещё нет или включена маскировка карты.
@@ -234,6 +256,20 @@ class PlayerController extends ChangeNotifier {
               blocked: msg.get<bool>('blocked') ?? false,
             ),
           ];
+        }
+        break;
+
+      case Msg.watchResult:
+        // Свидетель: ответ приходит, когда объект сходил (или ночь
+        // закрылась). Баннера нет — как и у комиссара, наблюдателя
+        // не должно выдавать свечение чужого экрана.
+        final name = msg.get<String>('name');
+        if (name != null) {
+          watch = WatchInfo(
+            msg.get<int>('round') ?? round,
+            name,
+            msg.get<bool>('acted') ?? false,
+          );
         }
         break;
 
@@ -471,6 +507,23 @@ class PlayerController extends ChangeNotifier {
                 blocked: c['blocked'] == true,
               ))
           .toList();
+    }
+
+    // sync приносит свидетелю его наблюдение, а запуганному — причину.
+    final syncWatch = msg.get<Map>('watch');
+    if (syncWatch != null) {
+      watch = WatchInfo(
+        syncWatch['round'] as int? ?? 0,
+        syncWatch['name'] as String? ?? '',
+        syncWatch['acted'] == true,
+      );
+    }
+    if (msg.get<bool>('silenced') != null) {
+      silenced = msg.get<bool>('silenced')!;
+    }
+    final syncMark = msg.get<Map>('hunterMark');
+    if (syncMark != null) {
+      hunterMark = syncMark['name'] as String?;
     }
 
     // sync после переподключения приносит роль заново.

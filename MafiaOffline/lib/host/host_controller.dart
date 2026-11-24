@@ -535,6 +535,20 @@ class HostController extends ChangeNotifier {
       // Без этого после перезагрузки страницы он потерял бы всё, что узнал.
       if (s.privateCheck && player.role?.type == RoleType.commissioner)
         'checks': checksWireFor(s, player.id),
+      // Наблюдение свидетеля: последнее, что он видел. Как и проверки,
+      // это персональная улика — сосед по столу её видеть не должен.
+      if (player.role?.type == RoleType.witness && s.watchTargetId != null)
+        'watch': {
+          'round': s.watchRound,
+          'name': s.nameOf(s.watchTargetId),
+          'acted': s.watchActed == true,
+        },
+      // Охотник всегда видит свою метку: она переживает ночи, и «на кого
+      // она стоит» — главное, что ему нельзя забыть.
+      if (player.role?.type == RoleType.hunter && s.hunterMarkId != null)
+        'hunterMark': {'name': s.nameOf(s.hunterMarkId)},
+      // Запуганный должен понимать, почему у него нет кнопок голосования.
+      if (s.isSilencedNow(player)) 'silenced': true,
     });
   }
 
@@ -570,6 +584,8 @@ class HostController extends ChangeNotifier {
     // каждого хода, а не только комиссарского: если он сходил раньше
     // проститутки, ответ приходит в момент её хода.
     _deliverCheck();
+    // Свидетель — наоборот: ждёт, пока объект наблюдения сходит.
+    _deliverWatch();
     notifyListeners();
 
     _afterHumanAction();
@@ -617,6 +633,49 @@ class HostController extends ChangeNotifier {
     }
   }
 
+  /// Свидетель узнаёт итог своего наблюдения.
+  ///
+  /// Отправляем не сразу, как он выбрал (в отличие от комиссара): наблюдение
+  /// целиком зависит от того, сходил ли объект, а он мог сходить позже.
+  /// Поэтому вызов — и на каждом ночном ходе, и при закрытии ночи; сокет
+  /// получает только ИТОГ, и повторной отправки не будет, пока раунд
+  /// наблюдения не сменится.
+  void _deliverWatch() {
+    final s = _state;
+    if (s == null || s.phase != GamePhase.night) return;
+    final w = s.witness;
+    if (w == null) return;
+    final target = s.nightActions[w.id];
+    if (target == null) return;
+    // Пока объект не сходил, ответ был бы «не выходил» — и мог бы
+    // оказаться неправдой. Ждём его хода так же, как комиссар ждёт
+    // проститутку; закрытие ночи снимет ожидание принудительно.
+    final watched = s.byId(target);
+    if (watched != null &&
+        s.actsTonight(watched) &&
+        !s.nightActions.containsKey(target)) {
+      return;
+    }
+    final acted = watched != null && s.actsTonight(watched);
+    if (s.watchRound == s.round && s.watchTargetId == target) {
+      if (s.watchActed == acted) return; // уже сообщили то же самое
+    }
+    _state = s.copyWith(
+      watchTargetId: target,
+      watchActed: acted,
+      watchRound: s.round,
+    );
+    _persist();
+    server.sendTo(
+      w.id,
+      Envelope(Msg.watchResult, {
+        'round': s.round,
+        'name': s.nameOf(target),
+        'acted': acted,
+      }),
+    );
+  }
+
   void _handleVote(Envelope msg) {
     final voterId = msg.get<String>('playerId');
     if (voterId != null) _applyVote(voterId, msg.get<String>('targetId'));
@@ -627,6 +686,9 @@ class HostController extends ChangeNotifier {
     if (s == null || s.phase != GamePhase.voting) return;
     final voter = s.byId(voterId);
     if (voter == null || !voter.isAlive || voter.isBot) return;
+    // Запуганный шантажистом в этот день не голосует. Проверка нужна и
+    // здесь: клиент мог открыть экран до шантажа и нажать кнопку после.
+    if (s.isSilencedNow(voter)) return;
     // В повторном голосовании обвиняемый не голосует за самого себя.
     if (s.isVerdictVote && voterId == s.verdictId) return;
     if (s.votes.containsKey(voterId)) return; // один голос за тур
@@ -1083,16 +1145,14 @@ class HostController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Союзники на карточке роли. С 1.12.0 это ВСЯ мафия, включая
+  /// шантажиста: он не стреляет, но он свой, и команда обязана его знать.
   List<Map<String, dynamic>> _teammatesFor(Player p) {
     final s = _state!;
-    final type = p.role?.type;
-    if (type != RoleType.mafia && type != RoleType.don) {
-      return const [];
-    }
+    final role = p.role;
+    if (role == null || role.side != Side.mafia) return const [];
     return s.players
-        .where((m) =>
-            m.id != p.id &&
-            (m.role?.type == RoleType.mafia || m.role?.type == RoleType.don))
+        .where((m) => m.id != p.id && m.role?.side == Side.mafia)
         .map((m) => {
               'name': m.name,
               'isDon': m.role?.type == RoleType.don,
@@ -1195,6 +1255,10 @@ class HostController extends ChangeNotifier {
       clearPendingNight: true,
       clearLastWord: true,
       clearVerdict: true,
+      // Запугивание и наблюдение живут ровно один день. Охотник свою
+      // метку НЕ теряет: она действует, пока он её не сменит.
+      clearSilenced: true,
+      clearWatch: true,
     );
     _state = _state!.copyWith(timeLeft: _state!.nightDuration);
 
@@ -1235,8 +1299,11 @@ class HostController extends ChangeNotifier {
     _state = current.copyWith(pendingNight: outcome, paused: true);
     _persist();
     // Ночь закрыта: если комиссар ждал хода проститутки, а она так
-    // и не сходила, ответ уходит ему сейчас — до рассвета.
+    // и не сходила, ответ уходит ему сейчас — до рассвета. Свидетель
+    // получает свой факт тогда же: объект мог вообще не ходить, и «не
+    // выходил» — это законный ответ, а не отсутствие ответа.
     _deliverCheck();
+    _deliverWatch();
     notifyListeners();
   }
 
@@ -1255,6 +1322,7 @@ class HostController extends ChangeNotifier {
     // Здесь — страховка: например, партию восстановили после перезапуска
     // уже на сводке ночи. Повторно ответ не уйдёт.
     _deliverCheck();
+    _deliverWatch();
 
     final s = _state;
     final outcome = s?.pendingNight;
@@ -1274,11 +1342,34 @@ class HostController extends ChangeNotifier {
           .toList();
     }
 
+    // Запугивание живёт до конца наступающего дня: раунд остаётся тем же,
+    // что и у ночи, поэтому снять его можно только явно на старте
+    // следующей ночи (см. startNight).
+    final hunter = s.hunter;
+    final hunterDied =
+        hunter != null && outcome.killedIds.contains(hunter.id);
+    final mark =
+        outcome.hunterMarkId ?? (hunterDied ? null : s.hunterMarkId);
     _state = s.copyWith(
       players: players,
       lastHealedId: outcome.healedId,
       clearLastHealed: outcome.healedId == null,
+      lastGuardedId: outcome.guardedId,
+      clearLastGuarded: outcome.guardedId == null,
       clearPendingNight: true,
+      silencedId: outcome.silencedId,
+      silencedRound: s.round,
+      clearSilenced: outcome.silencedId == null,
+      watchTargetId: outcome.watchedId,
+      watchActed: outcome.watchedActed,
+      watchRound: s.round,
+      clearWatch: outcome.watchedId == null,
+      // Метка охотника переживает ночь, в которую её не меняли: он мог
+      // быть заблокирован или промолчать по таймеру, и терять из-за этого
+      // уже объявленную метку было бы нечестно. Снимается она только
+      // со смертью охотника.
+      hunterMarkId: mark,
+      clearHunterMark: mark == null,
     );
     _persist();
 
@@ -1305,6 +1396,31 @@ class HostController extends ChangeNotifier {
         EventType.check,
         'Проверка: ${s.nameOf(outcome.checkedId)} — '
         '${outcome.checkResultIsMafia == true ? 'МАФИЯ' : 'не мафия'}',
+        visibleToPlayers: false,
+      );
+    }
+    if (outcome.guardedId != null) {
+      _addLog(
+        EventType.info,
+        outcome.guardDiedId != null
+            ? 'Телохранитель прикрыл ${s.nameOf(outcome.guardedId)} и погиб сам'
+            : 'Телохранитель прикрывал ${s.nameOf(outcome.guardedId)}',
+        visibleToPlayers: false,
+      );
+    }
+    if (outcome.silencedId != null) {
+      _addLog(
+        EventType.info,
+        'Шантажист запугал ${s.nameOf(outcome.silencedId)}: '
+        'сегодня он не голосует',
+        visibleToPlayers: false,
+      );
+    }
+    if (outcome.watchedId != null) {
+      _addLog(
+        EventType.info,
+        'Свидетель наблюдал за ${s.nameOf(outcome.watchedId)}: '
+        '${outcome.watchedActed == true ? 'выходил из дома' : 'не выходил'}',
         visibleToPlayers: false,
       );
     }
@@ -1491,21 +1607,46 @@ class HostController extends ChangeNotifier {
       return;
     }
 
+    // Охотник, уходя, забирает с собой того, на кого оставил метку.
+    // Правило работает и при изгнании голосованием — иначе «выгоняем
+    // охотника» было бы бесплатной операцией для города.
+    final revenge = <String>[];
+    final exiled = s.byId(playerId);
+    if (exiled?.role?.type == RoleType.hunter) {
+      final mark = s.hunterMarkId;
+      if (mark != null && mark != playerId) {
+        final target = s.byId(mark);
+        if (target != null && target.isAlive) revenge.add(mark);
+      }
+    }
+
     final players = s.players
-        .map((p) => p.id == playerId
+        .map((p) => p.id == playerId || revenge.contains(p.id)
             ? p.copyWith(
                 isAlive: false,
                 eliminatedRound: s.round,
-                eliminationReason: EliminationReason.voted,
+                eliminationReason: p.id == playerId
+                    ? EliminationReason.voted
+                    : EliminationReason.killed,
               )
             : p)
         .toList();
     // Город всё-таки решил — счётчик ничьих обнуляется.
-    _state = s.copyWith(players: players, noDeathsStreak: 0);
+    _state = s.copyWith(
+      players: players,
+      noDeathsStreak: 0,
+      // Метка израсходована: следующий охотник (если его раздадут)
+      // начинает с чистого листа.
+      clearHunterMark: revenge.isNotEmpty,
+    );
     _persist();
 
     _addLog(EventType.elimination,
         'День ${s.round}: голосованием выбыл ${s.nameOf(playerId)}');
+    for (final id in revenge) {
+      _addLog(EventType.kill,
+          'Охотник ${s.nameOf(playerId)} забрал с собой ${s.nameOf(id)}');
+    }
 
     _playEverywhere(A.eliminated);
 
@@ -1808,6 +1949,8 @@ class HostController extends ChangeNotifier {
       'verdict': accused == null
           ? null
           : {'id': accused.id, 'name': accused.name},
+      // Шантаж: игрок должен понимать, почему у него нет кнопок.
+      if (s.isSilencedNow(p)) 'silenced': true,
     };
   }
 
@@ -1820,6 +1963,9 @@ class HostController extends ChangeNotifier {
       case GamePhase.voting:
         // В повторном голосовании обвиняемый только ждёт решения.
         if (s.isVerdictVote && p.id == s.verdictId) return false;
+        // Запуганный шантажистом сегодня не голосует: кнопки ему не
+        // показываем вовсе, иначе он нажмёт, а голос молча не засчитается.
+        if (s.isSilencedNow(p)) return false;
         return !s.votes.containsKey(p.id);
       default:
         return false;
@@ -1863,6 +2009,14 @@ class HostController extends ChangeNotifier {
             return 'Кого заблокировать?';
           case RoleType.maniac:
             return 'Кого убить?';
+          case RoleType.bodyguard:
+            return 'Кого прикрыть собой?';
+          case RoleType.witness:
+            return 'За кем наблюдать?';
+          case RoleType.hunter:
+            return 'Кого забрать с собой?';
+          case RoleType.blackmailer:
+            return 'Кого запугать на завтра?';
           default:
             return 'Спите';
         }

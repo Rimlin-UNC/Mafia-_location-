@@ -161,6 +161,59 @@ class _NightResultSheetState extends State<NightResultSheet> {
                       subtitle: 'ход этого игрока пропущен',
                     ),
 
+                  // 1.12.0. Четыре новые роли показываются отдельными
+                  // строками: ведущий должен видеть не только «сколько
+                  // трупов», но и кто кого прикрыл, запугал и за кем следил.
+                  if (outcome.guardedId != null)
+                    _OutcomeRow(
+                      emoji: '🛡',
+                      title:
+                          'Телохранитель прикрыл: ${s.nameOf(outcome.guardedId)}',
+                      subtitle: outcome.guardDiedId != null
+                          ? 'принял удар на себя — погиб '
+                              '${s.nameOf(outcome.guardDiedId)}'
+                          : 'покушения в него не было',
+                      danger: outcome.guardDiedId != null,
+                    ),
+
+                  if (outcome.silencedId != null)
+                    _OutcomeRow(
+                      emoji: '🕶',
+                      title:
+                          'Шантажист запугал: ${s.nameOf(outcome.silencedId)}',
+                      subtitle: 'весь следующий день не голосует',
+                      warn: true,
+                    ),
+
+                  if (outcome.watchedId != null)
+                    _OutcomeRow(
+                      emoji: '👁',
+                      title: 'Свидетель смотрел за: '
+                          '${s.nameOf(outcome.watchedId)}',
+                      subtitle: outcome.watchedActed == true
+                          ? 'выходил из дома — результат уже у свидетеля'
+                          : 'не выходил из дома — результат у свидетеля',
+                      warn: true,
+                    ),
+
+                  if (outcome.hunterMarkId != null)
+                    _OutcomeRow(
+                      emoji: '🎯',
+                      title:
+                          'Охотник отметил: ${s.nameOf(outcome.hunterMarkId)}',
+                      subtitle: 'метка действует со следующей ночи; '
+                          'вчерашняя — ${s.hunterMarkId == null ? 'не стояла' : 'стоит до сих пор'}',
+                    ),
+
+                  if (outcome.revengeIds.isNotEmpty)
+                    for (final id in outcome.revengeIds)
+                      _OutcomeRow(
+                        emoji: '☠',
+                        title: 'Охотник забрал с собой: ${s.nameOf(id)}',
+                        subtitle: 'сработала метка прошлой ночи',
+                        danger: true,
+                      ),
+
                   const SizedBox(height: 10),
                   Container(
                     padding: const EdgeInsets.all(14),
@@ -235,12 +288,47 @@ class _NightResultSheetState extends State<NightResultSheet> {
     final newHealed =
         identical(healed, _keep) ? o.healedId : healed as String?;
 
-    final killed = <String>[];
-    if (newMafia != null && newMafia != newHealed) killed.add(newMafia);
+    // Пересчёт ровно по тем же правилам, что в GameEngine.resolveNight:
+    // доктор снимает попадание, щит телохранителя забирает удар на себя,
+    // охотник забирает отмеченного. Иначе ведущий правил бы одну строку,
+    // а в партии срабатывало другое — это и было бы «сломанной игрой».
+    final shots = <String>[];
+    if (newMafia != null && newMafia != newHealed) shots.add(newMafia);
     if (newManiac != null &&
         newManiac != newHealed &&
-        !killed.contains(newManiac)) {
-      killed.add(newManiac);
+        !shots.contains(newManiac)) {
+      shots.add(newManiac);
+    }
+
+    final guard = s.bodyguard;
+    final killed = <String>[];
+    String? guardDied;
+    for (final id in shots) {
+      if (o.guardedId != null && id == o.guardedId && guard != null) {
+        if (!killed.contains(guard.id)) killed.add(guard.id);
+        guardDied = guard.id;
+      } else if (!killed.contains(id)) {
+        killed.add(id);
+      }
+    }
+
+    // Лечение спасает и телохранителя, принявшего удар, — ровно как
+    // в движке. Иначе ручная правка итога расходилась бы с правилами.
+    if (newHealed != null) killed.remove(newHealed);
+
+    // Месть охотника: он забирает отмеченного прошлой ночью, если погиб
+    // сам. Метка этой ночи ещё не «созрела» — её ставили только что.
+    final revenge = <String>[];
+    final hunter = s.hunter;
+    if (hunter != null && killed.contains(hunter.id)) {
+      final marked = s.byId(s.hunterMarkId);
+      if (marked != null &&
+          marked.isAlive &&
+          marked.id != hunter.id &&
+          !killed.contains(marked.id)) {
+        revenge.add(marked.id);
+        killed.add(marked.id);
+      }
     }
 
     c.editNightOutcome(NightOutcome(
@@ -251,6 +339,13 @@ class _NightResultSheetState extends State<NightResultSheet> {
       blockedId: o.blockedId,
       checkedId: o.checkedId,
       checkResultIsMafia: o.checkResultIsMafia,
+      guardedId: o.guardedId,
+      guardDiedId: guardDied,
+      silencedId: o.silencedId,
+      watchedId: o.watchedId,
+      watchedActed: o.watchedActed,
+      hunterMarkId: o.hunterMarkId,
+      revengeIds: revenge,
     ));
     setState(() {});
   }

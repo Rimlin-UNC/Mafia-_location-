@@ -134,7 +134,8 @@ UDP :45455 — автопоиск ведущего
 | [`MafiaOffline/docs/ВЕДУЩЕМУ.md`](MafiaOffline/docs/ВЕДУЩЕМУ.md) | как провести партию |
 | [`MafiaOffline/docs/УСТАНОВКА.md`](MafiaOffline/docs/УСТАНОВКА.md) | установка и первый запуск |
 | [`MafiaOffline/docs/ИГРОКАМ.md`](MafiaOffline/docs/ИГРОКАМ.md) | инструкция для игроков |
-| [`MafiaOffline/docs/CHANGELOG_1.11.0.md`](MafiaOffline/docs/CHANGELOG_1.11.0.md) | **изменения 1.11.0: боты, добор до 6 и соло-режим ведущего** |
+| [`MafiaOffline/docs/CHANGELOG_1.12.0.md`](MafiaOffline/docs/CHANGELOG_1.12.0.md) | **изменения 1.12.0: телохранитель, свидетель, охотник, шантажист** |
+| [`MafiaOffline/docs/CHANGELOG_1.11.0.md`](MafiaOffline/docs/CHANGELOG_1.11.0.md) | изменения 1.11.0: боты, добор до 6 и соло-режим ведущего |
 | [`MafiaOffline/docs/ROADMAP_БОТЫ_И_СЛЕДУЮЩИЕ_ШАГИ.md`](MafiaOffline/docs/ROADMAP_БОТЫ_И_СЛЕДУЮЩИЕ_ШАГИ.md) | разбор `mafia18` и что добавить в следующих версиях |
 | [`MafiaOffline/docs/CHANGELOG_1.9.1.md`](MafiaOffline/docs/CHANGELOG_1.9.1.md) | изменения 1.9.1 (вёрстка на телефоне: шторки прокручиваются, кнопки не под навигацией) |
 | [`MafiaOffline/docs/CHANGELOG_1.9.0.md`](MafiaOffline/docs/CHANGELOG_1.9.0.md) | изменения 1.9.0 (новая иконка: федора на алом; все платформы) |

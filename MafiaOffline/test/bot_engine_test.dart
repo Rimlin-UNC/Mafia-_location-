@@ -235,6 +235,77 @@ void main() {
       expect(actions['commissioner'], isNot('human'));
     });
 
+    // 1.12.0: боты четырёх новых ролей. Проверяем главное — они ходят
+    // законно и не читают чужие роли (то есть не выбирают цель «по
+    // настоящей роли», а по тем уликам, что есть у живого игрока).
+    test('боты новых ролей ходят только по законным целям', () {
+      final players = [
+        _player('guard', RoleType.bodyguard, bot: true),
+        _player('wit', RoleType.witness, bot: true),
+        _player('hun', RoleType.hunter, bot: true),
+        _player('bm', RoleType.blackmailer, bot: true),
+        _player('m1', RoleType.mafia),
+        _player('c1', RoleType.civilian),
+        _player('c2', RoleType.civilian),
+        _player('c3', RoleType.civilian),
+      ];
+      final s = _state(players);
+      final actions = BotEngine.nightActionsFor(s, Random(5));
+      for (final id in ['guard', 'wit', 'hun', 'bm']) {
+        expect(actions.keys, contains(id), reason: id);
+        final bot = s.byId(id)!;
+        final legal =
+            GameEngine.legalTargetsFor(s, bot).map((p) => p.id).toSet();
+        expect(legal, contains(actions[id]), reason: id);
+      }
+      // Шантажист не пугает своих: мафия в его целях не появляется.
+      expect(actions['bm'], isNot('m1'));
+      expect(actions['bm'], isNot('bm'));
+    });
+
+    test('бот-телохранитель не прикрывает того, кого прикрывал вчера', () {
+      final s = _state(_six()).copyWith(lastGuardedId: 'human');
+      final guard = _player('guard', RoleType.bodyguard, bot: true);
+      final s2 = _state([...s.players, guard])
+          .copyWith(lastGuardedId: 'human');
+      final actions = BotEngine.nightActionsFor(s2, Random(11));
+      expect(actions['guard'], isNot('human'));
+    });
+
+    test('бот-свидетель не смотрит второй раз за тем же', () {
+      final wit = _player('wit', RoleType.witness, bot: true);
+      final s = _state([..._six(), wit]).copyWith(watchTargetId: 'human');
+      final actions = BotEngine.nightActionsFor(s, Random(4));
+      expect(actions['wit'], isNot('human'));
+    });
+
+    test('бот-охотник не метит себя и ходит законно', () {
+      final hun = _player('hun', RoleType.hunter, bot: true);
+      final s = _state([..._six(), hun]);
+      final actions = BotEngine.nightActionsFor(s, Random(2));
+      expect(actions['hun'], isNotNull);
+      expect(actions['hun'], isNot('hun'));
+    });
+
+    test('бот-мафия считает шантажиста своим и не голосует против него', () {
+      final players = [
+        _player('m1', RoleType.mafia, bot: true),
+        _player('don', RoleType.don),
+        _player('bm', RoleType.blackmailer),
+        _player('c1', RoleType.civilian),
+        _player('c2', RoleType.civilian),
+        _player('c3', RoleType.civilian),
+        _player('c4', RoleType.civilian),
+      ];
+      final s = _state(players, phase: GamePhase.voting);
+      final votes = BotEngine.votesFor(s, Random(3));
+      expect(votes['m1'], isNot('bm'),
+          reason: 'шантажист — свой, его не сдают');
+      expect(votes['m1'], isNot('don'));
+      // Голос всё равно отдан: мафия не воздерживается, когда есть город.
+      expect(votes['m1'], isNotNull);
+    });
+
     test('маньяк не может выбрать себя через общий список целей', () {
       final man = _player('maniac', RoleType.maniac, bot: true);
       final target = _player('c', RoleType.civilian);

@@ -82,6 +82,7 @@ class SessionStore {
         'round': s.round,
         'timeLeft': s.timeLeft,
         'lastHealedId': s.lastHealedId,
+        'lastGuardedId': s.lastGuardedId,
         'openCards': s.openCards,
         // Правила стола и служебное состояние 1.2.0. Без них перезапуск
         // посреди партии молча менял бы правила на значения по умолчанию.
@@ -96,6 +97,15 @@ class SessionStore {
         'storySeen': s.storySeen,
         'noDeathsStreak': s.noDeathsStreak,
         'lastBotSpeechRound': s.lastBotSpeechRound,
+        // 1.12.0: шантаж, наблюдение свидетеля и метка охотника.
+        // Без них перезапуск посреди дня «снимал» бы запугивание и
+        // заставлял свидетеля смотреть заново.
+        'silencedId': s.silencedId,
+        'silencedRound': s.silencedRound,
+        'watchTargetId': s.watchTargetId,
+        'watchActed': s.watchActed,
+        'watchRound': s.watchRound,
+        'hunterMarkId': s.hunterMarkId,
         'roleSetup': {
           for (final e in s.roleSetup.entries) e.key.name: e.value,
         },
@@ -205,6 +215,9 @@ class SessionStore {
       timeLeft: _int(m['timeLeft']) ?? 0,
       paused: true,
       lastHealedId: _str(m['lastHealedId']),
+      // Сохранение из 1.11.x этого поля не знает — щит можно ставить
+      // на кого угодно.
+      lastGuardedId: _str(m['lastGuardedId']),
       // Старые сохранения поля не знают — считаем карту закрытой.
       openCards: _bool(m['openCards']) ?? false,
       // Сохранение из 1.1.x этих полей не знает. Партия, начатая по старым
@@ -219,6 +232,12 @@ class SessionStore {
       storySeen: strList(m['storySeen']),
       noDeathsStreak: _int(m['noDeathsStreak']) ?? 0,
       lastBotSpeechRound: _int(m['lastBotSpeechRound']) ?? 0,
+      silencedId: _str(m['silencedId']),
+      silencedRound: _int(m['silencedRound']) ?? 0,
+      watchTargetId: _str(m['watchTargetId']),
+      watchActed: _bool(m['watchActed']),
+      watchRound: _int(m['watchRound']) ?? 0,
+      hunterMarkId: _str(m['hunterMarkId']),
       roleSetup: setup,
       players: players,
       log: log,

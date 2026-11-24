@@ -216,16 +216,19 @@ async function dealRole(page, role, roleName) {
     check('раздел «Правила, о которых спорят»',
       body.includes('ПРАВИЛА, О КОТОРЫХ СПОРЯТ'));
 
-    // 2. Все семь ролей — с карточками и памяткой (ночью / днём / победа).
+    // 2. Все одиннадцать ролей — с карточками и памяткой (ночью / днём /
+    // победа). С 1.12.0 добавились телохранитель, свидетель, охотник и
+    // шантажист: книга правил в браузере должна совпадать с приложением.
     const roles = ['Мафия', 'Дон', 'Доктор', 'Комиссар', 'Проститутка', 'Маньяк',
-                   'Мирный житель'];
-    check('названы все 7 ролей', roles.every(r => body.includes(r)));
+                   'Мирный житель', 'Телохранитель', 'Свидетель', 'Охотник',
+                   'Шантажист'];
+    check('названы все 11 ролей', roles.every(r => body.includes(r)));
     check('памятка роли: ночью, днём и условие победы',
       body.includes('Ночью:') && body.includes('Днём:') && body.includes('Победа:'));
-    check('у каждой роли есть карточка', node.querySelectorAll('.rcard').length >= 7);
+    check('у каждой роли есть карточка', node.querySelectorAll('.rcard').length >= 11);
     const imgs = [...node.querySelectorAll('.rcard img')].map(i => i.getAttribute('src'));
     check('карточки ролей с картинками',
-      imgs.filter(s => s.includes('/instructions/roles/')).length === 7);
+      imgs.filter(s => s.includes('/instructions/roles/')).length === 11);
     check('карточки фаз с картинками',
       imgs.filter(s => s.includes('/instructions/phases/')).length === 4);
     check('иллюстрация ведущего', imgs.includes('/instructions/guides/01_host.jpg'));
@@ -465,6 +468,15 @@ async function dealRole(page, role, roleName) {
   check('проверка показана с результатом', sheet.includes('Ночь 1: Борис') && sheet.includes('МАФИЯ'));
   check('памятка: город должен убрать и маньяка', sheet.includes('ни маньяка'));
   p.click('sheet-close');
+  // 1.12.0: порядок разрешения ночи в книге правил называет новые роли —
+  // иначе игрок читает книгу, где про щит и шантаж не сказано ни слова.
+  p.click('btn-rules');
+  const bookBody = p.text('sheet-body');
+  for (const step of ['шантажист лишает голоса', 'телохранитель прикрывает',
+                      'свидетель смотрит', 'охотник ставит метку']) {
+    check(`книга правил: «${step}»`, bookBody.includes(step));
+  }
+  p.click('sheet-close');
 
   // Вторая ночь: ответ прошлой ночи на экран не возвращается.
   p.push('phase', {
@@ -694,6 +706,106 @@ async function dealRole(page, role, roleName) {
     check('ошибок JavaScript нет (боты)', b.errors.length === 0);
     if (b.errors.length) console.log(b.errors.slice(0, 3).join('\n'));
     b.close();
+  }
+
+  // ------------------------------------- новые роли 1.12.0 в браузере
+  // Свидетель, охотник и шантажист — три роли, у которых в браузере есть
+  // свои экраны. То, что они есть в Dart, ещё не значит, что они есть у
+  // игрока: app.js — отдельный клиент, и его надо проверять отдельно.
+  console.log('\nНовые роли 1.12.0: свидетель, охотник, шантажист');
+  {
+    const w = openPage();
+    await join(w, 'Аня');
+    w.push('lobby', { gameName: 'Партия 1.12.0', planned: 6, players: PLAYERS });
+
+    // --- свидетель: ответ приходит, когда объект сходил.
+    await dealRole(w, 'witness', 'Свидетель');
+    w.push('phase', {
+      phase: 'night', round: 1, time: 45, paused: false, isAlive: true, canAct: true,
+      prompt: 'За кем наблюдать?', alive: 4, total: 4, intro: false, lastWord: null,
+      targets: PLAYERS.slice(1).map(({ id, name, color }) => ({ id, name, color })),
+    });
+    check('свидетель получает подсказку «За кем наблюдать?»',
+      w.text('game-body').includes('За кем наблюдать'));
+    check('у свидетеля есть выбор цели', w.visible('action-area'));
+    w.$('targets').children[0].click();
+    w.click('btn-send');
+    w.push('watch_result', { round: 1, name: 'Борис', acted: true });
+    check('наблюдение «выходил» показано ночью', w.text('idle-text') === 'Борис выходил из дома');
+    check('сказано, что выходят не только убийцы',
+      w.text('idle-sub').includes('не только убийцы'));
+    check('наблюдение пришло без баннера', !w.text('banner').includes('выходил'));
+
+    w.push('phase', {
+      phase: 'day', round: 1, time: 120, paused: false, isAlive: true, canAct: false,
+      prompt: 'Обсуждайте', alive: 4, total: 4, intro: false, lastWord: null, targets: [],
+    });
+    check('днём наблюдение остаётся на экране', w.text('idle-text') === 'Борис выходил из дома');
+    w.click('btn-myrole');
+    let sheet = w.text('sheet-body');
+    check('в «Моя роль» есть «Ваше наблюдение»', sheet.includes('ВАШЕ НАБЛЮДЕНИЕ'));
+    check('в наблюдении назван день и имя', sheet.includes('Ночь 1: Борис'));
+    check('у свидетеля в памятке нет блока проверок', !sheet.includes('ВАШИ ПРОВЕРКИ'));
+    w.click('sheet-close');
+
+    // Перезагрузка посреди дня: наблюдение возвращается из sync.
+    w.push('sync', {
+      phase: 'day', round: 1, time: 100, paused: false, isAlive: true, canAct: false,
+      alreadyActed: true, role: 'witness', roleName: 'Свидетель', roleEmoji: '👁',
+      roleAck: true, gameName: 'Партия 1.12.0', alive: 4, total: 4, intro: false,
+      lastWord: null, targets: [], prompt: 'Обсуждайте',
+      watch: { round: 1, name: 'Борис', acted: false },
+    });
+    check('после перезагрузки наблюдение на месте',
+      w.text('idle-text') === 'Борис не выходил из дома');
+
+    // --- шантаж: голоса нет, и об этом сказано.
+    w.push('phase', {
+      phase: 'voting', round: 1, time: 60, paused: false, isAlive: true, canAct: false,
+      prompt: 'Кого отправляем из города?', alive: 4, total: 4, intro: false,
+      lastWord: null, targets: [], silenced: true,
+    });
+    check('запуганный видит «Сегодня вы не голосуете»',
+      w.text('idle-text') === 'Сегодня вы не голосуете');
+    check('запуганному не показаны кнопки голосования', !w.visible('action-area'));
+    check('сказано, что это шантажист', w.text('game-body').includes('шантажист'));
+
+    // Второй тур тоже без голоса: иначе кнопка была бы, а голос — нет.
+    w.push('vote_runoff', { candidates: [{ id: 'p1', name: 'Борис', color: '#3357FF' }] });
+    check('во втором туре запуганный тоже без голоса', !w.visible('action-area'));
+
+    // --- охотник: метка видна всегда.
+    const h = openPage();
+    await join(h, 'Аня');
+    h.push('lobby', { gameName: 'Партия 1.12.0', planned: 6, players: PLAYERS });
+    await dealRole(h, 'hunter', 'Охотник');
+    h.push('sync', {
+      phase: 'day', round: 2, time: 100, paused: false, isAlive: true, canAct: false,
+      alreadyActed: true, role: 'hunter', roleName: 'Охотник', roleEmoji: '🎯',
+      roleAck: true, gameName: 'Партия 1.12.0', alive: 3, total: 4, intro: false,
+      lastWord: null, targets: [], prompt: 'Обсуждайте',
+      hunterMark: { name: 'Глеб' },
+    });
+    check('охотник видит свою метку днём', h.text('game-body').includes('Ваша метка: Глеб'));
+    h.click('btn-myrole');
+    sheet = h.text('sheet-body');
+    check('в «Моя роль» есть блок «Ваша метка»', sheet.includes('ВАША МЕТКА'));
+    check('метка объяснена: сработает и при голосовании',
+      sheet.includes('от ножа или от голосования'));
+    h.click('sheet-close');
+    check('ошибок JavaScript нет (новые роли)', h.errors.length === 0);
+    if (h.errors.length) console.log(h.errors.slice(0, 3).join('\n'));
+    h.close();
+
+    // --- книга правил: у новых ролей есть карточки-памятки.
+    w.click('btn-rules');
+    sheet = w.text('sheet-body');
+    for (const role of ['Телохранитель', 'Свидетель', 'Охотник', 'Шантажист']) {
+      check(`в книге правил есть роль «${role}»`, sheet.includes(role));
+    }
+    check('ошибок JavaScript нет (новые роли, свидетель)', w.errors.length === 0);
+    if (w.errors.length) console.log(w.errors.slice(0, 3).join('\n'));
+    w.close();
   }
 
   // ----------------------------------------------- ведущий старой версии

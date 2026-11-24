@@ -14,6 +14,8 @@ GameState buildState({
   required List<({String id, RoleType role, bool alive})> spec,
   Map<String, String?> actions = const {},
   String? lastHealed,
+  String? lastGuarded,
+  String? hunterMark,
 }) {
   return GameState(
     id: 'g1',
@@ -32,6 +34,8 @@ GameState buildState({
     ],
     nightActions: actions,
     lastHealedId: lastHealed,
+    lastGuardedId: lastGuarded,
+    hunterMarkId: hunterMark,
   );
 }
 
@@ -182,6 +186,267 @@ void main() {
       final o = GameEngine.resolveNight(s, random: rnd);
       expect(o.killedIds.length, 2);
       expect(o.killedIds, containsAll(['c1', 'c2']));
+    });
+  });
+
+  // 1.12.0: телохранитель, свидетель, охотник и шантажист. Сценарии те
+  // же, что в tools/roles112.py: правило, записанное в инструкции, должно
+  // срабатывать одинаково в Dart и в порте на Python.
+  group('Новые роли 1.12.0', () {
+    test('щит забирает удар: погибает телохранитель, прикрытый жив', () {
+      final s = buildState(
+        spec: [
+          (id: 'don', role: RoleType.don, alive: true),
+          (id: 'g1', role: RoleType.bodyguard, alive: true),
+          (id: 'c1', role: RoleType.civilian, alive: true),
+          (id: 'c2', role: RoleType.civilian, alive: true),
+          (id: 'c3', role: RoleType.civilian, alive: true),
+          (id: 'c4', role: RoleType.civilian, alive: true),
+        ],
+        actions: {'don': 'c1', 'g1': 'c1'},
+      );
+      final o = GameEngine.resolveNight(s, random: rnd);
+      expect(o.killedIds, ['g1']);
+      expect(o.guardDiedId, 'g1');
+      expect(o.guardedId, 'c1');
+    });
+
+    test('два удара в прикрытого — один погибший', () {
+      final s = buildState(
+        spec: [
+          (id: 'don', role: RoleType.don, alive: true),
+          (id: 'man', role: RoleType.maniac, alive: true),
+          (id: 'g1', role: RoleType.bodyguard, alive: true),
+          (id: 'c1', role: RoleType.civilian, alive: true),
+          (id: 'c2', role: RoleType.civilian, alive: true),
+          (id: 'c3', role: RoleType.civilian, alive: true),
+        ],
+        actions: {'don': 'c1', 'man': 'c1', 'g1': 'c1'},
+      );
+      final o = GameEngine.resolveNight(s, random: rnd);
+      expect(o.killedIds, ['g1']);
+    });
+
+    test('стреляли в самого телохранителя — щит не спасает', () {
+      final s = buildState(
+        spec: [
+          (id: 'don', role: RoleType.don, alive: true),
+          (id: 'g1', role: RoleType.bodyguard, alive: true),
+          (id: 'c1', role: RoleType.civilian, alive: true),
+          (id: 'c2', role: RoleType.civilian, alive: true),
+          (id: 'c3', role: RoleType.civilian, alive: true),
+          (id: 'c4', role: RoleType.civilian, alive: true),
+        ],
+        actions: {'don': 'g1', 'g1': 'c1'},
+      );
+      final o = GameEngine.resolveNight(s, random: rnd);
+      expect(o.killedIds, ['g1']);
+    });
+
+    test('доктор спасает и телохранителя, принявшего удар', () {
+      final s = buildState(
+        spec: [
+          (id: 'don', role: RoleType.don, alive: true),
+          (id: 'g1', role: RoleType.bodyguard, alive: true),
+          (id: 'd1', role: RoleType.doctor, alive: true),
+          (id: 'c1', role: RoleType.civilian, alive: true),
+          (id: 'c2', role: RoleType.civilian, alive: true),
+          (id: 'c3', role: RoleType.civilian, alive: true),
+        ],
+        actions: {'don': 'c1', 'g1': 'c1', 'd1': 'g1'},
+      );
+      final o = GameEngine.resolveNight(s, random: rnd);
+      expect(o.killedIds, isEmpty);
+      expect(o.healedId, 'g1');
+      expect(o.guardDiedId, 'g1');
+    });
+
+    test('телохранитель не прикрывает себя и не повторяет цель', () {
+      final s = buildState(
+        spec: [
+          (id: 'g1', role: RoleType.bodyguard, alive: true),
+          (id: 'c1', role: RoleType.civilian, alive: true),
+          (id: 'c2', role: RoleType.civilian, alive: true),
+        ],
+        lastGuarded: 'c2',
+      );
+      final targets = GameEngine.legalTargetsFor(s, s.players.first);
+      expect(targets.map((p) => p.id), ['c1']);
+    });
+
+    test('заблокированный телохранитель не срабатывает', () {
+      final s = buildState(
+        spec: [
+          (id: 'don', role: RoleType.don, alive: true),
+          (id: 'pros', role: RoleType.prostitute, alive: true),
+          (id: 'g1', role: RoleType.bodyguard, alive: true),
+          (id: 'c1', role: RoleType.civilian, alive: true),
+          (id: 'c2', role: RoleType.civilian, alive: true),
+          (id: 'c3', role: RoleType.civilian, alive: true),
+        ],
+        actions: {'pros': 'g1', 'g1': 'c1', 'don': 'c1'},
+      );
+      final o = GameEngine.resolveNight(s, random: rnd);
+      expect(o.killedIds, ['c1']);
+    });
+
+    test('свидетель видит, выходил ли объект из дома', () {
+      final s = buildState(
+        spec: [
+          (id: 'don', role: RoleType.don, alive: true),
+          (id: 'wit', role: RoleType.witness, alive: true),
+          (id: 'd1', role: RoleType.doctor, alive: true),
+          (id: 'c1', role: RoleType.civilian, alive: true),
+        ],
+        actions: {'wit': 'd1', 'd1': 'c1', 'don': 'c1'},
+      );
+      final o = GameEngine.resolveNight(s, random: rnd);
+      expect(o.watchedId, 'd1');
+      expect(o.watchedActed, isTrue);
+    });
+
+    test('про мирного свидетелю достаётся «не выходил»', () {
+      final s = buildState(
+        spec: [
+          (id: 'don', role: RoleType.don, alive: true),
+          (id: 'wit', role: RoleType.witness, alive: true),
+          (id: 'c1', role: RoleType.civilian, alive: true),
+          (id: 'c2', role: RoleType.civilian, alive: true),
+        ],
+        actions: {'wit': 'c1', 'don': 'c2'},
+      );
+      final o = GameEngine.resolveNight(s, random: rnd);
+      expect(o.watchedId, 'c1');
+      expect(o.watchedActed, isFalse);
+    });
+
+    test('метка охотника действует только со следующей ночи', () {
+      final s = buildState(
+        spec: [
+          (id: 'don', role: RoleType.don, alive: true),
+          (id: 'hun', role: RoleType.hunter, alive: true),
+          (id: 'c1', role: RoleType.civilian, alive: true),
+          (id: 'c2', role: RoleType.civilian, alive: true),
+          (id: 'c3', role: RoleType.civilian, alive: true),
+          (id: 'c4', role: RoleType.civilian, alive: true),
+        ],
+        actions: {'hun': 'c1', 'don': 'hun'},
+      );
+      final o = GameEngine.resolveNight(s, random: rnd);
+      expect(o.killedIds, ['hun']);
+      expect(o.revengeIds, isEmpty);
+      expect(o.hunterMarkId, isNull,
+          reason: 'мёртвый охотник метку не ставит');
+    });
+
+    test('созревшая метка забирает отмеченного вместе с охотником', () {
+      final s = buildState(
+        spec: [
+          (id: 'don', role: RoleType.don, alive: true),
+          (id: 'hun', role: RoleType.hunter, alive: true),
+          (id: 'c1', role: RoleType.civilian, alive: true),
+          (id: 'c2', role: RoleType.civilian, alive: true),
+          (id: 'c3', role: RoleType.civilian, alive: true),
+        ],
+        actions: {'don': 'hun'},
+        hunterMark: 'c1',
+      );
+      final o = GameEngine.resolveNight(s, random: rnd);
+      expect(o.killedIds, containsAll(['hun', 'c1']));
+      expect(o.revengeIds, ['c1']);
+    });
+
+    test('охотник не метит мёртвого и себя', () {
+      final s = buildState(
+        spec: [
+          (id: 'hun', role: RoleType.hunter, alive: true),
+          (id: 'c1', role: RoleType.civilian, alive: true),
+          (id: 'c2', role: RoleType.civilian, alive: false),
+        ],
+      );
+      final targets = GameEngine.legalTargetsFor(s, s.players.first);
+      expect(targets.map((p) => p.id), ['c1']);
+    });
+
+    test('шантаж отнимает голос, но не ночной ход', () {
+      final s = buildState(
+        spec: [
+          (id: 'maf', role: RoleType.mafia, alive: true),
+          (id: 'bm', role: RoleType.blackmailer, alive: true),
+          (id: 'd1', role: RoleType.doctor, alive: true),
+          (id: 'c1', role: RoleType.civilian, alive: true),
+          (id: 'c2', role: RoleType.civilian, alive: true),
+        ],
+        actions: {'bm': 'd1', 'd1': 'c1', 'maf': 'c2'},
+      );
+      final o = GameEngine.resolveNight(s, random: rnd);
+      expect(o.silencedId, 'd1');
+      expect(o.healedId, 'c1');
+      expect(o.killedIds, ['c2']);
+    });
+
+    test('шантажист пугает только горожан', () {
+      final s = buildState(
+        spec: [
+          (id: 'don', role: RoleType.don, alive: true),
+          (id: 'bm', role: RoleType.blackmailer, alive: true),
+          (id: 'c1', role: RoleType.civilian, alive: true),
+        ],
+      );
+      final targets = GameEngine.legalTargetsFor(s, s.players[1]);
+      expect(targets.map((p) => p.id), ['c1']);
+    });
+
+    test('запуганный не голосует, остальные голосуют', () {
+      final s = buildState(
+        spec: [
+          (id: 'c1', role: RoleType.civilian, alive: true),
+          (id: 'c2', role: RoleType.civilian, alive: true),
+          (id: 'c3', role: RoleType.civilian, alive: true),
+        ],
+      ).copyWith(silencedId: 'c2', silencedRound: 1);
+      expect(s.isSilencedNow(s.byId('c2')), isTrue);
+      expect(s.voters.map((p) => p.id), isNot(contains('c2')));
+      expect(s.voters.map((p) => p.id), contains('c1'));
+    });
+
+    test('шантажист не стрелок: сам он никого не убивает', () {
+      final s = buildState(
+        spec: [
+          (id: 'bm', role: RoleType.blackmailer, alive: true),
+          (id: 'c1', role: RoleType.civilian, alive: true),
+          (id: 'c2', role: RoleType.civilian, alive: true),
+        ],
+        actions: {'bm': 'c1'},
+      );
+      final o = GameEngine.resolveNight(s, random: rnd);
+      expect(o.killedIds, isEmpty);
+      expect(o.mafiaTargetId, isNull);
+    });
+
+    test('шантажист — часть мафии для «своих» и для победы', () {
+      final s = buildState(
+        spec: [
+          (id: 'maf', role: RoleType.mafia, alive: true),
+          (id: 'bm', role: RoleType.blackmailer, alive: true),
+          (id: 'c1', role: RoleType.civilian, alive: true),
+        ],
+      );
+      expect(s.mafiaSiders.map((p) => p.id), containsAll(['maf', 'bm']));
+      final targets = GameEngine.legalTargetsFor(s, s.players.first);
+      expect(targets.map((p) => p.id), ['c1'],
+          reason: 'стрелок не видит шантажиста в целях');
+    });
+
+    test('город не побеждает, пока жив шантажист', () {
+      final s = buildState(
+        spec: [
+          (id: 'bm', role: RoleType.blackmailer, alive: true),
+          (id: 'c1', role: RoleType.civilian, alive: true),
+          (id: 'c2', role: RoleType.civilian, alive: true),
+        ],
+      );
+      expect(s.checkWinner(), isNull);
     });
   });
 

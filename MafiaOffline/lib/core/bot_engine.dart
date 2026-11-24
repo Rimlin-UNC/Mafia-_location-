@@ -139,6 +139,29 @@ class BotEngine {
         case RoleType.maniac:
           target = _pick(targets, random);
           break;
+        case RoleType.bodyguard:
+          // Телохранитель прикрывает того, кого бот-город считает своим:
+          // прикрыть подозреваемого — значит отдать за него жизнь.
+          target = _guardTarget(s, bot, targets, random);
+          break;
+        case RoleType.witness:
+          // Наблюдать за уже проверенным смысла нет: факт про него уже
+          // есть, и второй раз он ничего не добавит.
+          final seen = s.watchTargetId;
+          final fresh = targets.where((t) => t.id != seen).toList();
+          target = _pick(fresh.isEmpty ? targets : fresh, random);
+          break;
+        case RoleType.hunter:
+          // Охотник метит того, в кого верит меньше всех: если его
+          // выгонят, он заберёт с собой самого подозрительного.
+          target = _suspiciousTarget(s, bot, targets, random);
+          break;
+        case RoleType.blackmailer:
+          // Шантажист молча лишает голоса, поэтому выбирает не случайного,
+          // а того, кто громче всех ведёт стол: чем активнее игрок, тем
+          // дороже его молчание.
+          target = _suspiciousTarget(s, bot, targets, random);
+          break;
         default:
           target = _pick(targets, random);
           break;
@@ -151,16 +174,8 @@ class BotEngine {
   /// Список целей ночного хода. Мафия выбирает из всех живых, кроме
   /// своей команды: если бы список строился по чужим ролям, боты читали
   /// расклад и их нельзя было бы назвать честными противниками.
-  static List<Player> _nightTargetsFor(GameState s, Player bot) {
-    final type = bot.role?.type;
-    if (type == RoleType.mafia || type == RoleType.don) {
-      final teammates = s.mafiaTeam.map((p) => p.id).toSet();
-      return s.alive
-          .where((p) => p.id != bot.id && !teammates.contains(p.id))
-          .toList();
-    }
-    return GameEngine.legalTargetsFor(s, bot);
-  }
+  static List<Player> _nightTargetsFor(GameState s, Player bot) =>
+      GameEngine.legalTargetsFor(s, bot);
 
   /// Голоса ботов в текущем туре. Может частично следовать уже открытым
   /// голосам, но не знает, кто как проголосовал тайно.
@@ -169,8 +184,7 @@ class BotEngine {
     var working = s;
     for (final bot in s.pendingVoters.where((p) => p.isBot)) {
       final targets = GameEngine.legalTargetsFor(working, bot);
-      final ownMafia = bot.role?.type == RoleType.mafia ||
-          bot.role?.type == RoleType.don;
+      final ownMafia = bot.role?.side == Side.mafia;
       final foundMafia = _foundMafiaFor(s, bot);
 
       String? choice;
@@ -196,7 +210,9 @@ class BotEngine {
         if (candidates.isEmpty) {
           choice = null;
         } else if (ownMafia) {
-          final teammates = s.mafiaTeam.map((p) => p.id).toSet();
+          // «Свои» — вся мафия: шантажист тоже свой, и голосовать
+          // против него бот-мафия не станет.
+          final teammates = s.mafiaSiders.map((p) => p.id).toSet();
           final town = candidates.where((id) => !teammates.contains(id)).toList();
           choice = town.isEmpty ? null : _pick(town, random);
         } else {
@@ -254,10 +270,9 @@ class BotEngine {
       if (lines.any((line) => line.playerId == bot.id)) continue;
       if (lines.isNotEmpty && random.nextDouble() < 0.45) continue;
 
-      final ownMafia = bot.role?.type == RoleType.mafia ||
-          bot.role?.type == RoleType.don;
+      final ownMafia = bot.role?.side == Side.mafia;
       if (ownMafia) {
-        final teammates = s.mafiaTeam.map((p) => p.id).toSet();
+        final teammates = s.mafiaSiders.map((p) => p.id).toSet();
         final targets = s.alive
             .where((p) => p.id != bot.id && !teammates.contains(p.id))
             .toList();
@@ -279,6 +294,60 @@ class BotEngine {
     return lines;
   }
 
+  /// Кого прикрыть телохранителю-боту.
+  ///
+  /// Правило простое и честное: прикрываем того, кого считаем своим.
+  /// Улики те же, что у живого игрока, — свои проверки комиссара и
+  /// собственное мнение о команде. Никакого чтения ролей.
+  static Player _guardTarget(
+    GameState s,
+    Player bot,
+    List<Player> targets,
+    Random random,
+  ) {
+    // Тот, кого город уже слышал в этой роли, — самая ценная защита.
+    final claimed = targets
+        .where((t) => t.role?.type == RoleType.commissioner)
+        .toList();
+    if (claimed.isNotEmpty) return _pick(claimed, random);
+    return _trustedTarget(s, bot, targets, random);
+  }
+
+  /// Самый «свой» из списка: сначала проверенные чистые, потом остальные.
+  static Player _trustedTarget(
+    GameState s,
+    Player bot,
+    List<Player> targets,
+    Random random,
+  ) {
+    final clean = targets
+        .where((t) => _hasCleanCheck(s, bot, t.id))
+        .toList();
+    if (clean.isNotEmpty) return _pick(clean, random);
+    return _pick(targets, random);
+  }
+
+  /// Самый подозрительный из списка: сначала найденная мафия, потом
+  /// тот, за кем город уже голосовал, иначе — случайный.
+  static Player _suspiciousTarget(
+    GameState s,
+    Player bot,
+    List<Player> targets,
+    Random random,
+  ) {
+    final found = _foundMafiaFor(s, bot);
+    if (found.isNotEmpty) {
+      final known = targets.where((t) => found.contains(t.id)).toList();
+      if (known.isNotEmpty) return _pick(known, random);
+    }
+    final leader = _voteLeader(s, targets.map((t) => t.id).toList());
+    if (leader != null) {
+      final byId = targets.where((t) => t.id == leader).toList();
+      if (byId.isNotEmpty) return byId.first;
+    }
+    return _pick(targets, random);
+  }
+
   static Set<String> _foundMafiaFor(GameState s, Player bot) {
     if (bot.role?.type != RoleType.commissioner) return const {};
     return s.checksBy(bot.id)
@@ -292,10 +361,8 @@ class BotEngine {
       s.checksBy(bot.id).any((c) =>
           c.targetId == targetId && !c.isMafia && !c.blocked);
 
-  static bool _isMafia(GameState s, String id) {
-    final type = s.byId(id)?.role?.type;
-    return type == RoleType.mafia || type == RoleType.don;
-  }
+  static bool _isMafia(GameState s, String id) =>
+      s.byId(id)?.role?.side == Side.mafia;
 
   static String? _voteLeader(GameState s, List<String> allowed) {
     final tally = <String, int>{};

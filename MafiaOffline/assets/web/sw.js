@@ -21,7 +21,7 @@
  */
 'use strict';
 
-const VERSION = 'mafia-v14';
+const VERSION = 'mafia-v15';
 const CORE = ['/', '/style.css', '/app.js', '/manifest.webmanifest',
               '/instructions/guides/01_host.jpg'];
 
