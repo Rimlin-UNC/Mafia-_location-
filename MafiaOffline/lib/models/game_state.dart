@@ -471,8 +471,17 @@ class GameState {
 
   /// Запуган ли этот игрок прямо сейчас: шантаж действует только на
   /// следующий за ночью день и только один раз.
-  bool isSilencedNow(Player? p) =>
-      p != null && silencedId != null && silencedId == p.id;
+  /// Действует ли шантаж сейчас.
+  ///
+  /// Мало совпадения id: шантаж живёт ровно один день. Ведущий снимает его
+  /// сам (startNight), но состояние приходит и из сохранённой сессии и из
+  /// старых версий, где поле `silencedRound` ещё не писалось (там 0).
+  /// Без проверки раунда игрок, которого запугали в ночь 3, молчал бы до
+  /// конца партии — молча и без единой ошибки в логе.
+  bool isSilencedNow(Player? p) {
+    if (p == null || silencedId == null || silencedId != p.id) return false;
+    return silencedRound == 0 || silencedRound == round;
+  }
 
   /// Свидетель узнал что-то в этом раунде.
   bool get hasFreshWatch =>

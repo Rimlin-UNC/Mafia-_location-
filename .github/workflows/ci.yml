@@ -182,6 +182,14 @@ jobs:
         run: |
           node --check assets/web/app.js
           node --check assets/web/sw.js
+          # `///` — это док-комментарий Dart, но не JavaScript. В браузере
+          # такая строка превращается в три деления подряд и роняет скрипт
+          # с SyntaxError — при этом `node --check` спокойно пропускает её
+          # как «деление-деление-деление» в некоторых позициях. Ловим явно.
+          if grep -rn '^[[:space:]]*///' assets/web/*.js; then
+            echo '::error::в JS найдены док-комментарии Dart (///) — это не синтаксис JavaScript'
+            exit 1
+          fi
           echo "Web client JS syntax OK"
 
       # Синтаксиса мало: обработчик пакетов в app.js глотает исключения,

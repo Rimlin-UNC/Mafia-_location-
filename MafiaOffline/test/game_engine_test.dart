@@ -415,6 +415,32 @@ void main() {
       expect(s.voters.map((p) => p.id), contains('c1'));
     });
 
+    test('шантаж кончается вместе со своим днём', () {
+      // Шантаж живёт один день. Если бы проверка смотрела только на id,
+      // запуганный в ночь 3 игрок молчал бы до конца партии: ни ошибки,
+      // ни записи в логе — просто не голосует и всё.
+      final base = buildState(
+        spec: [
+          (id: 'c1', role: RoleType.civilian, alive: true),
+          (id: 'c2', role: RoleType.civilian, alive: true),
+        ],
+      ).copyWith(silencedId: 'c2', silencedRound: 3);
+
+      final sameRound = base.copyWith(round: 3, phase: GamePhase.voting);
+      expect(sameRound.isSilencedNow(sameRound.byId('c2')), isTrue);
+      expect(sameRound.voters.map((p) => p.id), isNot(contains('c2')));
+
+      final nextDay = base.copyWith(round: 4, phase: GamePhase.voting);
+      expect(nextDay.isSilencedNow(nextDay.byId('c2')), isFalse);
+      expect(nextDay.voters.map((p) => p.id), contains('c2'),
+          reason: 'на следующий день голос возвращается');
+
+      // Состояние из старой сессии: раунд шантажа не записан (0).
+      final legacy = base.copyWith(silencedRound: 0, round: 9);
+      expect(legacy.isSilencedNow(legacy.byId('c2')), isTrue,
+          reason: 'старые сохранения не должны терять шантаж');
+    });
+
     test('шантажист не стрелок: сам он никого не убивает', () {
       final s = buildState(
         spec: [
