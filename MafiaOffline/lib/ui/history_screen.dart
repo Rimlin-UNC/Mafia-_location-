@@ -91,7 +91,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           title: Text(g.name),
                           subtitle: Text(
                             '${_fmtDate(g.createdAt)} · '
-                            '${playersRu(g.players.length)} · ${g.winnerTitle}',
+                            '${HistoryScreen.playersRu(g.players.length)}'
+                            ' · ${g.winnerTitle}',
                             style: const TextStyle(fontSize: 12),
                           ),
                           trailing: const Icon(Icons.chevron_right),
@@ -152,7 +153,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 style: const TextStyle(
                     fontSize: 19, fontWeight: FontWeight.bold)),
             Text(
-              '${_fmtDate(g.createdAt)} · ${roundsRu(g.rounds)} · '
+              '${_fmtDate(g.createdAt)} · ${HistoryScreen.roundsRu(g.rounds)} · '
               '${g.winnerTitle}',
               style: const TextStyle(fontSize: 12.5, color: AppColors.dim),
             ),
