@@ -489,11 +489,16 @@ void main() {
         );
         final lines = BotEngine.dayLinesFor(s, Random(seed));
         for (final line in lines) {
+          // Мафии проверки комиссара не писаны: она обязана называть
+          // городского кандидатом, иначе выдаст себя. Правило «не
+          // обвинять проверенного» — про честный город.
+          final speaker = s.byId(line.playerId);
+          if (speaker?.role?.side != Side.city) continue;
           final isAccusation =
               _accusationMarkers.any((m) => line.text.contains(m));
           if (!isAccusation) continue;
           expect(line.text, isNot(contains('Дина')),
-              reason: 'проверенного мирного обвинили (зерно $seed)');
+              reason: 'проверенного мирного обвинил город (зерно $seed)');
         }
       }
     });
