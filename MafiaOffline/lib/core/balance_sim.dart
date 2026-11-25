@@ -203,7 +203,8 @@ class BalanceSim {
           if (alive[i] &&
               (kind == _SideKind.maniac
                   ? roles[i] != RoleType.maniac
-                  : side[i] != _SideKind.mafia))
+                  : side[i] != _SideKind.maniac &&
+                      side[i] != _SideKind.mafia))
       ];
       if (pool.isEmpty) return null;
       return pool[rnd.nextInt(pool.length)];
@@ -406,8 +407,10 @@ class _WinnerCheck {
       return _Winner.maniac;
     }
     if (mafia == 0 && maniac == 0) return _Winner.city;
-    // Мафия побеждает при равенстве с городом (маньяк не в счёт).
-    if (mafia > 0 && mafia >= city && maniac == 0) return _Winner.mafia;
+    // Мафия побеждает при равенстве с городом. Живой маньяк этому не
+    // мешает — точно как в движке, где проверка `mafia >= civilians`
+    // идёт до любых оговорок про одиночку.
+    if (mafia > 0 && mafia >= city) return _Winner.mafia;
     return null;
   }
 }

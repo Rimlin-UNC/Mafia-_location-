@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mafia_offline/core/balance_sim.dart';
 import 'package:mafia_offline/core/game_engine.dart';
@@ -74,6 +76,10 @@ void main() {
       [RoleType.maniac, RoleType.civilian],
       [RoleType.maniac, RoleType.mafia],
       [RoleType.maniac, RoleType.mafia, RoleType.civilian],
+      [RoleType.maniac, RoleType.mafia, RoleType.mafia],
+      [RoleType.maniac, RoleType.mafia, RoleType.mafia, RoleType.civilian],
+      [RoleType.maniac, RoleType.maniac, RoleType.civilian],
+      [RoleType.maniac, RoleType.maniac, RoleType.mafia],
       [RoleType.maniac, RoleType.civilian, RoleType.civilian],
       [RoleType.don, RoleType.mafia, RoleType.civilian, RoleType.civilian],
       [RoleType.blackmailer, RoleType.doctor, RoleType.civilian],
@@ -89,15 +95,15 @@ void main() {
         final spec = [
           for (var i = 0; i < n; i++) (roles[i], alive[i]),
         ];
-        final engine = _state(spec).checkWinner;
+        final engine = _state(spec).checkWinner();
         final sim = BalanceSim.debugWinner(roles, alive);
 
-        final expected = switch (engine?.name) {
-          'mafia' => 'mafia',
-          'civilians' => 'city',
-          'maniac' => 'maniac',
-          'nobody' => 'nobody',
-          _ => null, // партия продолжается
+        final expected = switch (engine) {
+          WinnerSide.mafia => 'mafia',
+          WinnerSide.civilians => 'city',
+          WinnerSide.maniac => 'maniac',
+          WinnerSide.nobody => 'nobody',
+          _ => null, // партия продолжается (или прервана — так не бывает)
         };
         expect(sim, expected,
             reason: 'роли=$roles живые=$alive: движок=$engine, симуляция=$sim');
@@ -198,22 +204,25 @@ void main() {
       expect(r.sharesRu, contains('мафия'));
       expect(r.sharesRu, contains('%'));
     });
+
+    test('раздача не создаёт уже проигранную партию', () {
+      // Основание всей оценки: симуляция стартует с живого стола, а не с
+      // состояния «мафии столько же, сколько города». Иначе прогноз
+      // считал бы партии, где победитель известен до первого хода.
+      final players = [
+        for (var i = 0; i < 10; i++)
+          Player(id: 'p$i', name: 'p$i', colorHex: '#FFFFFF'),
+      ];
+      for (var seed = 0; seed < 5; seed++) {
+        final dealt = GameEngine.assignRoles(
+          players: players,
+          setup: _setup(),
+          random: Random(seed),
+        );
+        final mafia = dealt.where((p) => p.role?.side == Side.mafia).length;
+        expect(mafia, lessThan(dealt.length - mafia));
+      }
+    });
   });
 }
 
-/// Проверяем, что движок вообще умеет то, на что опирается симуляция.
-void _engineAssumptions() {
-  // Раздача не создаёт уже выигранную партию — основание для всей оценки.
-  final players = [
-    for (var i = 0; i < 10; i++)
-      Player(id: 'p$i', name: 'p$i', colorHex: '#FFFFFF'),
-  ];
-  final dealt = GameEngine.assignRoles(
-    players: players,
-    setup: _setup(),
-  );
-  final mafia = dealt
-      .where((p) => p.role?.side == Side.mafia)
-      .length;
-  expect(mafia, lessThan(dealt.length - mafia));
-}
