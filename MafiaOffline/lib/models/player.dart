@@ -11,6 +11,16 @@ class Player {
   final bool isAlive;
   final bool isConnected;
 
+  /// Игрок управляется приложением, а не человеком по сети.
+  /// Бот получает роль на общих основаниях, ходит ночью, голосует и
+  /// участвует в обсуждении. В публичный JSON попадает только сам флаг:
+  /// по нему нельзя узнать роль.
+  final bool isBot;
+
+  /// Человек играет на устройстве ведущего. Такому игроку не нужен
+  /// WebSocket: его действия передаются прямо в HostController.
+  final bool isLocal;
+
   /// Игрок открыл карточку роли и нажал «Понятно».
   /// Ведущий по этому флагу видит, кто уже готов начинать.
   final bool roleAcknowledged;
@@ -35,6 +45,8 @@ class Player {
     this.role,
     this.isAlive = true,
     this.isConnected = true,
+    this.isBot = false,
+    this.isLocal = false,
     this.roleAcknowledged = false,
     this.eliminatedRound,
     this.eliminationReason,
@@ -48,6 +60,8 @@ class Player {
     Role? role,
     bool? isAlive,
     bool? isConnected,
+    bool? isBot,
+    bool? isLocal,
     bool? roleAcknowledged,
     int? eliminatedRound,
     EliminationReason? eliminationReason,
@@ -62,6 +76,8 @@ class Player {
       role: clearRole ? null : (role ?? this.role),
       isAlive: isAlive ?? this.isAlive,
       isConnected: isConnected ?? this.isConnected,
+      isBot: isBot ?? this.isBot,
+      isLocal: isLocal ?? this.isLocal,
       roleAcknowledged: roleAcknowledged ?? this.roleAcknowledged,
       eliminatedRound: eliminatedRound ?? this.eliminatedRound,
       eliminationReason: eliminationReason ?? this.eliminationReason,
@@ -78,6 +94,8 @@ class Player {
         'color': colorHex,
         'isAlive': isAlive,
         'isConnected': isConnected,
+        'isBot': isBot,
+        'isLocal': isLocal,
         'roleAck': roleAcknowledged,
       };
 
@@ -87,6 +105,8 @@ class Player {
         'color': colorHex,
         'role': role?.type.name,
         'isAlive': isAlive,
+        'isBot': isBot,
+        'isLocal': isLocal,
         'roleAck': roleAcknowledged,
         'deviceId': deviceId,
         'eliminatedRound': eliminatedRound,
@@ -119,6 +139,8 @@ class Player {
         colorHex: _str(j['color']) ?? '#888888',
         role: Role.tryParse(_str(j['role'])),
         isAlive: _bool(j['isAlive']) ?? true,
+        isBot: _bool(j['isBot']) ?? false,
+        isLocal: _bool(j['isLocal']) ?? false,
         roleAcknowledged: _bool(j['roleAck']) ?? false,
         deviceId: _str(j['deviceId']),
         eliminatedRound: _int(j['eliminatedRound']),

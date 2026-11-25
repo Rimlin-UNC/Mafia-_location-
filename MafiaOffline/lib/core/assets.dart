@@ -57,6 +57,14 @@ class A {
         return 'assets/cards/maniac.jpg';
       case RoleType.civilian:
         return 'assets/cards/civilian.jpg';
+      case RoleType.bodyguard:
+        return 'assets/cards/bodyguard.jpg';
+      case RoleType.witness:
+        return 'assets/cards/witness.jpg';
+      case RoleType.hunter:
+        return 'assets/cards/hunter.jpg';
+      case RoleType.blackmailer:
+        return 'assets/cards/blackmailer.jpg';
     }
   }
 
@@ -86,6 +94,14 @@ class A {
         return 'assets/instructions/roles/06_maniac.jpg';
       case RoleType.civilian:
         return 'assets/instructions/roles/07_civilian.jpg';
+      case RoleType.bodyguard:
+        return 'assets/instructions/roles/08_bodyguard.jpg';
+      case RoleType.witness:
+        return 'assets/instructions/roles/09_witness.jpg';
+      case RoleType.hunter:
+        return 'assets/instructions/roles/10_hunter.jpg';
+      case RoleType.blackmailer:
+        return 'assets/instructions/roles/11_blackmailer.jpg';
     }
   }
 

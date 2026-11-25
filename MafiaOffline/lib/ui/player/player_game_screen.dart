@@ -8,6 +8,7 @@ import '../../net/client_connection.dart';
 import '../../player/player_controller.dart';
 import '../role_card_view.dart';
 import 'role_reveal_screen.dart';
+import 'suspicion_screen.dart';
 import '../rules_screen.dart';
 import '../theme.dart';
 import '../widgets.dart';
@@ -63,6 +64,13 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
         title: Text(c.gameName.isEmpty ? 'Мафия' : c.gameName,
             overflow: TextOverflow.ellipsis),
         actions: [
+          IconButton(
+            tooltip: 'Мои подозрения',
+            icon: const Icon(Icons.edit_note),
+            onPressed: () => Navigator.push(context, MaterialPageRoute(
+              builder: (_) => SuspicionScreen(controller: c),
+            )),
+          ),
           // Правила — у всех и всегда: по этой кнопке нельзя понять роль.
           IconButton(
             tooltip: 'Правила',
@@ -198,8 +206,15 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
             child: PlayerTile(
               name: p.name,
               colorHex: p.color,
-              subtitle: p.name == c.playerName ? 'это вы' : 'подключён',
-              trailing: StatusDot(p.online ? AppColors.ok : AppColors.bad),
+              subtitle: p.name == c.playerName
+                  ? 'это вы'
+                  : p.bot
+                      ? 'бот'
+                      : (p.online ? 'подключён' : 'нет связи'),
+              // У бота нет сокета: красная точка «нет связи» на нём
+              // читалась бы как проблема, которой нет.
+              trailing:
+                  StatusDot(p.bot || p.online ? AppColors.ok : AppColors.bad),
             ),
           ),
       ],
@@ -300,6 +315,13 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
+                if (c.canPierce)
+                  CheckboxListTile(
+                    value: c.piercingSelected,
+                    onChanged: (v) => c.selectPiercing(v == true),
+                    title: const Text('Выстрел навылет'),
+                    subtitle: const Text('Общий заряд команды: пробивает лечение, но не телохранителя. Тратится при совпадении с итоговой целью мафии.'),
+                  ),
                 ElevatedButton(
                   onPressed:
                       c.selectedTargetId == null ? null : () => c.submit(),
@@ -391,6 +413,41 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
     );
   }
 
+  /// Наблюдение свидетеля: один факт, без ролей и без чужих имён.
+  Widget _buildWatchResult(WatchInfo watch) {
+    final color = watch.acted ? AppColors.warn : AppColors.ok;
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: color.withAlpha(26),
+        border: Border.all(color: color.withAlpha(102)),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        children: [
+          Icon(watch.acted ? Icons.directions_walk : Icons.bedtime,
+              color: color, size: 34),
+          const SizedBox(height: 8),
+          Text(
+            watch.acted
+                ? '${watch.name} выходил из дома'
+                : '${watch.name} не выходил из дома',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Ночью выходят не только убийцы: доктор лечит, комиссар '
+            'проверяет, проститутка блокирует. Факт сужает круг, '
+            'но никого не обвиняет.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12.5, color: AppColors.dim),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Заголовок фазы с учётом ночи знакомства и последнего слова.
   String _phaseTitle() {
     if (c.lastWordName != null) return 'Последнее слово';
@@ -428,8 +485,85 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
 
   /// Экран, когда игрок в этой фазе не действует.
   Widget _buildPassive() {
+    final mark = c.hunterMark;
+    // Охотнику метка нужна на экране в любой фазе: она решает, кого он
+    // заберёт, и вспоминать её по памяти — плохая идея.
+    if (mark != null && mark.isNotEmpty) {
+      return Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: AppColors.accent2.withAlpha(26),
+              border: Border.all(color: AppColors.accent2.withAlpha(102)),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Column(
+              children: [
+                const Icon(Icons.gps_fixed,
+                    color: AppColors.accent2, size: 34),
+                const SizedBox(height: 8),
+                Text('Ваша метка: $mark',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        fontSize: 17, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                Text(
+                  'Если вас убьют или выгонят голосованием, $mark погибнет '
+                  'вместе с вами. Метку можно сменить каждой ночью.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12.5, color: AppColors.dim),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          _passiveCore(),
+        ],
+      );
+    }
+    return _passiveCore();
+  }
+
+  Widget _passiveCore() {
     final check = c.nightCheck;
     if (check != null) return _buildNightCheck(check);
+    // Запуганный шантажистом: без объяснения он решит, что сломался телефон.
+    // Проверяем ДО наблюдения: во время голосования важнее объяснить, почему
+    // нет кнопок, чем показать вчерашний факт.
+    if (c.silenced && c.phase == GamePhase.voting) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: AppColors.warn.withAlpha(26),
+          border: Border.all(color: AppColors.warn.withAlpha(102)),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: const Column(
+          children: [
+            Icon(Icons.volume_off, color: AppColors.warn, size: 34),
+            SizedBox(height: 8),
+            Text('Сегодня вы не голосуете',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+            SizedBox(height: 4),
+            Text(
+              'Вас запугал шантажист: на этот день у вас отнят голос. '
+              'Скажите об этом вслух — стол вправе это учесть, '
+              'а вы вправе напомнить, что молчите не по своей воле.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12.5, color: AppColors.dim),
+            ),
+          ],
+        ),
+      );
+    }
+    // Свидетель: факт «выходил / не выходил» важнее анимации «выбор принят».
+    // Показываем его сразу, как только он пришёл: и ночью, и днём — это
+    // ровно то, что человек уже знает, и держать это до рассвета незачем.
+    if (c.watch != null) {
+      return _buildWatchResult(c.watch!);
+    }
     if (c.actionSent) {
       return Container(
         padding: const EdgeInsets.all(20),
@@ -530,11 +664,29 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
                       TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
               Text(
-                'Ваша роль: ${c.roleEmoji ?? ''} ${c.roleName ?? '—'}',
+                'Ваша роль: ${c.deathEmoji ?? c.roleEmoji ?? ''} '
+                '${c.deathRole ?? c.roleName ?? '—'}',
                 style: const TextStyle(fontSize: 13, color: AppColors.dim),
               ),
+              if (c.alsoKilled.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'В эту же ночь не стало: ${c.alsoKilled.join(', ')}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12.5, color: AppColors.dim),
+                ),
+              ],
             ],
           ),
+        ),
+        const SizedBox(height: 10),
+        // Выбывший — не «выключенный игрок», а смотритель: он видит стол,
+        // фазу и ленту. Это единственный способ не выпасть из партии,
+        // которая ещё идёт двадцать минут.
+        const Text(
+          'Вы остаётесь за столом: говорить нельзя, но всё, что '
+          'происходит, видно ниже. Так вы не выпадаете из игры до финала.',
+          style: TextStyle(fontSize: 12, color: AppColors.dim, height: 1.35),
         ),
         const SizedBox(height: 12),
         PhaseBanner(

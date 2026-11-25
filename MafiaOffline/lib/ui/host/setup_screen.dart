@@ -2,13 +2,16 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../core/balance_sim.dart';
 import '../../core/constants.dart';
 import '../../host/host_controller.dart';
+import '../../models/phase_timings.dart';
 import '../../models/role.dart';
 import '../../storage/app_prefs.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'lobby_screen.dart';
+import 'timing_settings.dart';
 
 /// Экран создания партии: состав игроков и ролей.
 class SetupScreen extends StatefulWidget {
@@ -23,7 +26,18 @@ class _SetupScreenState extends State<SetupScreen> {
   int _total = 10;
   bool _starting = false;
 
+  /// Последняя оценка баланса. Считается по кнопке, а не на каждое
+  /// нажатие «+»: 1200 партий на каждый тап — это заметные подвисания
+  /// при наборе состава, а ведущему нужен ответ один раз перед стартом.
+  BalanceReport? _sim;
+
+  /// Состав, для которого посчитан _sim: после правки цифр старый
+  /// результат нельзя показывать как актуальный.
+  String _simKey = '';
+
   /// Открывать ли карту выбывшего всем. По умолчанию закрыта (классика).
+  PhaseTimings _timings = const PhaseTimings();
+  bool _piercingShot = false;
   bool _openCards = false;
 
   /// Первая ночь без убийств: мафия знакомится, комиссар проверяет.
@@ -35,12 +49,19 @@ class _SetupScreenState extends State<SetupScreen> {
   /// Комиссар видит результат проверки на своём экране.
   bool _privateCheck = true;
 
+  // Набор по умолчанию — привычная «классика» на 10: двух мафиози
+  // хватает, и ни одна из новых ролей не появляется без согласия стола.
+  // Новые роли включаются в пресетах по размеру стола (см. _applyPreset).
   final Map<RoleType, int> _setup = {
     RoleType.mafia: 2,
     RoleType.don: 1,
+    RoleType.blackmailer: 0,
     RoleType.doctor: 1,
     RoleType.commissioner: 1,
+    RoleType.bodyguard: 0,
     RoleType.prostitute: 1,
+    RoleType.witness: 0,
+    RoleType.hunter: 0,
     RoleType.maniac: 0,
   };
 
@@ -59,6 +80,8 @@ class _SetupScreenState extends State<SetupScreen> {
     final r = await AppPrefs.tableRules();
     if (!mounted) return;
     setState(() {
+      _timings = r.timings;
+      _piercingShot = r.piercingShot;
       _openCards = r.openCards;
       _introNight = r.introNight;
       _lastWord = r.lastWord;
@@ -74,8 +97,12 @@ class _SetupScreenState extends State<SetupScreen> {
 
   int get _special => _setup.values.fold(0, (a, b) => a + b);
   int get _civilians => _total - _special;
+  /// Шантажист — тоже мафия: он входит в её победу, поэтому и в оценку
+  /// шансов сторон обязан попадать.
   int get _mafiaCount =>
-      (_setup[RoleType.mafia] ?? 0) + (_setup[RoleType.don] ?? 0);
+      (_setup[RoleType.mafia] ?? 0) +
+      (_setup[RoleType.don] ?? 0) +
+      (_setup[RoleType.blackmailer] ?? 0);
 
   bool get _overflow => _special > _total;
   /// Партия нежизнеспособна, только если против мафии остаётся
@@ -169,40 +196,76 @@ class _SetupScreenState extends State<SetupScreen> {
     );
   }
 
+  /// Ключ состава: если он изменился, прошлая оценка к текущему столу
+  /// уже не относится.
+  String get _setupKey =>
+      '$_total|${Role.configurable.map((r) => _setup[r] ?? 0).join(',')}';
+
+  void _runSim() {
+    final key = _setupKey;
+    final report = BalanceSim.estimate(
+      setup: _setup,
+      players: _total,
+    );
+    setState(() {
+      _sim = report;
+      _simKey = key;
+    });
+  }
+
   void _applyPreset(int players) {
     setState(() {
       _total = players;
+      // Пресеты — это «рекомендованный состав», а не закон. Новые роли
+      // появляются постепенно и только на большом столе: на шестерых
+      // четыре специальные роли уже перегруз, а на двадцати — норма.
       if (players <= 8) {
         _setup
           ..[RoleType.mafia] = 1
           ..[RoleType.don] = 1
+          ..[RoleType.blackmailer] = 0
           ..[RoleType.doctor] = 1
           ..[RoleType.commissioner] = 1
+          ..[RoleType.bodyguard] = 0
           ..[RoleType.prostitute] = 0
+          ..[RoleType.witness] = 0
+          ..[RoleType.hunter] = 0
           ..[RoleType.maniac] = 0;
       } else if (players <= 12) {
         _setup
           ..[RoleType.mafia] = 2
           ..[RoleType.don] = 1
+          ..[RoleType.blackmailer] = 0
           ..[RoleType.doctor] = 1
           ..[RoleType.commissioner] = 1
+          ..[RoleType.bodyguard] = 0
           ..[RoleType.prostitute] = 1
+          ..[RoleType.witness] = 0
+          ..[RoleType.hunter] = 0
           ..[RoleType.maniac] = 0;
       } else if (players <= 16) {
         _setup
           ..[RoleType.mafia] = 3
           ..[RoleType.don] = 1
+          ..[RoleType.blackmailer] = 1
           ..[RoleType.doctor] = 1
           ..[RoleType.commissioner] = 1
+          ..[RoleType.bodyguard] = 1
           ..[RoleType.prostitute] = 1
+          ..[RoleType.witness] = 0
+          ..[RoleType.hunter] = 0
           ..[RoleType.maniac] = 1;
       } else {
         _setup
           ..[RoleType.mafia] = 4
           ..[RoleType.don] = 1
+          ..[RoleType.blackmailer] = 1
           ..[RoleType.doctor] = 1
           ..[RoleType.commissioner] = 1
+          ..[RoleType.bodyguard] = 1
           ..[RoleType.prostitute] = 1
+          ..[RoleType.witness] = 1
+          ..[RoleType.hunter] = 1
           ..[RoleType.maniac] = 1;
       }
     });
@@ -219,6 +282,8 @@ class _SetupScreenState extends State<SetupScreen> {
       name: _nameCtrl.text.trim().isEmpty ? 'Игра' : _nameCtrl.text.trim(),
       plannedPlayers: _total,
       setup: _setup,
+      timings: _timings,
+      piercingShot: _piercingShot,
       openCards: _openCards,
       introNight: _introNight,
       lastWord: _lastWord,
@@ -226,6 +291,8 @@ class _SetupScreenState extends State<SetupScreen> {
     );
     if (ok) {
       await AppPrefs.setTableRules(TableRulePrefs(
+        timings: _timings,
+        piercingShot: _piercingShot,
         openCards: _openCards,
         introNight: _introNight,
         lastWord: _lastWord,
@@ -427,6 +494,14 @@ class _SetupScreenState extends State<SetupScreen> {
                       );
                     }),
                   ],
+                  if (!_overflow) ...[
+                    const SizedBox(height: 10),
+                    _BalanceCard(
+                      report: _sim,
+                      stale: _sim != null && _simKey != _setupKey,
+                      onRun: _runSim,
+                    ),
+                  ],
                   const SizedBox(height: 14),
                   const Text('Правила стола',
                       style: TextStyle(
@@ -439,6 +514,15 @@ class _SetupScreenState extends State<SetupScreen> {
                   // Классика: карта выбывшего закрыта. Открытая карта —
                   // для новичков и коротких партий, где важно понимать,
                   // кого город только что потерял.
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: _piercingShot,
+                    onChanged: (v) => setState(() => _piercingShot = v),
+                    title: const Text('Выстрел навылет'),
+                    subtitle: const Text('Один общий заряд мафии за партию. '
+                        'Пробивает лечение, но не телохранителя. '
+                        'Прогноз баланса не учитывает эту опцию.'),
+                  ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     value: _openCards,
@@ -471,8 +555,8 @@ class _SetupScreenState extends State<SetupScreen> {
                     title: const Text('Последнее слово и повторное голосование',
                         style: TextStyle(fontSize: 14)),
                     subtitle: const Text(
-                      'Тот, кого выбрал стол, говорит ${Rules.lastWordSeconds} '
-                      'секунд, потом все голосуют ещё раз: выгнать или '
+                      'Тот, кого выбрал стол, говорит заданное время '
+                      '(по умолчанию 30 секунд), потом голосуют ещё раз: выгнать или '
                       'оставить. Поровну — остаётся. Выключено — выбывает сразу.',
                       style: TextStyle(fontSize: 12, color: AppColors.dim),
                     ),
@@ -491,6 +575,8 @@ class _SetupScreenState extends State<SetupScreen> {
                     ),
                   ),
                   const SizedBox(height: 6),
+                  TimingSettings(value: _timings,
+                    onChanged: (v) => setState(() => _timings = v)),
                   const Text('Готовые составы',
                       style: TextStyle(color: AppColors.dim, fontSize: 12)),
                   const SizedBox(height: 6),
@@ -557,7 +643,20 @@ class _RoleRow extends StatelessWidget {
           Text(role.emoji, style: const TextStyle(fontSize: 18)),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(role.name, style: const TextStyle(fontSize: 14.5)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(role.name, style: const TextStyle(fontSize: 14.5)),
+                // Одна строка «что делает»: на экране настройки состав
+                // собирают до партии, и ведущему негде прочитать памятку.
+                Text(
+                  role.description,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 10.5, color: AppColors.dim),
+                ),
+              ],
+            ),
           ),
           _StepButton(icon: Icons.remove, onTap: onMinus),
           SizedBox(
@@ -595,6 +694,121 @@ class _StepButton extends StatelessWidget {
           border: Border.all(color: AppColors.line),
         ),
         child: Icon(icon, size: 18),
+      ),
+    );
+  }
+}
+
+/// Карточка «Проверить баланс»: прогон состава через тот же движок.
+///
+/// Почему по кнопке, а не автоматически: 1200 партий на каждое нажатие
+/// «+» — это заметные подвисания при наборе состава. Ведущему нужен
+/// ответ один раз, перед стартом, и он сам решает, когда его спросить.
+class _BalanceCard extends StatelessWidget {
+  final BalanceReport? report;
+  final bool stale;
+  final VoidCallback onRun;
+
+  const _BalanceCard({
+    required this.report,
+    required this.stale,
+    required this.onRun,
+  });
+
+  Color get _color {
+    final r = report;
+    if (r == null || stale) return AppColors.accent2;
+    return switch (r.verdict) {
+      BalanceVerdict.fair => AppColors.ok,
+      BalanceVerdict.tooEasyForCity => AppColors.warn,
+      BalanceVerdict.tooEasyForMafia => AppColors.bad,
+      BalanceVerdict.invalid => AppColors.dim,
+    };
+  }
+
+  IconData get _icon {
+    final r = report;
+    if (r == null || stale) return Icons.science_outlined;
+    return switch (r.verdict) {
+      BalanceVerdict.fair => Icons.verified_outlined,
+      BalanceVerdict.tooEasyForCity => Icons.trending_up,
+      BalanceVerdict.tooEasyForMafia => Icons.trending_down,
+      BalanceVerdict.invalid => Icons.help_outline,
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final r = report;
+    final color = _color;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: color.withAlpha(24),
+        border: Border.all(color: color.withAlpha(100)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(_icon, size: 17, color: color),
+              const SizedBox(width: 9),
+              const Expanded(
+                child: Text(
+                  'Прогноз баланса',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                ),
+              ),
+              TextButton(
+                onPressed: onRun,
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: Text(r == null || stale ? 'Посчитать' : 'Пересчитать'),
+              ),
+            ],
+          ),
+          if (r == null)
+            const Padding(
+              padding: EdgeInsets.only(top: 2),
+              child: Text(
+                'Прогонит этот состав через движок и покажет, сколько партий '
+                'выигрывает каждая сторона. Это оценка, а не приговор: '
+                'за столом решают разговоры.',
+                style: TextStyle(fontSize: 12, color: AppColors.dim, height: 1.35),
+              ),
+            )
+          else ...[
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                '${r.sharesRu}  ·  в среднем ${r.averageRounds.toStringAsFixed(1)} круга',
+                style: TextStyle(fontSize: 12.5, color: color),
+              ),
+            ),
+            if (r.note.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 5),
+                child: Text(
+                  stale ? 'Состав изменился — пересчитайте.' : r.note,
+                  style: const TextStyle(fontSize: 12, height: 1.35),
+                ),
+              ),
+            if (!stale && r.dealt.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 5),
+                child: Text(
+                  'Роздано: ${r.dealt.entries.map((e) => '${Role.fromType(e.key).emoji} '
+                      '${Role.fromType(e.key).name}×${e.value}').join(', ')}',
+                  style: const TextStyle(fontSize: 11, color: AppColors.dim),
+                ),
+              ),
+          ],
+        ],
       ),
     );
   }

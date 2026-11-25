@@ -79,6 +79,8 @@ class _NightResultSheetState extends State<NightResultSheet> {
                       subtitle: 'убийств этой ночью нет',
                     ),
 
+                  if (outcome.piercingUsed)
+                    const Text('Выстрел навылет: общий заряд мафии будет потрачен при оглашении. Лечение пробито, щит работает.'),
                   if (!intro) ...[
                   if (outcome.mafiaTargetId != null)
                     _OutcomeRow(
@@ -86,7 +88,7 @@ class _NightResultSheetState extends State<NightResultSheet> {
                       title: 'Мафия выбрала: ${s.nameOf(outcome.mafiaTargetId)}',
                       subtitle: outcome.killedIds.contains(outcome.mafiaTargetId)
                           ? 'убийство состоялось'
-                          : 'жертва спасена доктором',
+                          : 'жертва спасена',
                       danger: outcome.killedIds.contains(outcome.mafiaTargetId),
                       onEdit: () => _pickTarget(
                         title: 'Кого убила мафия',
@@ -160,6 +162,59 @@ class _NightResultSheetState extends State<NightResultSheet> {
                           'Проститутка заблокировала: ${s.nameOf(outcome.blockedId)}',
                       subtitle: 'ход этого игрока пропущен',
                     ),
+
+                  // 1.12.0. Четыре новые роли показываются отдельными
+                  // строками: ведущий должен видеть не только «сколько
+                  // трупов», но и кто кого прикрыл, запугал и за кем следил.
+                  if (outcome.guardedId != null)
+                    _OutcomeRow(
+                      emoji: '🛡',
+                      title:
+                          'Телохранитель прикрыл: ${s.nameOf(outcome.guardedId)}',
+                      subtitle: outcome.guardDiedId != null
+                          ? 'принял удар на себя — погиб '
+                              '${s.nameOf(outcome.guardDiedId)}'
+                          : 'покушения в него не было',
+                      danger: outcome.guardDiedId != null,
+                    ),
+
+                  if (outcome.silencedId != null)
+                    _OutcomeRow(
+                      emoji: '🕶',
+                      title:
+                          'Шантажист запугал: ${s.nameOf(outcome.silencedId)}',
+                      subtitle: 'весь следующий день не голосует',
+                      warn: true,
+                    ),
+
+                  if (outcome.watchedId != null)
+                    _OutcomeRow(
+                      emoji: '👁',
+                      title: 'Свидетель смотрел за: '
+                          '${s.nameOf(outcome.watchedId)}',
+                      subtitle: outcome.watchedActed == true
+                          ? 'выходил из дома — результат уже у свидетеля'
+                          : 'не выходил из дома — результат у свидетеля',
+                      warn: true,
+                    ),
+
+                  if (outcome.hunterMarkId != null)
+                    _OutcomeRow(
+                      emoji: '🎯',
+                      title:
+                          'Охотник отметил: ${s.nameOf(outcome.hunterMarkId)}',
+                      subtitle: 'метка действует со следующей ночи; '
+                          'вчерашняя — ${s.hunterMarkId == null ? 'не стояла' : 'стоит до сих пор'}',
+                    ),
+
+                  if (outcome.revengeIds.isNotEmpty)
+                    for (final id in outcome.revengeIds)
+                      _OutcomeRow(
+                        emoji: '☠',
+                        title: 'Охотник забрал с собой: ${s.nameOf(id)}',
+                        subtitle: 'сработала метка прошлой ночи',
+                        danger: true,
+                      ),
 
                   const SizedBox(height: 10),
                   Container(
@@ -235,22 +290,28 @@ class _NightResultSheetState extends State<NightResultSheet> {
     final newHealed =
         identical(healed, _keep) ? o.healedId : healed as String?;
 
-    final killed = <String>[];
-    if (newMafia != null && newMafia != newHealed) killed.add(newMafia);
-    if (newManiac != null &&
-        newManiac != newHealed &&
-        !killed.contains(newManiac)) {
-      killed.add(newManiac);
-    }
+    // Усиление сохраняется при ручной правке, отменяется при снятии цели.
+    final piercing = o.piercingUsed && newMafia != null;
+    final deaths = GameEngine.resolveAttacks(s, mafiaTarget: newMafia,
+      maniacTarget: newManiac, healedId: newHealed,
+      guardedId: o.guardedId, piercing: piercing);
 
     c.editNightOutcome(NightOutcome(
-      killedIds: killed,
+      piercingUsed: piercing,
+      killedIds: deaths.killed,
       mafiaTargetId: newMafia,
       maniacTargetId: newManiac,
       healedId: newHealed,
       blockedId: o.blockedId,
       checkedId: o.checkedId,
       checkResultIsMafia: o.checkResultIsMafia,
+      guardedId: o.guardedId,
+      guardDiedId: deaths.guardDied,
+      silencedId: o.silencedId,
+      watchedId: o.watchedId,
+      watchedActed: o.watchedActed,
+      hunterMarkId: o.hunterMarkId,
+      revengeIds: deaths.revenge,
     ));
     setState(() {});
   }

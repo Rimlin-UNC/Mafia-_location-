@@ -5,15 +5,24 @@ HostController фазы, _handleRegister, renamePlayer, targets-фильтрац
 v1.2.0: правила стола (ночь знакомства, последнее слово), журнал проверок
 комиссара, запрет доктору лечить себя (в Dart он есть с 1.1.0, порт отстал).
 
+v1.12.0: четыре новые роли — телохранитель, свидетель, охотник, шантажист.
+Порт повторяет Dart один в один: щит раньше доктора, шантаж отнимает голос,
+а не ход, метка охотника срабатывает со следующей ночи и при изгнании.
+
 Осознанное упрощение: start_game() сразу начинает первую ночь, без фазы
 rolesCheck. Гейт раздачи ролей проверяет отдельный стенд forcestart.py."""
 import random
 
 MAFIA,DON,DOCTOR,COM,PROS,MANIAC,CIV='mafia','don','doctor','commissioner','prostitute','maniac','civilian'
+# 1.12.0: новые роли. Все четыре — из тех же примитивов, что уже умел
+# движок: щит, наблюдение, месть и лишение голоса.
+GUARD,WITNESS,HUNTER,BLACK='bodyguard','witness','hunter','blackmailer'
 # Маньяк — одиночка ('solo'): не за город и не за мафию, побеждает только
 # оставшись последним живым (классика, v1.1.0).
-SIDE={MAFIA:'mafia',DON:'mafia',DOCTOR:'civ',COM:'civ',PROS:'civ',CIV:'civ',MANIAC:'solo'}
-NIGHT_ACTIVE={MAFIA,DON,DOCTOR,COM,PROS,MANIAC}
+SIDE={MAFIA:'mafia',DON:'mafia',BLACK:'mafia',
+      DOCTOR:'civ',COM:'civ',PROS:'civ',CIV:'civ',GUARD:'civ',WITNESS:'civ',HUNTER:'civ',
+      MANIAC:'solo'}
+NIGHT_ACTIVE={MAFIA,DON,DOCTOR,COM,PROS,MANIAC,GUARD,WITNESS,HUNTER,BLACK}
 WAITING,NIGHT,DAY,VOTING,ENDED='waiting','night','day','voting','ended'
 COLORS=['#FF5733','#33FF57','#3357FF','#FF33A1','#FFD733','#33FFF5','#F533FF','#F5A623',
         '#7ED321','#4A90E2','#E94E77','#50E3C2','#B8E986','#BD10E0','#F8E71C','#9013FE',
@@ -40,7 +49,13 @@ class Game:
         s.rnd=random.Random(seed)
         s.players=[]; s.phase=WAITING; s.round=0; s.time_left=0; s.paused=False
         s.night_actions={}; s.votes={}; s.runoff=[]; s.pending_night=None
-        s.awaiting_vote_confirm=False; s.last_healed=None; s.log=[]; s.winner=None
+        s.awaiting_vote_confirm=False; s.last_healed=None; s.last_guarded=None
+        # 1.12.0: состояние ночных эффектов, живущее между днями.
+        s.silenced=None; s.silenced_round=0
+        s.watch_target=None; s.watch_acted=None; s.watch_round=0
+        s.watch_packets=[]      # порт Msg.watchResult — только свидетелю
+        s.hunter_mark=None
+        s.log=[]; s.winner=None
         s.sounds=[]; s.errors=[]
 
     # ---------- выборки ----------
@@ -61,7 +76,10 @@ class Game:
     @property
     def night_active(s): return [p for p in s.players if s.acts_tonight(p)]
     @property
+    # Стрелки мафии: шантажист сюда не входит, он не выбирает жертву.
     def mafia_team(s): return [p for p in s.players if p.alive and p.role in (MAFIA,DON)]
+    # Вся мафия: для «своих» и для условия победы.
+    def mafia_siders(s): return [p for p in s.players if p.alive and SIDE[p.role]=='mafia']
     def _first(s,role): return next((p for p in s.players if p.alive and p.role==role),None)
     @property
     def pending_actors(s): return [p for p in s.night_active if p.id not in s.night_actions]
@@ -113,14 +131,16 @@ class Game:
     # ---------- раздача ролей (порт GameEngine.assignRoles) ----------
     def start_game(s):
         pool=[]
-        for t in [DON,MAFIA,DOCTOR,COM,PROS,MANIAC]:
+        for t in [DON,MAFIA,BLACK,DOCTOR,COM,GUARD,PROS,WITNESS,HUNTER,MANIAC]:
             pool += [t]*s.setup.get(t,0)
         n=len(s.players)
         while len(pool)>n: pool.pop()
         # Защита баланса: после раздачи никто не должен победить сразу.
         # Условие совпадает с check_winner: мафия побеждает при mafia >= city,
         # где city НЕ считает маньяка — он играет сам за себя.
-        mc=lambda: sum(1 for r in pool if r in (MAFIA,DON))
+        # Шантажист — мафия по стороне, хотя и не стрелок: в балансе
+        # считается вместе с командой, иначе город получал бы лишний голос.
+        mc=lambda: sum(1 for r in pool if r in (MAFIA,DON,BLACK))
         kc=lambda: sum(1 for r in pool if r==MANIAC)
         while pool and mc() > 0:
             if mc() < n - mc() - kc(): break
@@ -141,6 +161,10 @@ class Game:
         s.night_actions={}; s.votes={}; s.runoff=[]
         s.awaiting_vote_confirm=False; s.paused=False; s.pending_night=None
         s.last_word_id=None; s.verdict_id=None
+        # Шантаж и наблюдение живут один день; метка охотника — пока её
+        # не сменят.
+        s.silenced=None; s.silenced_round=0
+        s.watch_target=None; s.watch_acted=None; s.watch_round=0
         s.time_left=20+10*len(s.night_active)
         s.log.append(f'Ночь {s.round}' + (' — знакомство' if s.is_intro_night else ''))
         s.sounds.append('night_falls')
@@ -149,9 +173,14 @@ class Game:
         """Порт _targetsFor — что видит игрок в списке целей."""
         c=[x for x in s.alive]
         if s.phase==NIGHT:
-            if p.role in (MAFIA,DON): c=[x for x in c if x.role not in (MAFIA,DON)]
-            if p.role in (PROS,COM,DOCTOR): c=[x for x in c if x.id!=p.id]
+            if p.role in (MAFIA,DON):
+                c=[x for x in c if SIDE[x.role]!='mafia']
+            if p.role==BLACK:
+                c=[x for x in c if x.id!=p.id and SIDE[x.role]!='mafia']
+            if p.role in (PROS,COM,DOCTOR,GUARD,WITNESS,HUNTER):
+                c=[x for x in c if x.id!=p.id]
             if p.role==DOCTOR and s.last_healed: c=[x for x in c if x.id!=s.last_healed]
+            if p.role==GUARD and s.last_guarded: c=[x for x in c if x.id!=s.last_guarded]
         elif s.phase==VOTING:
             c=[x for x in c if x.id!=p.id]
             if s.runoff: c=[x for x in c if x.id in s.runoff]
@@ -163,10 +192,13 @@ class Game:
         if not p or not p.alive: return 'dead'
         if not s.acts_tonight(p): return 'not_active'
         if pid in s.night_actions: return 'already'
+        # Цель сознательно не проверяется: стенды (rules120, edge) шлют
+        # заведомо нелегальные ходы и проверяют, что движок их отвергнет.
         s.night_actions[pid]=target
         # Комиссар видит ответ сразу. Зовём после каждого хода: если он
         # сходил раньше проститутки, ответ приходит в момент её хода.
         s._deliver_check()
+        s._deliver_watch()
         if not s.pending_actors: s.finish_night()
         return None
 
@@ -209,6 +241,32 @@ class Game:
         s.checks.append(c)
         if s.private_check: s.check_packets.append((c['round'],c['by'],dict(c)))
 
+    def watch_known_now(s):
+        """Порт GameEngine.watchKnownNow: что свидетель уже может сказать."""
+        if s.phase!=NIGHT: return None
+        wit=s._first(WITNESS)
+        if wit is None: return None
+        watched=s.night_actions.get(wit.id)
+        if watched is None: return None
+        pros=s._first(PROS)
+        blocked = (not s.is_intro_night) and pros is not None and \
+            s.night_actions.get(pros.id)==wit.id
+        if blocked: return None
+        tp=s.by_id(watched)
+        if tp is None: return None
+        if s.pending_night is not None:
+            return dict(round=s.round,target=watched,acted=s.pending_night.get('watched_acted'))
+        # Ждём, пока объект сходит: «выходил» — это факт его хода.
+        if watched not in s.night_actions: return None
+        return dict(round=s.round,target=watched,acted=s.acts_tonight(tp))
+
+    def _deliver_watch(s):
+        """Порт HostController._deliverWatch."""
+        w=s.watch_known_now()
+        if w is None: return
+        if any(x['round']==w['round'] for x in s.watch_packets): return
+        s.watch_packets.append(w)
+
     def resolve_mafia_target(s):
         team=s.mafia_team
         if not team: return None
@@ -246,11 +304,43 @@ class Game:
             # Доктор не лечит себя и одну цель две ночи подряд.
             if t is not None and t!=doc.id and t!=s.last_healed: healed=t
 
+        # Шантаж: цель не теряет ход, но весь следующий день не голосует.
+        silenced=None
+        bl=s._first(BLACK)
+        if bl is not None and not blk(bl):
+            victim=s.by_id(a.get(bl.id))
+            if victim is not None and victim.alive and victim.id!=bl.id \
+                    and SIDE[victim.role]!='mafia':
+                silenced=victim.id
+
+        # Телохранитель: щит раньше доктора, себя и повтор нельзя.
+        guarded=None
+        guard=s._first(GUARD)
+        if guard is not None and not blk(guard):
+            t=a.get(guard.id)
+            if t is not None and t!=guard.id and t!=s.last_guarded: guarded=t
+
         team=s.mafia_team; mafia_t=None
         team_blocked=bool(team) and all(m.id==blocked for m in team)
         if team and not team_blocked: mafia_t=s.resolve_mafia_target()
 
         man=s._first(MANIAC); man_t=a.get(man.id) if (man and not blk(man)) else None
+
+        # Свидетель наблюдает; факт выхода не зависит от блокировки цели.
+        watched=None; watched_acted=None
+        wit=s._first(WITNESS)
+        if wit is not None and not blk(wit):
+            tp=s.by_id(a.get(wit.id))
+            if tp is not None:
+                watched=tp.id; watched_acted=s.acts_tonight(tp)
+
+        # Метка охотника действует со следующей ночи. Мёртвый охотник
+        # метку не ставит: если его убили этой же ночью, его ход не в счёт.
+        mark=None
+        hunter=s._first(HUNTER)
+        if hunter is not None and not blk(hunter):
+            t=a.get(hunter.id)
+            if t is not None and t!=hunter.id: mark=t
 
         com=s._first(COM); checked=None; is_maf=None
         if com and not blk(com):
@@ -258,14 +348,43 @@ class Game:
             if checked is not None:
                 tp=s.by_id(checked); is_maf=(tp.role==MAFIA) if tp else None
 
-        killed=[]
-        if mafia_t is not None and mafia_t!=healed: killed.append(mafia_t)
-        if man_t is not None and man_t!=healed and man_t not in killed: killed.append(man_t)
+        shots=[]
+        if mafia_t is not None and mafia_t!=healed: shots.append(mafia_t)
+        if man_t is not None and man_t!=healed and man_t not in shots: shots.append(man_t)
+
+        killed=[]; guard_died=None
+        for pid in shots:
+            if guarded is not None and pid==guarded and guard is not None:
+                if guard.id not in killed: killed.append(guard.id)
+                guard_died=guard.id
+            elif pid not in killed:
+                killed.append(pid)
+
+        # Лечение спасает и телохранителя, принявшего удар.
+        if healed is not None and healed in killed: killed.remove(healed)
+
+        # Мёртвый охотник метку не ставит: если его убили этой же ночью,
+        # его ход не в счёт (метка всё равно сработала бы только с
+        # следующей ночи, а старую снимает announce_night).
+        if hunter is not None and hunter.id in killed:
+            mark=None
+
+        # Охотник забирает отмеченного прошлой ночью, если погиб сам.
+        revenge=[]
+        if hunter is not None and hunter.id in killed:
+            mp=s.by_id(s.hunter_mark)
+            if mp is not None and mp.alive and mp.id!=hunter.id and mp.id not in killed:
+                revenge.append(mp.id); killed.append(mp.id)
+
         s.pending_night=dict(killed=killed,mafia=mafia_t,maniac=man_t,healed=healed,
-                             blocked=blocked,checked=checked,is_mafia=is_maf)
+                             blocked=blocked,checked=checked,is_mafia=is_maf,
+                             guarded=guarded,guard_died=guard_died,
+                             silenced=silenced,watched=watched,watched_acted=watched_acted,
+                             mark=mark,revenge=revenge)
         s.paused=True
         # Ночь закрыта: если комиссар ждал хода проститутки, ответ — сейчас.
         s._deliver_check()
+        s._deliver_watch()
 
     def announce_night(s):
         o=s.pending_night
@@ -276,7 +395,25 @@ class Game:
         for pid in o['killed']:
             p=s.by_id(pid)
             if p: p.alive=False; p.elim_round=s.round; p.elim_reason='killed'
-        s.last_healed=o['healed']; s.pending_night=None
+        s.last_healed=o['healed']; s.last_guarded=o.get('guarded')
+        s.silenced=o.get('silenced'); s.silenced_round=s.round
+        s.watch_target=o.get('watched'); s.watch_acted=o.get('watched_acted')
+        s.watch_round=s.round
+        # Метка переживает ночь, в которую её не меняли, и снимается
+        # только со смертью охотника. «Смерть» — это и ночное убийство,
+        # и изгнание, поэтому проверяем фактическое выживание, а не факт
+        # из итога ночи.
+        hunter=s._first(HUNTER)
+        if o.get('mark') is not None:
+            s.hunter_mark=o['mark']
+        if hunter is None or not hunter.alive:
+            s.hunter_mark=None
+        # Порт Msg.watchResult: наблюдение уходит только свидетелю.
+        if o.get('watched') is not None and not any(
+                x['round']==s.round for x in s.watch_packets):
+            s.watch_packets.append(dict(round=s.round,target=o['watched'],
+                                        acted=o.get('watched_acted')))
+        s.pending_night=None
         s.sounds.append('kill' if o['killed'] else 'no_deaths')
         s.log.append(f"Ночь {s.round}: " + (', '.join(s.name_of(k) for k in o['killed']) if o['killed'] else 'без жертв'))
         if s.check_game_over(): return
@@ -302,6 +439,7 @@ class Game:
         v=s.by_id(voter_id)
         if not v or not v.alive: return 'dead'
         if s.is_verdict_vote and voter_id==s.verdict_id: return 'accused'
+        if s.silenced is not None and s.silenced==voter_id: return 'silenced'
         if voter_id in s.votes: return 'already'
         if s.runoff and target is not None and target not in s.runoff: target=None
         s.votes[voter_id]=target
@@ -350,6 +488,14 @@ class Game:
         p=s.by_id(pid)
         if p: p.alive=False; p.elim_round=s.round; p.elim_reason='voted'
         s.log.append(f'День {s.round}: выбыл {s.name_of(pid)}')
+        # Месть охотника работает и при изгнании голосованием.
+        if p is not None and p.role==HUNTER:
+            marked=s.by_id(s.hunter_mark)
+            if marked is not None and marked.alive and marked.id!=p.id:
+                marked.alive=False; marked.elim_round=s.round
+                marked.elim_reason='hunter'
+                s.hunter_mark=None
+                s.log.append(f'Охотник забрал с собой: {s.name_of(marked.id)}')
         s.sounds.append('eliminated')
         if s.check_game_over(): return
         s.start_night()

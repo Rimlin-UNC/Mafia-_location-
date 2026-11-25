@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../core/protocol_export.dart';
 import '../models/game_event.dart';
+import '../models/role.dart';
 import '../storage/history_repository.dart';
 import 'app_sheet.dart';
 import 'theme.dart';
@@ -10,6 +11,26 @@ import 'widgets.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
+
+  /// «20 игроков» — верный падеж для счётчика в списке партий.
+  static String playersRu(int n) {
+    final mod100 = n % 100;
+    final mod10 = n % 10;
+    if (mod100 >= 11 && mod100 <= 14) return '$n игроков';
+    if (mod10 == 1) return '$n игрок';
+    if (mod10 >= 2 && mod10 <= 4) return '$n игрока';
+    return '$n игроков';
+  }
+
+  /// «7 раундов» — неверный падеж; склоняем по-русски.
+  static String roundsRu(int n) {
+    final mod100 = n % 100;
+    final mod10 = n % 10;
+    if (mod100 >= 11 && mod100 <= 14) return '$n раундов';
+    if (mod10 == 1) return '$n раунд';
+    if (mod10 >= 2 && mod10 <= 4) return '$n раунда';
+    return '$n раундов';
+  }
 
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
@@ -70,7 +91,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           title: Text(g.name),
                           subtitle: Text(
                             '${_fmtDate(g.createdAt)} · '
-                            '${g.players.length} игроков · ${g.winnerTitle}',
+                            '${HistoryScreen.playersRu(g.players.length)}'
+                            ' · ${g.winnerTitle}',
                             style: const TextStyle(fontSize: 12),
                           ),
                           trailing: const Icon(Icons.chevron_right),
@@ -131,27 +153,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 style: const TextStyle(
                     fontSize: 19, fontWeight: FontWeight.bold)),
             Text(
-              '${_fmtDate(g.createdAt)} · ${g.rounds} раундов · ${g.winnerTitle}',
+              '${_fmtDate(g.createdAt)} · ${HistoryScreen.roundsRu(g.rounds)} · '
+              '${g.winnerTitle}',
               style: const TextStyle(fontSize: 12.5, color: AppColors.dim),
             ),
             const SizedBox(height: 18),
             const Text('Расклад ролей',
                 style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            for (final p in g.players)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Row(
-                  children: [
-                    Expanded(child: Text(p['name']?.toString() ?? '—')),
-                    Text(
-                      p['role']?.toString() ?? '—',
-                      style: const TextStyle(
-                          fontSize: 12.5, color: AppColors.dim),
-                    ),
-                  ],
-                ),
-              ),
+            for (final p in g.players) HistoryPlayerRow(player: p),
             const SizedBox(height: 18),
             const Text('Хронология',
                 style: TextStyle(fontWeight: FontWeight.bold)),
@@ -191,6 +201,62 @@ class _HistoryScreenState extends State<HistoryScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Строка «игрок — роль» в раскладе партии.
+///
+/// Роль в истории хранится служебным именем (`RoleType.name`), поэтому
+/// подпись берётся из единого словаря `Role.nameRuFor`. Раньше здесь
+/// печаталось сырое значение, и после партии игроки видели «civilian».
+///
+/// Длинные названия новых ролей («Телохранитель», «Шантажист») на узком
+/// экране не должны выталкивать имя игрока: роль ограничена по ширине,
+/// и её можно прочитать в протоколе, скопировав его целиком.
+class HistoryPlayerRow extends StatelessWidget {
+  final Map<String, dynamic> player;
+
+  const HistoryPlayerRow({super.key, required this.player});
+
+  static String roleLabel(Map<String, dynamic> p) {
+    final name = Role.nameRuFor(p['role']?.toString());
+    return name.isEmpty ? '—' : name;
+  }
+
+  /// Имя плюс честные пометки.
+  ///
+  /// Ведущий, который «тоже играет», в истории выглядит обычным игроком —
+  /// без пометки непонятно, почему его роль ничего не значит.
+  static String playerLabel(Map<String, dynamic> p) {
+    final name = p['name']?.toString() ?? '—';
+    final marks = <String>[
+      if (p['isLocal'] == true) 'ведущий',
+      if (p['isBot'] == true) 'бот',
+    ];
+    return marks.isEmpty ? name : '$name (${marks.join(', ')})';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: Text(playerLabel(player))),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              roleLabel(player),
+              textAlign: TextAlign.right,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12.5, color: AppColors.dim),
+            ),
+          ),
+        ],
       ),
     );
   }

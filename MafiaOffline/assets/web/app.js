@@ -31,17 +31,25 @@
 
 const V = 1;                       // версия протокола — должна совпадать с Dart
 const $ = (id) => document.getElementById(id);
+const assetUrl = path => path + '?' + ((window.__MAFIA__ && window.__MAFIA__.v) || 'v21');
 
 // ---------------------------------------------------------------- состояние
 const S = {
-  ws: null, playerId: null, name: '', code: '',
+  ws: null, playerId: null, name: '', code: '', actionEpoch: 0,
   phase: 'waiting', round: 0, paused: false,
   // deadline — момент (в наших часах), когда фаза закончится.
   // time держим только для показа, источник истины — deadline.
   time: 0, deadline: 0,
-  isAlive: true, canAct: false, sent: false,
+  isAlive: true, canAct: false, sent: false, canPierce: false,
   role: null, roleName: null, roleEmoji: null, roleDesc: null,
+  watch: null,        // наблюдение свидетеля: {round, name, acted}
+  silenced: false,    // запуган шантажистом: сегодня без голоса
+  hunterMark: null,   // имя того, кого охотник заберёт с собой (1.12.0)
   mates: [], targets: [], selected: null,
+  // Кем были мы и кто ещё погиб этой же ночью (1.13.0). Нужно экрану
+  // выбывшего: он остаётся за столом смотрителем и должен понимать,
+  // почему в ленте появилось сразу две смерти.
+  deathRole: null, deathEmoji: null, alsoKilled: [],
   disguised: false, revealed: false, awaitingReveal: false,
   lobby: [], log: [], reveal: [],
   attempt: 0, tick: null, manualClose: false,
@@ -68,9 +76,9 @@ const S = {
   rules: null,           // правила стола из пакета лобби
 };
 
-/// Русские названия ролей по проводному имени. Нужны там, где сервер
-/// присылает только `RoleType.name` (открытая карта выбывшего), а не
-/// готовую подпись: без словаря игрок увидел бы «maniac».
+// Русские названия ролей по проводному имени. Нужны там, где сервер
+// присылает только `RoleType.name` (открытая карта выбывшего), а не
+// готовую подпись: без словаря игрок увидел бы «maniac».
 const ROLE_RU = {
   mafia: 'Мафия',
   don: 'Дон',
@@ -79,7 +87,22 @@ const ROLE_RU = {
   prostitute: 'Проститутка',
   maniac: 'Маньяк',
   civilian: 'Мирный житель',
+  // 1.12.0: роли, которые могут выбыть и открыться в итогах ночи.
+  bodyguard: 'Телохранитель',
+  witness: 'Свидетель',
+  hunter: 'Охотник',
+  blackmailer: 'Шантажист',
 };
+
+// Подпись роли по служебному имени.
+//
+// В итоговом раскладе хост присылает `RoleType.name` (см. Msg.gameOver),
+// а не готовую подпись. Раньше этот экран печатал имя как есть, и после
+// партии игроки видели «civilian» и «hunter» вместо русских названий.
+function roleRu(wire) {
+  if (!wire) return '';
+  return ROLE_RU[wire] || wire;
+}
 
 
 // ------------------------------------------------------- синхронизация часов
@@ -125,7 +148,7 @@ const Sound = {
     if (!this.ctx) return null;
     if (this.cache[name]) return this.cache[name];
     try {
-      const r = await fetch('/sounds/' + name, { cache: 'force-cache' });
+      const r = await fetch(assetUrl('/sounds/' + name), { cache: 'force-cache' });
       const buf = await this.ctx.decodeAudioData(await r.arrayBuffer());
       this.cache[name] = buf;
       return buf;
@@ -317,10 +340,12 @@ function connect() {
   }, 8000);
 
   ws.onopen = () => {
+    if (S.ws !== ws) return;
     clearTimeout(openGuard);
     S.attempt = 0;
     S.lastPongAt = Date.now();
     setConn(true);
+    S.awaitingSync = true;
     // Повторный вход после обрыва — сервер вернёт нас в свой слот
     // по имени (см. reclaim в host_controller.dart).
     send('register', {
@@ -331,11 +356,13 @@ function connect() {
   };
 
   ws.onmessage = (e) => {
+    if (S.ws !== ws) return;
     try { onMessage(JSON.parse(e.data)); } catch (err) {}
   };
 
   ws.onclose = () => {
     clearTimeout(openGuard);
+    if (S.ws !== ws) return;
     setConn(false);
     stopPing();
     if (!S.manualClose) scheduleRetry();
@@ -345,7 +372,7 @@ function connect() {
 }
 
 function send(type, data) {
-  if (!S.ws || S.ws.readyState !== 1) return false;
+  if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 65536) return false;
   try {
     S.ws.send(JSON.stringify({ v: V, ts: Date.now(), type, ...(data || {}) }));
     return true;
@@ -357,6 +384,7 @@ function startPing() {
   const beat = () => {
     lastPing = Date.now();
     send('ping', { playerId: S.playerId, t: lastPing, rtt: Clock.rtt || undefined });
+    if (S.joined && !S.awaitingSync) flushPending();
   };
   beat();
   pingTimer = setInterval(beat, 5000);
@@ -437,7 +465,7 @@ function onMessage(m) {
         if (!S.reclaimShown) { banner('Вы вернулись в игру', 'ok'); }
         S.reclaimShown = true;
         // Ход, отправленный в момент обрыва, мог не дойти — повторяем.
-        flushPending();
+        // Ждём персональный sync: старый ход нельзя повторять до проверки эпохи.
       }
       if (S.phase === 'waiting') show('scr-lobby');
       Screen.acquire();
@@ -489,6 +517,20 @@ function onMessage(m) {
       }
       renderLobby();
       break;
+
+    case 'bot_speech': {
+      const line = `${m.name || 'Бот'}: ${m.text || ''}`;
+      if (m.text) { banner(line, 'info'); addLog(line); }
+      break;
+    }
+
+    // Итог наблюдения свидетеля. Баннера нет: как и комиссара,
+    // наблюдателя не должно выдавать свечение чужого экрана.
+    case 'watch_result': {
+      if (m.name) S.watch = { round: m.round || S.round, name: m.name, acted: !!m.acted };
+      render();
+      break;
+    }
 
     // Результат проверки — только комиссару, ночью, сразу после выбора.
     // Ни баннера, ни вибро: ответ рисует ночной экран (см. nightCheck),
@@ -543,7 +585,9 @@ function onMessage(m) {
 
     case 'vote_runoff':
       S.targets = (m.candidates || []).map(c => ({ id: c.id, name: c.name, color: c.color || '#8d93a8' }));
-      S.canAct = S.isAlive; S.sent = false; S.selected = null;
+      // Запуганный шантажистом не голосует и во втором туре: иначе он
+      // нажал бы кнопку, а голос молча не засчитался.
+      S.canAct = S.isAlive && !S.silenced; S.sent = false; S.selected = null;
       banner('Второй тур голосования', 'info');
       buzz(60);
       render();
@@ -562,6 +606,11 @@ function onMessage(m) {
 
     case 'eliminated':
       S.isAlive = false; S.canAct = false;
+      // Роль и «кто ещё» приходят только самому выбывшему: это его
+      // собственные сведения, а не открытая карта для всего стола.
+      S.deathRole = m.role || null;
+      S.deathEmoji = m.roleEmoji || null;
+      S.alsoKilled = Array.isArray(m.alsoKilled) ? m.alsoKilled : [];
       banner(m.reason === 'vote' ? 'Вас выгнали голосованием' : 'Вас убили этой ночью', 'bad');
       flash(); buzz([100, 80, 100]); render();
       break;
@@ -615,7 +664,8 @@ function onMessage(m) {
       break;
 
     case 'ack':
-      // Хост подтвердил приём — можно забыть про повтор.
+      if (m.actionEpoch != null && m.actionEpoch !== S.actionEpoch) break;
+      // Хост подтвердил приём текущего хода.
       S.pendingAction = null;
       S.sent = true; S.canAct = false;
       render();
@@ -629,11 +679,18 @@ function flushPending() {
   const p = S.pendingAction;
   if (!p) return;
   // Фаза могла смениться, пока нас не было — тогда ход уже не нужен.
-  if (p.phase !== S.phase || p.round !== S.round) { S.pendingAction = null; return; }
-  send(p.type, { playerId: S.playerId, targetId: p.targetId });
+  if (p.actionEpoch !== S.actionEpoch || p.phase !== S.phase || p.round !== S.round) { S.pendingAction = null; return; }
+  send(p.type, { playerId: S.playerId, targetId: p.targetId, actionEpoch: p.actionEpoch, piercing: p.piercing === true });
 }
 
 function applyPhase(m) {
+  if (Array.isArray(m.publicLog)) S.log = m.publicLog.filter(t => typeof t === 'string').slice(0, 40);
+  S.awaitingSync = false;
+  const epoch = Number.isInteger(m.actionEpoch) ? m.actionEpoch : 0;
+  if (S.actionEpoch !== epoch || m.alreadyActed ||
+      (S.pendingAction && ((m.phase && S.pendingAction.phase !== m.phase) ||
+       (m.round != null && S.pendingAction.round !== m.round)))) S.pendingAction = null;
+  S.actionEpoch = epoch;
   const prevPhase = S.phase;
   S.phase = m.phase || S.phase;
   S.round = m.round ?? S.round;
@@ -641,7 +698,10 @@ function applyPhase(m) {
   S.paused = m.paused ?? false;
   S.isAlive = m.isAlive ?? S.isAlive;
   S.canAct = m.canAct ?? false;
-  S.sent = m.alreadyActed ?? false;
+  S.canPierce = m.canPierce === true;
+  $('in-piercing').checked = false;
+  S.sent = (m.alreadyActed ?? false) || !!S.pendingAction;
+  if (S.pendingAction) S.canAct = false;
   S.targets = m.targets || [];
   S.selected = null;
   if (m.prompt) $('prompt').textContent = m.prompt;
@@ -657,6 +717,11 @@ function applyPhase(m) {
   // Поле 1.3.0: повторное голосование после последнего слова.
   S.verdict = (m.verdict && m.verdict.name) ? m.verdict : null;
   if (Array.isArray(m.checks)) S.checks = m.checks;
+  // 1.12.0: наблюдение свидетеля и шантаж. Поля необязательные —
+  // ведущий старой версии их не пришлёт, и клиент просто их не покажет.
+  if (m.watch && m.watch.name) S.watch = m.watch;
+  if (typeof m.silenced === 'boolean') S.silenced = m.silenced;
+  if (m.hunterMark && m.hunterMark.name) S.hunterMark = m.hunterMark.name;
 
   // sync после переподключения приносит роль заново
   if (m.role) S.role = m.role;
@@ -696,6 +761,7 @@ function applyPhase(m) {
   // нужно показать заново, иначе игрок останется на экране входа.
   if (S.awaitingReveal && S.roleName) show('scr-reveal');
   if (S.phase !== 'waiting' && !S.awaitingReveal) show('scr-game');
+  flushPending();
   startTick();
 }
 
@@ -749,7 +815,7 @@ const PHASES = {
   ended:   ['🏁', 'Финал',     'day'],
 };
 
-/// ---- сюжетные карточки ----
+// ---- сюжетные карточки ----
 // Карточка — это пауза в партии: ведущий читает фразу вслух. Поэтому
 // она перекрывает экран целиком, а не висит баннером в ленте.
 let _storyEl = null;
@@ -771,7 +837,7 @@ function showStory(m) {
   // Картинка не обязательна: у части карточек её нет, текст самодостаточен.
   if (m.image) {
     const img = document.createElement('img');
-    img.src = '/' + m.image.replace(/^assets\//, '');
+    img.src = assetUrl('/' + m.image.replace(/^assets\//, ''));
     img.alt = m.title || '';
     img.style.cssText = 'width:100%;display:block;aspect-ratio:2/3;object-fit:cover';
     img.onerror = () => img.remove();
@@ -821,6 +887,7 @@ function nightCheck() {
 }
 
 function render() {
+  $('piercing-choice').classList.toggle('hidden', !(S.canPierce && S.canAct && !S.sent && S.phase === 'night'));
   const [ico, nm, cls] = PHASES[S.phase] || PHASES.waiting;
   // Последнее слово, повторное голосование и ночь знакомства — не отдельные
   // фазы протокола, а «день», «голосование» и «ночь» с пометкой: старый
@@ -862,7 +929,13 @@ function render() {
 
   if (dead) {
     $('dead-title').textContent = 'Вы выбыли из игры';
-    $('dead-role').textContent = `Ваша роль: ${S.roleEmoji || ''} ${S.roleName || '—'}`;
+    const dEmoji = S.deathEmoji || S.roleEmoji || '';
+    const dRole = S.deathRole || S.roleName || '—';
+    let deadLine = `Ваша роль: ${dEmoji} ${dRole}`;
+    if (S.alsoKilled.length) {
+      deadLine += `\nВ эту же ночь не стало: ${S.alsoKilled.join(', ')}`;
+    }
+    $('dead-role').textContent = deadLine;
     renderLog();
   } else if (verdictVote) {
     // Вопрос один, кандидат один — список не нужен, хватит двух кнопок.
@@ -901,15 +974,34 @@ function renderIdle() {
     $('idle-sub').textContent = check.blocked
       ? 'Этой ночью вас заблокировали. Следующая проверка — следующей ночью.'
       : 'Одна проверка за ночь. Утром ответ останется только в «Моя роль».';
+  } else if (S.silenced && S.phase === 'voting') {
+    $('idle-emoji').textContent = '🤐';
+    $('idle-text').textContent = 'Сегодня вы не голосуете';
+    $('idle-sub').textContent =
+      'Вас запугал шантажист. Скажите об этом вслух — стол вправе это учесть.';
+  } else if (S.watch) {
+    // Свидетель: один факт — и это единственное, что у него есть. Показываем
+    // сразу, как он пришёл: и ночью, и днём — это то, что человек уже знает.
+    $('idle-emoji').textContent = S.watch.acted ? '🚶' : '🌙';
+    $('idle-text').textContent = S.watch.acted
+      ? `${S.watch.name} выходил из дома`
+      : `${S.watch.name} не выходил из дома`;
+    $('idle-sub').textContent =
+      'Ночью выходят не только убийцы: доктор лечит, комиссар проверяет. '
+      + 'Факт сужает круг, но никого не обвиняет.';
+  } else if (S.sent) {
+    // Метка охотника важнее «выбор принят»: она переживает ночи, и её
+    // нельзя забыть.
+    $('idle-emoji').textContent = '✅';
+    $('idle-text').textContent = 'Ваш выбор принят';
+    $('idle-sub').textContent = S.hunterMark
+      ? `Ваша метка: ${S.hunterMark}. Погибнете вы — погибнет и он.`
+      : 'Ждите рассвета. Все ходы придут ведущему одновременно.';
   } else if (isVerdict() && S.verdict.id === S.playerId) {
     $('idle-emoji').textContent = '⚖️';
     $('idle-text').textContent = 'Стол решает вашу судьбу';
     $('idle-sub').textContent =
       'Вы не голосуете. Поровну или больше «оставить» — вы остаётесь в игре.';
-  } else if (S.sent) {
-    $('idle-emoji').textContent = '✅';
-    $('idle-text').textContent = 'Ваш выбор принят';
-    $('idle-sub').textContent = 'Ожидайте следующей фазы';
   } else if (S.phase === 'waiting') {
     $('idle-emoji').textContent = '⏳';
     $('idle-text').textContent = 'Ожидание';
@@ -956,7 +1048,7 @@ function renderTargets() {
 // Компактная полоса роли: миниатюра карты + название в одну строку.
 function renderStrip() {
   const dis = S.disguised;
-  $('rs-img').src = dis ? '/cards/civilian.jpg' : `/cards/${S.role || 'civilian'}.jpg`;
+  $('rs-img').src = assetUrl(dis ? '/cards/civilian.jpg' : `/cards/${S.role || 'civilian'}.jpg`);
   $('rs-emoji').textContent = dis ? '👤' : (S.roleEmoji || '');
   $('rs-name').textContent = dis ? 'Мирный житель' : (S.roleName || '');
   $('rs-mates').textContent = (!dis && S.mates.length)
@@ -966,7 +1058,7 @@ function renderStrip() {
 
 function renderCard() {
   const dis = S.disguised;
-  $('role-img').src = dis ? '/cards/civilian.jpg' : `/cards/${S.role || 'civilian'}.jpg`;
+  $('role-img').src = assetUrl(dis ? '/cards/civilian.jpg' : `/cards/${S.role || 'civilian'}.jpg`);
   $('role-emoji').textContent = dis ? '👤' : (S.roleEmoji || '');
   $('role-name').textContent = dis ? 'Мирный житель' : (S.roleName || '');
   $('role-mates').textContent = (!dis && S.mates.length)
@@ -984,9 +1076,9 @@ function renderLobby() {
   $('lobby-list').innerHTML = S.lobby.map(p => `
     <div class="p ${p.isAlive === false ? 'dead' : ''}">
       <div class="av" style="background:${esc(p.color || '#8d93a8')}">${esc((p.name || '?')[0])}</div>
-      <div class="nm">${esc(p.name)}
-        <span class="sub">${p.name === S.name ? 'это вы' : (p.isConnected === false ? 'нет связи' : 'подключён')}</span></div>
-      <span class="dot ${p.isConnected === false ? 'off' : ''}"></span>
+      <div class="nm">${p.isBot ? '🤖 ' : ''}${esc(p.name)}
+        <span class="sub">${p.name === S.name ? 'это вы' : p.isBot ? 'бот' : (p.isConnected === false ? 'нет связи' : 'подключён')}</span></div>
+      <span class="dot ${p.isBot || p.isConnected !== false ? '' : 'off'}"></span>
     </div>`).join('');
 }
 
@@ -1000,7 +1092,7 @@ function renderReveal() {
   $('reveal-list').innerHTML = S.reveal.map(r => `
     <div class="p ${r.isAlive ? '' : 'dead'}">
       <div class="av" style="background:#2b2f40;color:#fff">${r.emoji || '?'}</div>
-      <div class="nm">${esc(r.name)}<span class="sub">${esc(r.role || '')}</span></div>
+      <div class="nm">${esc(r.name)}<span class="sub">${esc(roleRu(r.role))}</span></div>
       <span class="dim tiny">${r.isAlive ? 'выжил' : 'выбыл'}</span>
     </div>`).join('');
 }
@@ -1118,6 +1210,46 @@ const GUIDE = {
       'Полезно «помогать» городу голосом — пока мафия жива, вы в тени.',
       'Доктор может спасти вашу жертву — учитывайте это.',
     ] },
+  bodyguard: {
+    goal: 'Вы на стороне города. Ваша жизнь — это щит для другого игрока.',
+    night: 'Выбираете, кого прикрыть. Если этой ночью его попытаются убить — мафия или маньяк, — погибнете вы, а он выживет. Себя прикрывать нельзя, одного и того же — две ночи подряд.',
+    day: 'Обсуждаете и голосуете как обычный житель. Никто не знает, что вы уже кого-то спасли.',
+    win: CITY_WIN,
+    tips: [
+      'Прикрывайте того, кому угрожают: раскрывшегося комиссара или игрока, которого город считает мирным.',
+      'Одна смерть за ночь — уже хорошо: если погибли вы вместо другого, город сохранил голос.',
+      'Вы погибаете вместо цели — поэтому не прикрывайте того, в кого сами не верите.',
+    ] },
+  witness: {
+    goal: 'Вы на стороне города. По ночам смотрите, кто не спит, и приносите столу факты вместо догадок.',
+    night: 'Выбираете игрока и наблюдаете за его домом. Ответ — «выходил» или «не выходил» — придёт, когда он сделает свой ход (или ночь закроется). Смотреть можно только на живых и не на себя.',
+    day: 'Ваша ценность — в факте, а не в громкости. Сказать «он выходил ночью» можно, не раскрывая, что вы свидетель: ночью выходит и доктор, и комиссар.',
+    win: CITY_WIN,
+    tips: [
+      '«Не выходил» — тоже улика: мирный житель спит, а мафия и маньяк почти всегда ходят.',
+      'Не раскрывайтесь ради одной проверки: вас уберут следующей ночью.',
+      'Помните, что проститутка тоже выходит — «выходил» не значит «убийца».',
+    ] },
+  hunter: {
+    goal: 'Вы на стороне города, и ваша смерть не бесплатна: вы забираете с собой того, кого выбрали.',
+    night: 'Ставите метку на одного игрока. Она действует со следующей ночи: если вас убьют или выгонят голосованием, этот игрок погибнет вместе с вами. Метку можно менять каждую ночь.',
+    day: 'Играете как обычный горожанин. Угроза «меня выгонят — и я заберу его» — ваш главный аргумент в споре.',
+    win: CITY_WIN,
+    tips: [
+      'Метьте того, в кого верите меньше всех: если ошиблись — заберёте своего, и это будет дорого.',
+      'Не раскрывайтесь без нужды: мафия тогда выберет вас целью в последнюю очередь.',
+      'Метка срабатывает и при изгнании голосованием — столу стоит об этом помнить до голосования.',
+    ] },
+  blackmailer: {
+    goal: 'Вы мафия, но не убийца. Ваша работа — лишать город голоса в самый нужный момент.',
+    night: 'Выбираете горожанина и запугиваете его: на следующий день он не голосует вообще. Убивать вы не умеете — выстрел делает кто-то из команды.',
+    day: 'Вы обычный горожанин на вид: обсуждаете, спорите, голосуете. Знайте своих: команда показана на карточке.',
+    win: MAFIA_WIN,
+    tips: [
+      'Запугивайте того, кто ведёт стол: без его голоса голосование может не сложиться.',
+      'Запуганный вправе рассказать всем, что молчит, — но ему могут не поверить, а «молчун» останется под подозрением.',
+      'Ваш ход не отменяет чужие: заблокировать доктора вы не можете, только лишить голоса.',
+    ] },
   civilian: {
     goal: 'Вы мирный житель. У вас нет ночных способностей — только голос и здравый смысл.',
     night: 'Спите. Ваш экран останется пустым до рассвета — это нормально.',
@@ -1147,8 +1279,12 @@ function tableRuleLines() {
   const r = S.rules;
   if (!r) return [];
   const out = [];
+  const t = r.timings || {};
+  const duration = key => Number.isInteger(t[key]) && t[key] >= 10 && t[key] <= 1800 ? t[key] + ' с' : 'авто';
+  out.push(`Тайминги: ночь — ${duration('night')}, день — ${duration('day')}, голосование — ${duration('voting')}, переголосование — ${duration('runoff')}`);
   out.push(r.openCards ? 'Карта выбывшего открывается сразу.'
                        : 'Карта выбывшего закрыта до конца партии.');
+  if (r.piercingShot) out.push('Мафия: один общий выстрел навылет за партию — пробивает лечение, но не телохранителя.');
   if (r.introNight) out.push('Первая ночь — знакомство: никто не погибает.');
   out.push(r.lastWord
     ? `Перед изгнанием — последнее слово, ${r.lastWordSeconds || 30} секунд, и повторное голосование: стол может оставить игрока.`
@@ -1177,6 +1313,12 @@ const WEB_ROLES = [
   { type: 'prostitute', img: '/instructions/roles/05_prostitute.jpg', emoji: '💋', name: 'Проститутка' },
   { type: 'maniac', img: '/instructions/roles/06_maniac.jpg', emoji: '🔪', name: 'Маньяк' },
   { type: 'civilian', img: '/instructions/roles/07_civilian.jpg', emoji: '👤', name: 'Мирный житель' },
+  // 1.12.0: четыре новые роли. Порядок — как в RoleType, чтобы книга
+  // правил в браузере и в приложении читалась одинаково.
+  { type: 'bodyguard', img: '/instructions/roles/08_bodyguard.jpg', emoji: '🛡', name: 'Телохранитель' },
+  { type: 'witness', img: '/instructions/roles/09_witness.jpg', emoji: '👁', name: 'Свидетель' },
+  { type: 'hunter', img: '/instructions/roles/10_hunter.jpg', emoji: '🎯', name: 'Охотник' },
+  { type: 'blackmailer', img: '/instructions/roles/11_blackmailer.jpg', emoji: '🕶', name: 'Шантажист' },
 ];
 
 // Колода злодеяний — «как именно погиб игрок» (docs/ЗЛОДЕЯНИЯ.md).
@@ -1211,7 +1353,7 @@ const WEB_PHASES = [
 // видел пустые прямоугольники вместо карточек ролей.
 function ruleCard(img, title, body) {
   const pic = img
-    ? `<div class="rcard-imgwrap"><img src="${esc(img)}" alt="" loading="lazy"`
+    ? `<div class="rcard-imgwrap"><img src="${esc(assetUrl(img))}" alt="" loading="lazy"`
       + ` onerror="this.classList.add('noimg');this.insertAdjacentHTML('afterend',`
       + `'<div class=noimg-t>Картинка не загрузилась</div>')"></div>`
     : '';
@@ -1228,9 +1370,11 @@ function rulesBook() {
     if (p.key === 'night') {
       return ruleCard(p.img, p.title,
         'Город спит, просыпаются только роли. Если у вас нет ночного дела, экран '
-        + 'останется пустым — это не поломка. Порядок: проститутка блокирует, доктор '
-        + 'лечит, мафия стреляет, маньяк стреляет отдельно, комиссар проверяет. '
-        + 'Комиссар видит ответ сразу, как выберет игрока, — одна проверка за ночь.');
+        + 'останется пустым — это не поломка. Порядок: проститутка блокирует, '
+        + 'шантажист лишает голоса на завтра, доктор лечит, телохранитель прикрывает '
+        + 'собой, мафия стреляет, маньяк стреляет отдельно, свидетель смотрит, '
+        + 'охотник ставит метку, комиссар проверяет. Комиссар видит ответ сразу, '
+        + 'как выберет игрока, — одна проверка за ночь.');
     }
     if (p.key === 'day') {
       return ruleCard(p.img, p.title,
@@ -1314,8 +1458,10 @@ function openRules() {
         ? `<ul>${li(tr)}</ul>`
         : '<p class="note">Стол ещё не настроен: подробности появятся, когда начнётся партия.</p>'}</div>
       <div class="blk night"><h4>НОЧЬ</h4><p>Город спит, ходят только роли: проститутка
-        блокирует, доктор лечит, мафия стреляет, маньяк стреляет отдельно, комиссар
-        проверяет. Нет ночного дела — экран пустой, это не поломка.</p></div>
+        блокирует, шантажист лишает голоса на завтра, доктор лечит, телохранитель
+        прикрывает собой, мафия стреляет, маньяк стреляет отдельно, комиссар проверяет,
+        свидетель смотрит, охотник ставит метку. Нет ночного дела — экран пустой,
+        это не поломка.</p></div>
       <div class="blk day"><h4>ДЕНЬ И ГОЛОСОВАНИЕ</h4><p>Ведущий объявляет, кто погиб,
         дальше — обсуждение. Потом все живые выбирают, кого выгнать. При равенстве —
         второй тур между лидерами; снова равенство — никто не выбывает.</p></div>
@@ -1340,8 +1486,8 @@ function openTable() {
   const rows = S.lobby.map(p => `
     <div class="p ${p.isAlive === false ? 'dead' : ''}">
       <div class="av" style="background:${esc(p.color || '#8d93a8')}">${esc((p.name || '?')[0])}</div>
-      <div class="nm">${esc(p.name)}
-        <span class="sub">${p.name === S.name ? 'это вы' : (p.isAlive === false ? 'выбыл' : 'в игре')}</span></div>
+      <div class="nm">${p.isBot ? '🤖 ' : ''}${esc(p.name)}
+        <span class="sub">${p.name === S.name ? 'это вы' : p.isBot ? (p.isAlive === false ? 'бот · выбыл' : 'бот') : (p.isAlive === false ? 'выбыл' : 'в игре')}</span></div>
       <span class="tiny dim">${p.isAlive === false ? '☠' : ''}</span>
     </div>`).join('');
   $('sheet-body').innerHTML = `
@@ -1350,10 +1496,74 @@ function openTable() {
   $('sheet').classList.remove('hidden');
 }
 
+// Личный блокнот НЕ входит в S и никогда не передаётся через send().
+function notesKey() {
+  return 'private_notes_v1:' + location.host + '|' + S.code + '|' + S.playerId;
+}
+const notesMemory = new Map();
+function readNotes() {
+  const key = notesKey();
+  if (notesMemory.has(key)) return notesMemory.get(key);
+  let data = {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || '{}');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) data = parsed;
+  } catch (_) { /* повреждённое или недоступное хранилище */ }
+  notesMemory.set(key, data);
+  return data;
+}
+function openNotes() {
+  const data = readNotes();
+  const body = $('sheet-body');
+  body.replaceChildren();
+  const title = document.createElement('h3');
+  title.textContent = 'Мои подозрения';
+  body.append(title);
+  const hint = document.createElement('p');
+  hint.textContent = 'Только на этом устройстве. Никому не отправляются. Отметки — предположения, а не проверки.';
+  body.append(hint);
+  const status = document.createElement('p');
+  status.setAttribute('role', 'status');
+  body.append(status);
+  S.lobby.filter(p => p.id && p.id !== S.playerId).forEach(p => {
+    const row = document.createElement('div');
+    row.className = 'blk';
+    const label = document.createElement('h4');
+    label.textContent = p.name + (p.isAlive === false ? ' · выбыл' : '');
+    const note = Object.hasOwn(data, p.id) && data[p.id] && typeof data[p.id] === 'object' ? data[p.id] : {};
+    const select = document.createElement('select');
+    select.setAttribute('aria-label', 'Отметка: ' + p.name);
+    [['', '— Без отметки'], ['suspect', '? Подозреваю'], ['trust', '✓ Доверяю']].forEach(([value, text]) => {
+      select.add(new Option(text, value));
+    });
+    select.value = ['', 'suspect', 'trust'].includes(note.mark) ? note.mark : '';
+    const text = document.createElement('textarea');
+    text.maxLength = 500;
+    text.rows = 3;
+    text.style.width = '100%';
+    text.setAttribute('aria-label', 'Наблюдения: ' + p.name);
+    text.value = typeof note.text === 'string' ? note.text.slice(0, 500) : '';
+    const save = () => {
+      Object.defineProperty(data, p.id, {value: {mark: select.value, text: text.value.slice(0, 500)}, enumerable: true, configurable: true, writable: true});
+      try {
+        localStorage.setItem(notesKey(), JSON.stringify(data));
+        status.textContent = 'Сохранено на устройстве';
+      } catch (_) {
+        status.textContent = 'Хранилище недоступно: заметки останутся только до перезагрузки страницы.';
+      }
+    };
+    select.onchange = save;
+    text.oninput = save;
+    row.append(label, select, text);
+    body.append(row);
+  });
+  $('sheet').classList.remove('hidden');
+}
+
 function openSheet() {
   const dis = S.disguised;
   const g = GUIDE[dis ? 'civilian' : (S.role || 'civilian')] || GUIDE.civilian;
-  const img = dis ? '/cards/civilian.jpg' : `/cards/${S.role || 'civilian'}.jpg`;
+  const img = assetUrl(dis ? '/cards/civilian.jpg' : `/cards/${S.role || 'civilian'}.jpg`);
   const nm = dis ? 'Мирный житель' : (S.roleName || '');
   const em = dis ? '👤' : (S.roleEmoji || '');
 
@@ -1368,6 +1578,12 @@ function openSheet() {
     <div class="blk day"><h4>ДНЁМ</h4><p>${esc(g.day)}</p></div>
     <div class="blk win"><h4>КОГДА ВЫ ПОБЕЖДАЕТЕ</h4><p>${esc(g.win)}</p></div>
     ${checksBlock()}
+    ${(!dis && S.role === 'hunter' && S.hunterMark) ? `<div class="blk"><h4>ВАША МЕТКА</h4><p>${
+      esc(S.hunterMark + ' погибнет вместе с вами — от ножа или от голосования.')
+    }</p></div>` : ''}
+    ${(!dis && S.role === 'witness' && S.watch) ? `<div class="blk"><h4>ВАШЕ НАБЛЮДЕНИЕ</h4><p>${
+      esc(`Ночь ${S.watch.round || ''}: ${S.watch.name} ${S.watch.acted ? 'выходил из дома' : 'не выходил из дома'}`)
+    }</p></div>` : ''}
     ${g.tips ? `<div class="blk"><h4>СОВЕТЫ</h4><ul>${
       g.tips.map(t => `<li>${esc(t)}</li>`).join('')}</ul></div>` : ''}
     ${(!dis && S.mates.length) ? `<div class="blk team"><h4>ВАША КОМАНДА</h4><p>${
@@ -1436,8 +1652,9 @@ $('btn-disguise').onclick = () => {
 function submitChoice(targetId) {
   const type = S.phase === 'voting' ? 'vote' : 'night_action';
   // Запоминаем до отправки: если сокет оборвётся, повторим после возврата.
-  S.pendingAction = { type, targetId, phase: S.phase, round: S.round };
-  const ok = send(type, { playerId: S.playerId, targetId });
+  const piercing = type === 'night_action' && targetId != null && S.canPierce && $('in-piercing').checked;
+  S.pendingAction = { type, targetId, piercing, actionEpoch: S.actionEpoch, phase: S.phase, round: S.round };
+  const ok = send(type, { playerId: S.playerId, targetId, piercing, actionEpoch: S.actionEpoch });
   S.sent = true; S.canAct = false;
   buzz(30);
   if (!ok) banner('Нет связи — выбор отправится, как только она вернётся', 'warn');
@@ -1447,6 +1664,7 @@ function submitChoice(targetId) {
 $('btn-send').onclick = () => { if (S.selected) submitChoice(S.selected); };
 $('btn-skip').onclick = () => submitChoice(null);
 
+$('btn-notes').onclick = openNotes;
 $('btn-myrole').onclick = openSheet;
 $('btn-rules').onclick = openRules;
 $('btn-rules-lobby').onclick = openRules;
@@ -1481,11 +1699,12 @@ document.body.addEventListener('click', () => Sound.unlock());
 // Это самый частый сценарий: игрок свернул браузер, экран погас,
 // система заморозила вкладку и, возможно, тихо убила сокет.
 document.addEventListener('visibilitychange', () => {
+  if (document.hidden) $('sheet').classList.add('hidden');
   if (document.hidden) return;
   Sound.unlock();
   Screen.acquire();
   if (S.ws && S.ws.readyState === 1) {
-    send('resync_request', { playerId: S.playerId, name: S.name });
+    send('resync_request', { playerId: S.playerId, name: S.name, deviceId: deviceId() });
     // Ждём ответа: если хост молчит 4 секунды, значит сокет мёртв.
     const mark = S.lastPongAt;
     setTimeout(() => {

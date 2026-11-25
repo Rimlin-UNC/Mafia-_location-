@@ -1,6 +1,8 @@
 import 'dart:math';
 
 import '../core/constants.dart';
+import '../net/network_policy.dart';
+import '../models/phase_timings.dart';
 import '../models/game_phase.dart';
 import '../models/game_state.dart';
 import '../models/player.dart';
@@ -58,8 +60,11 @@ class GameEngine {
     if (special > players) {
       return 'Специальных ролей ($special) больше, чем игроков ($players)';
     }
-    // Мафия без единого мафиози — играть не с кем.
-    final mafia = (setup[RoleType.mafia] ?? 0) + (setup[RoleType.don] ?? 0);
+    // Мафия без единого мафиози — играть не с кем. Шантажист считается:
+    // он на стороне мафии и входит в её победу, даже если не стреляет.
+    final mafia = (setup[RoleType.mafia] ?? 0) +
+        (setup[RoleType.don] ?? 0) +
+        (setup[RoleType.blackmailer] ?? 0);
     if (mafia == 0) return 'Не назначено ни одного мафиози';
     return null;
   }
@@ -74,7 +79,9 @@ class GameEngine {
     required Map<RoleType, int> setup,
     required int players,
   }) {
-    final mafia = (setup[RoleType.mafia] ?? 0) + (setup[RoleType.don] ?? 0);
+    final mafia = (setup[RoleType.mafia] ?? 0) +
+        (setup[RoleType.don] ?? 0) +
+        (setup[RoleType.blackmailer] ?? 0);
     if (mafia == 0) return 'Мафии нет — играть не с кем';
     final others = players - mafia;
     if (others <= 1) {
@@ -85,6 +92,58 @@ class GameEngine {
           'будет большинство голосов — город почти обречён.';
     }
     return null;
+  }
+
+  /// Допустимые цели для ночного хода или голосования.
+  ///
+  /// Единственный источник этого списка для людей, ботов и серверной
+  /// проверки: цель, которой нет здесь, не может уйти по протоколу.
+  /// Мафия не стреляет по своим, доктор не лечит себя и не повторяет
+  /// прошлоночную цель, в голосовании нельзя выбрать себя.
+  static List<Player> legalTargetsFor(GameState s, Player player) {
+    Iterable<Player> candidates = s.alive;
+
+    if (s.phase == GamePhase.night) {
+      final type = player.role?.type;
+      // Убийцы мафии не стреляют по своим — по всей мафии, включая
+      // шантажиста: он не стреляет, но он свой.
+      if (type == RoleType.mafia || type == RoleType.don) {
+        candidates = candidates.where((c) => c.role?.side != Side.mafia);
+      }
+      // Шантажист запугивает только живых горожан: пугать своих незачем,
+      // а мёртвых — бессмысленно (голоса у них уже нет).
+      if (type == RoleType.blackmailer) {
+        candidates = candidates.where((c) =>
+            c.id != player.id && c.isAlive && c.role?.side != Side.mafia);
+      }
+      // Эти роли не выбирают себя: спасать, прикрывать, проверять,
+      // блокировать или забирать с собой самого себя бессмысленно.
+      if (type == RoleType.prostitute ||
+          type == RoleType.commissioner ||
+          type == RoleType.doctor ||
+          type == RoleType.maniac ||
+          type == RoleType.bodyguard ||
+          type == RoleType.witness ||
+          type == RoleType.hunter) {
+        candidates = candidates.where((c) => c.id != player.id);
+      }
+      if (type == RoleType.doctor && s.lastHealedId != null) {
+        candidates = candidates.where((c) => c.id != s.lastHealedId);
+      }
+      if (type == RoleType.bodyguard && s.lastGuardedId != null) {
+        candidates = candidates.where((c) => c.id != s.lastGuardedId);
+      }
+    } else if (s.phase == GamePhase.voting) {
+      candidates = candidates.where((c) => c.id != player.id);
+      if (s.runoffCandidates.isNotEmpty) {
+        candidates =
+            candidates.where((c) => s.runoffCandidates.contains(c.id));
+      }
+    } else {
+      return const [];
+    }
+
+    return candidates.toList();
   }
 
   /// Результат «прочитать роль»: кто подтвердил и кто ещё нет.
@@ -135,9 +194,13 @@ class GameEngine {
     const dropOrder = [
       RoleType.don,
       RoleType.mafia,
-      RoleType.doctor,
+      RoleType.blackmailer,
       RoleType.commissioner,
+      RoleType.doctor,
+      RoleType.bodyguard,
       RoleType.prostitute,
+      RoleType.witness,
+      RoleType.hunter,
       RoleType.maniac,
     ];
 
@@ -166,8 +229,13 @@ class GameEngine {
     // заканчивалась победой мафии в первую секунду, и город не успевал
     // сделать ни одного хода. Проверено tools/forcestart.py и тестом
     // «раздача не создаёт уже выигранную партию».
+    // Шантажист — тоже мафия: он входит в победу мафии, значит и в
+    // проверку «никто не побеждает сразу» он обязан попадать.
     int mafiaCount() => pool
-        .where((r) => r == RoleType.mafia || r == RoleType.don)
+        .where((r) =>
+            r == RoleType.mafia ||
+            r == RoleType.don ||
+            r == RoleType.blackmailer)
         .length;
     int maniacCount() => pool.where((r) => r == RoleType.maniac).length;
 
@@ -175,10 +243,13 @@ class GameEngine {
       final mafia = mafiaCount();
       final city = players.length - mafia - maniacCount();
       if (mafia < city) break;
-      // Разжалуем рядовую мафию, дона трогаем в последнюю очередь.
-      final idx = pool.lastIndexOf(RoleType.mafia) != -1
-          ? pool.lastIndexOf(RoleType.mafia)
-          : pool.lastIndexOf(RoleType.don);
+      // Разжалуем сначала шантажиста (он не стреляет), потом рядовую
+      // мафию; дона трогаем в последнюю очередь.
+      final idx = pool.lastIndexOf(RoleType.blackmailer) != -1
+          ? pool.lastIndexOf(RoleType.blackmailer)
+          : (pool.lastIndexOf(RoleType.mafia) != -1
+              ? pool.lastIndexOf(RoleType.mafia)
+              : pool.lastIndexOf(RoleType.don));
       if (idx == -1) break;
       pool[idx] = RoleType.civilian;
     }
@@ -227,6 +298,42 @@ class GameEngine {
     return leaders[rnd.nextInt(leaders.length)];
   }
 
+  /// Общий расчёт попаданий для движка и ручной правки ведущим.
+  /// Усиленный выстрел пробивает лечение цели, но не щит. Доктор
+  /// по-прежнему может спасти телохранителя, принявшего удар.
+  static ({List<String> killed, String? guardDied, List<String> revenge})
+      resolveAttacks(GameState s, {String? mafiaTarget, String? maniacTarget,
+      String? healedId, String? guardedId, bool piercing = false}) {
+    final shots = <String>{
+      if (mafiaTarget != null && (piercing || mafiaTarget != healedId)) mafiaTarget,
+      if (maniacTarget != null && maniacTarget != healedId) maniacTarget,
+    };
+    final killed = <String>{};
+    String? guardDied;
+    final guard = s.bodyguard;
+    for (final id in shots) {
+      if (guardedId == id && guard != null) {
+        killed.add(guard.id);
+        guardDied = guard.id;
+      } else {
+        killed.add(id);
+      }
+    }
+    if (healedId != null && !(piercing && healedId == mafiaTarget &&
+        (guardedId != mafiaTarget || guard == null))) {
+      killed.remove(healedId);
+    }
+    final revenge = <String>[];
+    final hunter = s.hunter;
+    final marked = s.byId(s.hunterMarkId);
+    if (hunter != null && killed.contains(hunter.id) && marked != null &&
+        marked.isAlive && marked.id != hunter.id && !killed.contains(marked.id)) {
+      revenge.add(marked.id);
+      killed.add(marked.id);
+    }
+    return (killed: killed.toList(), guardDied: guardDied, revenge: revenge);
+  }
+
   /// Разрешение ночи в строгом порядке:
   /// проститутка → доктор → мафия → маньяк → комиссар.
   static NightOutcome resolveNight(GameState s, {Random? random}) {
@@ -247,11 +354,31 @@ class GameEngine {
       );
     }
 
-    // 1. Проститутка блокирует цель — её ход аннулируется.
+    // 1. Блокировка. С 1.12.0 блокирующих двое, и это НЕ одно и то же:
+    //  * проститутка отменяет ночной ход цели;
+    //  * шантажист лишает её голоса на следующий день, но ход не отменяет.
+    // Разделение принципиальное — иначе шантажист, заблокировав доктора,
+    // молча отнимал бы у города спасение, оставаясь «мирной» ролью по
+    // ощущениям стола.
     String? blockedId;
     final pros = s.prostitute;
     if (pros != null) {
       blockedId = s.nightActions[pros.id];
+    }
+
+    String? silencedId;
+    final blackmailer = s.blackmailer;
+    if (blackmailer != null) {
+      final target = s.nightActions[blackmailer.id];
+      // Только горожане: запугать своего — значит отнять голос у мафии,
+      // чего шантажист, очевидно, не хочет.
+      final victim = s.byId(target);
+      if (victim != null &&
+          victim.isAlive &&
+          victim.id != blackmailer.id &&
+          victim.role?.side != Side.mafia) {
+        silencedId = victim.id;
+      }
     }
 
     bool isBlocked(Player? p) => p != null && p.id == blockedId;
@@ -270,7 +397,23 @@ class GameEngine {
       }
     }
 
-    // 3. Мафия выбирает жертву, если вся команда не заблокирована.
+    // 3. Телохранитель выбирает, кого прикрыть. Правила те же, что у
+    // доктора: не себя и не одного и того же две ночи подряд (иначе
+    // стол просто ставил бы «щит» на самого сильного и не думал).
+    String? guardedId;
+    final guard = s.bodyguard;
+    if (guard != null && !isBlocked(guard)) {
+      final target = s.nightActions[guard.id];
+      // Та же пара ограничений, что у доктора: не себя и не того же
+      // игрока две ночи подряд.
+      if (target != null &&
+          target != guard.id &&
+          target != s.lastGuardedId) {
+        guardedId = target;
+      }
+    }
+
+    // 4. Мафия выбирает жертву, если вся команда не заблокирована.
     String? mafiaTarget;
     final team = s.mafiaTeam;
     final teamBlocked = team.isNotEmpty && team.every((m) => m.id == blockedId);
@@ -278,14 +421,55 @@ class GameEngine {
       mafiaTarget = resolveMafiaTarget(s, rnd);
     }
 
-    // 4. Маньяк убивает независимо от мафии.
+    // Запрос действителен только от незаблокированного живого стрелка,
+    // чей обычный голос совпал с итоговой целью команды.
+    final piercing = s.piercingShot && !s.piercingSpent &&
+        mafiaTarget != null && s.piercingRequests.any((id) {
+          final p = s.byId(id);
+          return p != null && p.isAlive && !isBlocked(p) &&
+              (p.role?.type == RoleType.mafia || p.role?.type == RoleType.don) &&
+              s.nightActions[id] == mafiaTarget;
+        });
+
+    // 5. Маньяк убивает независимо от мафии.
     String? maniacTarget;
     final man = s.maniac;
     if (man != null && !isBlocked(man)) {
       maniacTarget = s.nightActions[man.id];
     }
 
-    // 5. Комиссар проверяет. Дон выглядит мирным.
+    // 6. Свидетель смотрит, выходил ли игрок из дома. «Выходил» — значит
+    // у него был ночной ход этой ночью, независимо от того, сработал он
+    // или его блокировали: факт выхода из дома сам по себе улика.
+    String? watchedId;
+    bool? watchedActed;
+    final witness = s.witness;
+    if (witness != null && !isBlocked(witness)) {
+      final watched = s.byId(s.nightActions[witness.id]);
+      if (watched != null) {
+        watchedId = watched.id;
+        // actsTonight отвечает на вопрос «должен ли он был ходить»,
+        // и в ночь знакомства честно говорит «нет» про всех, кроме
+        // комиссара.
+        watchedActed = s.actsTonight(watched);
+      }
+    }
+
+    // 7. Метка охотника. Действует со СЛЕДУЮЩЕЙ ночи: если убийца
+    // заберёт охотника этой же ночью, он ещё не мог «знать» о метке,
+    // а честность важнее эффектности.
+    // Метка охотника. Действует со СЛЕДУЮЩЕЙ ночи: если убийца заберёт
+    // охотника этой же ночью, он ещё не мог «знать» о метке, а честность
+    // важнее эффектности. Мёртвый метку не ставит — и не теряет старую
+    // впустую: этот случай разбирает HostController.
+    String? hunterMarkId;
+    final hunter = s.hunter;
+    if (hunter != null && !isBlocked(hunter)) {
+      final target = s.nightActions[hunter.id];
+      if (target != null && target != hunter.id) hunterMarkId = target;
+    }
+
+    // 8. Комиссар проверяет. Дон выглядит мирным.
     String? checkedId;
     bool? checkIsMafia;
     final com = s.commissioner;
@@ -297,18 +481,23 @@ class GameEngine {
       }
     }
 
-    // Применение: защита доктора спасает и от мафии, и от маньяка.
-    final killed = <String>[];
-    if (mafiaTarget != null && mafiaTarget != healedId) {
-      killed.add(mafiaTarget);
-    }
-    if (maniacTarget != null &&
-        maniacTarget != healedId &&
-        !killed.contains(maniacTarget)) {
-      killed.add(maniacTarget);
-    }
+    final deaths = resolveAttacks(s, mafiaTarget: mafiaTarget,
+      maniacTarget: maniacTarget, healedId: healedId,
+      guardedId: guardedId, piercing: piercing);
+    final killed = deaths.killed;
+    final guardDiedId = deaths.guardDied;
+    final revenge = deaths.revenge;
+
+    // Мёртвый охотник метку не ставит: если его убили этой же ночью,
+    // его ход не в счёт. Старую метку это не трогает — её судьбу решает
+    // ведущий (см. HostController.announceNight).
+    final hunterPlayer = s.hunter;
+    final markOut = hunterPlayer != null && killed.contains(hunterPlayer.id)
+        ? null
+        : hunterMarkId;
 
     return NightOutcome(
+      piercingUsed: piercing,
       killedIds: killed,
       mafiaTargetId: mafiaTarget,
       maniacTargetId: maniacTarget,
@@ -316,6 +505,13 @@ class GameEngine {
       blockedId: blockedId,
       checkedId: checkedId,
       checkResultIsMafia: checkIsMafia,
+      guardedId: guardedId,
+      guardDiedId: guardDiedId,
+      silencedId: silencedId,
+      watchedId: watchedId,
+      watchedActed: watchedActed,
+      hunterMarkId: markOut,
+      revengeIds: revenge,
     );
   }
 
@@ -329,6 +525,9 @@ class GameEngine {
       return 'Город просыпается. Этой ночью обошлось без жертв.';
     }
     final names = o.killedIds.map(s.nameOf).join(' и ');
+    // Оглашение читают все: про месть охотника оно не молчит (это факт
+    // стола), но причину «сработала метка» не раскрывает — иначе охотник
+    // выдал бы себя первым же утром.
     return 'Город просыпается. Этой ночью мы потеряли: $names.';
   }
 }
@@ -353,10 +552,17 @@ class TableRules {
     if (w == null) return const [];
     bool on(String key) => w[key] == true;
     final seconds = w['lastWordSeconds'];
+    final timings = PhaseTimings.fromJson(w['timings']);
     return [
       on('openCards')
           ? 'Карта выбывшего открывается сразу'
           : 'Карта выбывшего закрыта до конца партии',
+      'Тайминги: ночь — ${timings.night == 0 ? 'авто' : '${timings.night} с'}, '
+          'день — ${timings.day == 0 ? 'авто' : '${timings.day} с'}, '
+          'голосование — ${timings.voting == 0 ? 'авто' : '${timings.voting} с'}, '
+          'переголосование — ${timings.runoff == 0 ? 'авто' : '${timings.runoff} с'}',
+      if (on('piercingShot'))
+        'Мафия: один общий выстрел навылет за партию — пробивает лечение, но не телохранителя',
       if (on('introNight')) 'Первая ночь — знакомство: никто не погибает',
       if (on('lastWord'))
         'Перед изгнанием — последнее слово, '
@@ -373,10 +579,12 @@ class TableRules {
 
   /// То же самое для клиента: он сам решает, как это показать.
   static Map<String, dynamic> toWire(GameState s) => {
+        'piercingShot': s.piercingShot,
         'openCards': s.openCards,
         'introNight': s.introNight,
         'lastWord': s.lastWord,
-        'lastWordSeconds': Rules.lastWordSeconds,
+        'timings': s.timings.toJson(),
+        'lastWordSeconds': s.timings.lastWord,
         'privateCheck': s.privateCheck,
       };
 }
@@ -476,6 +684,34 @@ Map<String, dynamic> checkWire(GameState s, CheckRecord c) => {
       if (c.blocked) 'blocked': true,
     };
 
+/// Что телохранитель узнаёт о своей ночи.
+///
+/// Только два факта, и оба — про него самого: кого он прикрывал и
+/// сработало ли. Кто ещё погиб, он видит наутро вместе со всеми.
+Map<String, dynamic> guardWire(GameState s, String playerId) {
+  final g = s.bodyguard;
+  if (g == null || g.id != playerId) return const {};
+  final mark = s.nightActions[playerId];
+  final saved = s.pendingNight?.guardDiedId == playerId;
+  return {
+    'round': s.round,
+    if (mark != null) 'guardedName': s.nameOf(mark),
+    if (saved) 'saved': true,
+  };
+}
+
+/// Что свидетель узнаёт о своей ночи.
+Map<String, dynamic> watchWire(GameState s, String playerId) {
+  final w = s.witness;
+  if (w == null || w.id != playerId) return const {};
+  if (s.watchTargetId == null) return const {};
+  return {
+    'round': s.watchRound,
+    'name': s.nameOf(s.watchTargetId),
+    'acted': s.watchActed == true,
+  };
+}
+
 /// Нужно ли дать последнее слово тому, кого выбрало голосование.
 ///
 /// Слово даётся ДО выбывания: после него стол голосует ещё раз и может
@@ -527,12 +763,19 @@ RegisterVerdict resolveRegister({
 
   if (index != -1) {
     final existing = state.players[index];
+    // Бот и локальный игрок не имеют сокета. Без этой проверки любой
+    // мог бы «вернуться» в их слот по имени и получить чужую роль.
+    if (existing.isBot || existing.isLocal) {
+      return RegisterVerdict.denyNameTaken;
+    }
     final online = isOnline(existing.id);
     final sameDevice = deviceId != null &&
         existing.deviceId != null &&
         deviceId == existing.deviceId;
     // Тот же человек с планшета: слот его, даже если телефон ещё в сети.
-    if (online && !sameDevice) return RegisterVerdict.denyNameTaken;
+    if (!NetworkPolicy.ownsSlot(existing.deviceId, deviceId)) {
+      return RegisterVerdict.denyNameTaken;
+    }
     if (sameDevice && online) return RegisterVerdict.reclaimOtherDevice;
     return RegisterVerdict.reclaim;
   }

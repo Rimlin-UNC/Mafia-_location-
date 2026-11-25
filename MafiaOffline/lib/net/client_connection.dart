@@ -23,6 +23,7 @@ class ClientConnection {
   String? _playerName;
   String? playerId;
 
+  bool _recovering = false;
   bool _manualClose = false;
   int _attempt = 0;
   final Random _rnd = Random();
@@ -83,24 +84,26 @@ class ClientConnection {
     if (_host == null) return false;
     _setStatus(ConnStatus.connecting);
     try {
-      final socket = await WebSocket.connect('ws://$_host:$_port')
+      final socket = await WebSocket.connect('ws://$_host:$_port', compression: CompressionOptions.compressionOff)
           .timeout(const Duration(seconds: 8));
+      socket.pingInterval = const Duration(seconds: 10);
       _socket = socket;
       _attempt = 0;
       _setStatus(ConnStatus.connected);
 
       _sub = socket.listen(
         (raw) {
+          if (!identical(_socket, socket)) return;
           if (raw is! String) return;
           final env = Envelope.decode(raw);
           if (env == null) return;
-          if (env.type == Msg.registerOk) {
+          if (env.type == Msg.registerOk || env.type == Msg.reclaimed) {
             playerId = env.get<String>('id');
           }
           _messages.add(env); // pong нужен наверху для синхронизации часов
         },
-        onDone: _handleDrop,
-        onError: (_) => _handleDrop(),
+        onDone: () { if (identical(_socket, socket)) _handleDrop(); },
+        onError: (_) { if (identical(_socket, socket)) _handleDrop(); },
         cancelOnError: true,
       );
 
@@ -115,11 +118,11 @@ class ClientConnection {
         }));
       } else {
         // Переподключение: просим актуальное состояние.
-        send(Envelope(Msg.resyncRequest, {'playerId': playerId, 'name': _playerName}));
+        send(Envelope(Msg.resyncRequest, {'playerId': playerId, 'name': _playerName, 'deviceId': await DeviceId.get()}));
       }
 
       _startPing();
-      return true;
+      return socket.readyState == WebSocket.open;
     } catch (_) {
       _setStatus(ConnStatus.failed);
       return false;
@@ -158,6 +161,16 @@ class ClientConnection {
   /// больше не выставляется автоматически — он остался только для ручного
   /// выхода и для случая, когда хост не найден при первом входе.
   Future<void> _handleDrop() async {
+    if (_recovering || _manualClose) return;
+    _recovering = true;
+    try {
+      await _recoverConnection();
+    } finally {
+      _recovering = false;
+    }
+  }
+
+  Future<void> _recoverConnection() async {
     _pingTimer?.cancel();
     _socket = null;
     if (_manualClose) {
@@ -188,7 +201,7 @@ class ClientConnection {
       // снова (ведущий мог ещё не поднять сеть после перезапуска).
       if (_host == null) continue;
 
-      final ok = await _openSocket(register: false);
+      final ok = await _openSocket(register: playerId == null);
       if (ok) return;
     }
   }
@@ -198,7 +211,9 @@ class ClientConnection {
   Future<bool> retry() async {
     _attempt = 0;
     _manualClose = false;
+    if (_recovering) return false;
     if (_code != null && _playerName != null) {
+      if (_host != null) return _openSocket(register: playerId == null);
       return connect(code: _code!, playerName: _playerName!);
     }
     return false;

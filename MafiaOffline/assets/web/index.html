@@ -164,6 +164,7 @@
     <div class="bar-right">
       <button id="btn-mute" class="chip icon" title="Звук">🔊</button>
       <button id="btn-rules" class="chip icon" title="Правила">📖</button>
+      <button id="btn-notes" class="chip" title="Приватные заметки">✎</button>
       <button id="btn-myrole" class="chip">Моя роль</button>
     </div>
   </header>
@@ -235,14 +236,19 @@
       <div class="card dead-card">
         <div class="emoji">☠️</div>
         <h2 id="dead-title">Вы выбыли из игры</h2>
-        <p id="dead-role" class="dim"></p>
+        <p id="dead-role" class="dim" style="white-space:pre-line"></p>
       </div>
+      <p class="dim tiny" style="margin:10px 2px 0">
+        Вы остаётесь за столом: говорить нельзя, но всё, что происходит,
+        видно в ленте ниже. Так вы не выпадаете из игры до финала.
+      </p>
       <h3 class="prompt">Лог событий</h3>
       <div id="log" class="log"></div>
     </div>
   </div>
 
   <footer id="game-foot" class="foot hidden">
+    <label id="piercing-choice" class="hidden"><input type="checkbox" id="in-piercing"> Выстрел навылет · общий заряд команды, пробивает лечение, не телохранителя</label>
     <button id="btn-send" class="btn" disabled>Отправить выбор</button>
     <button id="btn-skip" class="btn ghost">Пропустить ход</button>
   </footer>

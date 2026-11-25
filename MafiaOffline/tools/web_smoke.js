@@ -216,16 +216,19 @@ async function dealRole(page, role, roleName) {
     check('раздел «Правила, о которых спорят»',
       body.includes('ПРАВИЛА, О КОТОРЫХ СПОРЯТ'));
 
-    // 2. Все семь ролей — с карточками и памяткой (ночью / днём / победа).
+    // 2. Все одиннадцать ролей — с карточками и памяткой (ночью / днём /
+    // победа). С 1.12.0 добавились телохранитель, свидетель, охотник и
+    // шантажист: книга правил в браузере должна совпадать с приложением.
     const roles = ['Мафия', 'Дон', 'Доктор', 'Комиссар', 'Проститутка', 'Маньяк',
-                   'Мирный житель'];
-    check('названы все 7 ролей', roles.every(r => body.includes(r)));
+                   'Мирный житель', 'Телохранитель', 'Свидетель', 'Охотник',
+                   'Шантажист'];
+    check('названы все 11 ролей', roles.every(r => body.includes(r)));
     check('памятка роли: ночью, днём и условие победы',
       body.includes('Ночью:') && body.includes('Днём:') && body.includes('Победа:'));
-    check('у каждой роли есть карточка', node.querySelectorAll('.rcard').length >= 7);
-    const imgs = [...node.querySelectorAll('.rcard img')].map(i => i.getAttribute('src'));
+    check('у каждой роли есть карточка', node.querySelectorAll('.rcard').length >= 11);
+    const imgs = [...node.querySelectorAll('.rcard img')].map(i => new URL(i.getAttribute('src'), 'http://mafia.local').pathname);
     check('карточки ролей с картинками',
-      imgs.filter(s => s.includes('/instructions/roles/')).length === 7);
+      imgs.filter(s => s.includes('/instructions/roles/')).length === 11);
     check('карточки фаз с картинками',
       imgs.filter(s => s.includes('/instructions/phases/')).length === 4);
     check('иллюстрация ведущего', imgs.includes('/instructions/guides/01_host.jpg'));
@@ -303,7 +306,7 @@ async function dealRole(page, role, roleName) {
     const page = openPage({ acceptOffer: true });
     page.click('btn-rules-join');
     const urls = [...page.$('sheet-body').querySelectorAll('.rcard img')]
-      .map(i => i.getAttribute('src'));
+      .map(i => new URL(i.getAttribute('src'), 'http://mafia.local').pathname);
     page.close();
     check('книга правил просит картинки', urls.length >= 20);
     check('все URL — с диска, без внешних адресов',
@@ -464,6 +467,15 @@ async function dealRole(page, role, roleName) {
   check('в «Моя роль» есть блок проверок', sheet.includes('ВАШИ ПРОВЕРКИ'));
   check('проверка показана с результатом', sheet.includes('Ночь 1: Борис') && sheet.includes('МАФИЯ'));
   check('памятка: город должен убрать и маньяка', sheet.includes('ни маньяка'));
+  p.click('sheet-close');
+  // 1.12.0: порядок разрешения ночи в книге правил называет новые роли —
+  // иначе игрок читает книгу, где про щит и шантаж не сказано ни слова.
+  p.click('btn-rules');
+  const bookBody = p.text('sheet-body');
+  for (const step of ['шантажист лишает голоса', 'телохранитель прикрывает',
+                      'свидетель смотрит', 'охотник ставит метку']) {
+    check(`книга правил: «${step}»`, bookBody.includes(step));
+  }
   p.click('sheet-close');
 
   // Вторая ночь: ответ прошлой ночи на экран не возвращается.
@@ -627,9 +639,25 @@ async function dealRole(page, role, roleName) {
   // ------------------------------------------------------------------ финал
   p.push('game_over', {
     winner: 'nobody', title: 'Ничья — в городе не осталось никого',
-    reveal: [{ name: 'Аня', role: 'Комиссар', emoji: '🕵', isAlive: false }],
+    // Хост присылает служебные имена ролей (RoleType.name), а не подписи:
+    // раньше экран печатал их как есть и после партии игроки видели
+    // «civilian», «hunter», «blackmailer».
+    reveal: [
+      { name: 'Аня', role: 'commissioner', emoji: '🕵', isAlive: false },
+      { name: 'Гоша', role: 'hunter', emoji: '🎯', isAlive: true },
+      { name: 'Кристина', role: 'blackmailer', emoji: '🕶', isAlive: true },
+      { name: 'Ведущий', role: 'civilian', emoji: '👤', isAlive: true },
+    ],
   });
   check('итоговый экран показан', p.visible('scr-over') && p.text('over-title').includes('Ничья'));
+  const revealText = p.text('reveal-list');
+  check('расклад после партии: комиссар по-русски', revealText.includes('Комиссар'));
+  check('расклад после партии: охотник по-русски', revealText.includes('Охотник'));
+  check('расклад после партии: шантажист по-русски', revealText.includes('Шантажист'));
+  check('расклад после партии: мирный житель по-русски', revealText.includes('Мирный житель'));
+  for (const wire of ['commissioner', 'hunter', 'blackmailer', 'civilian']) {
+    check(`расклад после партии: без служебного «${wire}»`, !revealText.includes(wire));
+  }
   check('ошибок JavaScript нет (партия комиссара)', p.errors.length === 0);
   if (p.errors.length) console.log(p.errors.slice(0, 3).join('\n'));
   p.close();
@@ -656,6 +684,146 @@ async function dealRole(page, role, roleName) {
   }
   check('текст на экране мафии и мирного совпадает', screens.mafia === screens.civilian);
 
+  // --------------------------------------------------- боты (1.11.0)
+  console.log('\nБоты: пометка в лобби и реплики в журнале');
+  {
+    const b = openPage();
+    await join(b, 'Аня');
+    const withBot = PLAYERS.map(p => ({ ...p }))
+      .concat([{ id: 'bot-1', name: 'Марк', color: '#33FFF5', isAlive: true,
+                 isConnected: true, isBot: true }]);
+    b.push('lobby', { gameName: 'Тестовая партия', planned: 5, players: withBot, rules: RULES });
+    const lobbyText = b.text('lobby-list');
+    check('бот помечен 🤖 в лобби', lobbyText.includes('🤖 Марк'));
+    check('у бота подпись «бот», а не «подключён»', /бот/.test(lobbyText));
+    check('живые люди остались с прежней подписью',
+      lobbyText.includes('Аня') && lobbyText.includes('это вы'));
+
+    // Реплика бота: старый ведущий её не пришлёт, новый — присылает.
+    b.push('bot_speech', { playerId: 'bot-1', name: 'Марк', text: 'Присматриваюсь.', round: 1 });
+    check('реплика бота видна баннером', b.text('banner').includes('Марк'));
+    check('реплика бота попала в журнал', b.text('log').includes('Присматриваюсь'));
+
+    // Пустой текст (битый пакет) не должен оставлять «Марк: None».
+    const bannerBefore = b.text('banner');
+    const logRowsBefore = b.$('log').children.length;
+    b.push('bot_speech', { playerId: 'bot-1', name: 'Марк', text: '' });
+    check('пустая реплика не затирает баннер', b.text('banner') === bannerBefore);
+    check('пустая реплика не добавляет строку в журнал',
+      b.$('log').children.length === logRowsBefore);
+
+    // Таблица за столом тоже отличает бота от выбывшего.
+    b.push('phase', {
+      phase: 'day', round: 2, time: 100, paused: false, isAlive: true, canAct: false,
+      prompt: 'Обсуждайте', alive: 5, total: 5, targets: [],
+    });
+    b.click('table-line');
+    check('в таблице за столом бот подписан', b.text('sheet-body').includes('бот'));
+    check('ошибок JavaScript нет (боты)', b.errors.length === 0);
+    if (b.errors.length) console.log(b.errors.slice(0, 3).join('\n'));
+    b.close();
+  }
+
+  // ------------------------------------- новые роли 1.12.0 в браузере
+  // Свидетель, охотник и шантажист — три роли, у которых в браузере есть
+  // свои экраны. То, что они есть в Dart, ещё не значит, что они есть у
+  // игрока: app.js — отдельный клиент, и его надо проверять отдельно.
+  console.log('\nНовые роли 1.12.0: свидетель, охотник, шантажист');
+  {
+    const w = openPage();
+    await join(w, 'Аня');
+    w.push('lobby', { gameName: 'Партия 1.12.0', planned: 6, players: PLAYERS });
+
+    // --- свидетель: ответ приходит, когда объект сходил.
+    await dealRole(w, 'witness', 'Свидетель');
+    w.push('phase', {
+      phase: 'night', round: 1, time: 45, paused: false, isAlive: true, canAct: true,
+      prompt: 'За кем наблюдать?', alive: 4, total: 4, intro: false, lastWord: null,
+      targets: PLAYERS.slice(1).map(({ id, name, color }) => ({ id, name, color })),
+    });
+    check('свидетель получает подсказку «За кем наблюдать?»',
+      w.text('game-body').includes('За кем наблюдать'));
+    check('у свидетеля есть выбор цели', w.visible('action-area'));
+    w.$('targets').children[0].click();
+    w.click('btn-send');
+    w.push('watch_result', { round: 1, name: 'Борис', acted: true });
+    check('наблюдение «выходил» показано ночью', w.text('idle-text') === 'Борис выходил из дома');
+    check('сказано, что выходят не только убийцы',
+      w.text('idle-sub').includes('не только убийцы'));
+    check('наблюдение пришло без баннера', !w.text('banner').includes('выходил'));
+
+    w.push('phase', {
+      phase: 'day', round: 1, time: 120, paused: false, isAlive: true, canAct: false,
+      prompt: 'Обсуждайте', alive: 4, total: 4, intro: false, lastWord: null, targets: [],
+    });
+    check('днём наблюдение остаётся на экране', w.text('idle-text') === 'Борис выходил из дома');
+    w.click('btn-myrole');
+    let sheet = w.text('sheet-body');
+    check('в «Моя роль» есть «Ваше наблюдение»', sheet.includes('ВАШЕ НАБЛЮДЕНИЕ'));
+    check('в наблюдении назван день и имя', sheet.includes('Ночь 1: Борис'));
+    check('у свидетеля в памятке нет блока проверок', !sheet.includes('ВАШИ ПРОВЕРКИ'));
+    w.click('sheet-close');
+
+    // Перезагрузка посреди дня: наблюдение возвращается из sync.
+    w.push('sync', {
+      phase: 'day', round: 1, time: 100, paused: false, isAlive: true, canAct: false,
+      alreadyActed: true, role: 'witness', roleName: 'Свидетель', roleEmoji: '👁',
+      roleAck: true, gameName: 'Партия 1.12.0', alive: 4, total: 4, intro: false,
+      lastWord: null, targets: [], prompt: 'Обсуждайте',
+      watch: { round: 1, name: 'Борис', acted: false },
+    });
+    check('после перезагрузки наблюдение на месте',
+      w.text('idle-text') === 'Борис не выходил из дома');
+
+    // --- шантаж: голоса нет, и об этом сказано.
+    w.push('phase', {
+      phase: 'voting', round: 1, time: 60, paused: false, isAlive: true, canAct: false,
+      prompt: 'Кого отправляем из города?', alive: 4, total: 4, intro: false,
+      lastWord: null, targets: [], silenced: true,
+    });
+    check('запуганный видит «Сегодня вы не голосуете»',
+      w.text('idle-text') === 'Сегодня вы не голосуете');
+    check('запуганному не показаны кнопки голосования', !w.visible('action-area'));
+    check('сказано, что это шантажист', w.text('game-body').includes('шантажист'));
+
+    // Второй тур тоже без голоса: иначе кнопка была бы, а голос — нет.
+    w.push('vote_runoff', { candidates: [{ id: 'p1', name: 'Борис', color: '#3357FF' }] });
+    check('во втором туре запуганный тоже без голоса', !w.visible('action-area'));
+
+    // --- охотник: метка видна всегда.
+    const h = openPage();
+    await join(h, 'Аня');
+    h.push('lobby', { gameName: 'Партия 1.12.0', planned: 6, players: PLAYERS });
+    await dealRole(h, 'hunter', 'Охотник');
+    h.push('sync', {
+      phase: 'day', round: 2, time: 100, paused: false, isAlive: true, canAct: false,
+      alreadyActed: true, role: 'hunter', roleName: 'Охотник', roleEmoji: '🎯',
+      roleAck: true, gameName: 'Партия 1.12.0', alive: 3, total: 4, intro: false,
+      lastWord: null, targets: [], prompt: 'Обсуждайте',
+      hunterMark: { name: 'Глеб' },
+    });
+    check('охотник видит свою метку днём', h.text('game-body').includes('Ваша метка: Глеб'));
+    h.click('btn-myrole');
+    sheet = h.text('sheet-body');
+    check('в «Моя роль» есть блок «Ваша метка»', sheet.includes('ВАША МЕТКА'));
+    check('метка объяснена: сработает и при голосовании',
+      sheet.includes('от ножа или от голосования'));
+    h.click('sheet-close');
+    check('ошибок JavaScript нет (новые роли)', h.errors.length === 0);
+    if (h.errors.length) console.log(h.errors.slice(0, 3).join('\n'));
+    h.close();
+
+    // --- книга правил: у новых ролей есть карточки-памятки.
+    w.click('btn-rules');
+    sheet = w.text('sheet-body');
+    for (const role of ['Телохранитель', 'Свидетель', 'Охотник', 'Шантажист']) {
+      check(`в книге правил есть роль «${role}»`, sheet.includes(role));
+    }
+    check('ошибок JavaScript нет (новые роли, свидетель)', w.errors.length === 0);
+    if (w.errors.length) console.log(w.errors.slice(0, 3).join('\n'));
+    w.close();
+  }
+
   // ----------------------------------------------- ведущий старой версии
   console.log('\nСовместимость: ведущий на 1.1.x (без новых полей)');
   const o = openPage();
@@ -675,6 +843,116 @@ async function dealRole(page, role, roleName) {
   check('ошибок JavaScript нет (старый ведущий)', o.errors.length === 0);
   if (o.errors.length) console.log(o.errors.slice(0, 3).join('\n'));
   o.close();
+
+  console.log('\nПриватный блокнот');
+  const n = openPage();
+  await join(n, 'Аня');
+  n.push('lobby', {players: PLAYERS});
+  await dealRole(n, 'civilian', 'Мирный житель');
+  n.click('btn-notes');
+  const field = n.$('sheet-body').querySelector('textarea');
+  const mark = n.$('sheet-body').querySelector('select');
+  check('свои заметки только на других игроков', n.$('sheet-body').querySelectorAll('textarea').length === 3);
+  const sentBefore = n.sent.length;
+  field.value = '<script>SECRET</script>';
+  field.dispatchEvent(new n.w.Event('input'));
+  mark.value = 'suspect';
+  mark.dispatchEvent(new n.w.Event('change'));
+  check('запись не отправляется в сеть', n.sent.length === sentBefore);
+  n.click('sheet-close');
+  n.push('lobby', {players: PLAYERS.map(p => p.id === 'p1' ? {...p, name: 'Новое имя', isAlive: false} : p)});
+  n.click('btn-notes');
+  check('заметка переживает переименование и выбывание', n.$('sheet-body').querySelector('textarea').value === '<script>SECRET</script>');
+  check('отметка восстановлена', n.$('sheet-body').querySelector('select').value === 'suspect');
+  check('заметка не исполняется как HTML', !n.$('sheet-body').querySelector('script'));
+  check('сохранение в localStorage', Array.from({length:n.w.localStorage.length}, (_,i) => n.w.localStorage.key(i)).some(k => k.startsWith('private_notes_v1:') && n.w.localStorage.getItem(k).includes('SECRET')));
+  n.push('register_ok', {id: 'other', gameName: 'Тест'});
+  n.click('btn-notes');
+  check('другой участник не получает заметки', Array.from(n.$('sheet-body').querySelectorAll('textarea')).every(t => t.value === ''));
+  check('блокнот без ошибок JS', n.errors.length === 0);
+  n.close();
+
+  console.log('\nВыстрел навылет');
+  const ps = openPage();
+  await join(ps, 'Аня');
+  ps.push('lobby', {players: PLAYERS, rules: {...RULES, piercingShot:true}});
+  await dealRole(ps, 'mafia', 'Мафия');
+  ps.push('phase', {phase:'night', round:2, time:45, isAlive:true, canAct:true, canPierce:true, targets:PLAYERS.slice(1), prompt:'Выберите цель'});
+  check('стрелок видит усиление', ps.visible('piercing-choice'));
+  ps.$('in-piercing').checked = true;
+  ps.click('btn-skip');
+  check('пропуск не отправляет усиление', ps.sent.filter(m => m.type === 'night_action').at(-1).piercing === false);
+  ps.push('phase', {phase:'night', round:3, time:45, isAlive:true, canAct:true, canPierce:true, targets:PLAYERS.slice(1)});
+  ps.$('in-piercing').checked = true;
+  ps.$('targets').querySelector('[data-id="p1"]').click();
+  ps.click('btn-send');
+  check('усиление отправляется с целью', ps.sent.filter(m => m.type === 'night_action').at(-1).piercing === true);
+  check('запрос скрыт после хода', !ps.visible('piercing-choice'));
+  ps.push('phase', {phase:'day', round:3, time:100, isAlive:true, canAct:false});
+  check('днём усиление не показывается', !ps.visible('piercing-choice'));
+  ps.push('phase', {phase:'night', round:4, time:45, isAlive:true, canAct:true, targets:PLAYERS.slice(1)});
+  check('старый ведущий не предлагает усиление', !ps.visible('piercing-choice'));
+  check('выбор сброшен при смене фазы', !ps.$('in-piercing').checked);
+  check('нет ошибок JS при усилении', ps.errors.length === 0);
+  ps.close();
+
+  console.log('\nТайминги стола');
+  const tm = openPage();
+  await join(tm, 'Аня');
+  tm.push('lobby', {players:PLAYERS, rules:{...RULES, lastWordSeconds:17,
+    timings:{night:42,day:155,voting:64,runoff:22,lastWord:17}}});
+  tm.click('btn-rules-lobby');
+  check('браузер показывает настроенные длительности', ['ночь — 42 с','день — 155 с','голосование — 64 с','переголосование — 22 с','17 секунд'].every(t => tm.text('sheet-body').includes(t)));
+  tm.push('lobby', {players:PLAYERS, rules:RULES});
+  tm.click('btn-rules-lobby');
+  check('старые правила показывают авто', tm.text('sheet-body').includes('ночь — авто'));
+  check('нет ошибок JS в таймингах', tm.errors.length === 0);
+  tm.close();
+
+  console.log('\nНадёжная доставка: эпоха, подтверждение и повтор после sync');
+  const net = openPage();
+  await join(net, 'Аня');
+  await dealRole(net, 'mafia', 'Мафия');
+  const phasePacket = {phase:'night', round:2, actionEpoch:7, time:60,
+    isAlive:true, canAct:true, targets:PLAYERS.slice(1)};
+  net.push('phase', phasePacket);
+  net.$('targets').querySelector('[data-id="p1"]').click();
+  net.click('btn-send');
+  const actions = () => net.sent.filter(m => m.type === 'night_action');
+  check('ход содержит эпоху', actions().at(-1).actionEpoch === 7);
+  const sent = actions().length;
+  net.push('reclaimed', {id:'p0'});
+  check('до sync ход не повторяется', actions().length === sent);
+  net.push('ack', {accepted:true, actionEpoch:6});
+  net.push('sync', {...phasePacket, alreadyActed:false});
+  check('чужая эпоха ack не удаляет pending: повтор после sync', actions().length === sent + 1);
+  check('повтор сохраняет цель и эпоху', actions().at(-1).targetId === 'p1' && actions().at(-1).actionEpoch === 7);
+  net.push('ack', {accepted:true, actionEpoch:7});
+  net.push('sync', {...phasePacket, alreadyActed:true, publicLog:['День восстановлен']});
+  check('подтверждённый ход не повторяется', actions().length === sent + 1);
+  net.push('phase', {...phasePacket, round:3, actionEpoch:8});
+  net.$('targets').querySelector('[data-id="p2"]').click(); net.click('btn-send');
+  const beforeNew = actions().length;
+  net.push('sync', {...phasePacket, actionEpoch:9});
+  check('смена эпохи отменяет старый ход даже в той же фазе', actions().length === beforeNew);
+  net.push('phase', {...phasePacket, actionEpoch:10});
+  net.$('targets').querySelector('[data-id="p1"]').click();
+  net.sock.bufferedAmount = 70000;
+  net.click('btn-send');
+  const beforeDrain = actions().length;
+  check('переполненный сокет не накапливает отправки', beforeDrain === beforeNew);
+  net.sock.bufferedAmount = 0;
+  net.push('sync', {...phasePacket, actionEpoch:10, alreadyActed:false});
+  check('после разгрузки pending доставляется', actions().length === beforeDrain + 1);
+  check('ошибок JS нет (надёжность)', net.errors.length === 0);
+  const oldSocket = net.sock;
+  const lateMessage = oldSocket.onmessage;
+  oldSocket.close();
+  await sleep(2000);
+  check('сокет восстановлен после обрыва', net.sock !== oldSocket && net.sock.readyState === 1);
+  lateMessage({data:JSON.stringify({v:1,type:'kick',reason:'removed_by_host'})});
+  check('поздний пакет старого сокета не исключает игрока', !net.visible('scr-fatal'));
+  net.close();
 
   // ------------------------------------------------------------------ итог
   const bad = results.filter(([, ok]) => !ok);

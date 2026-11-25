@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 
+import '../../core/assets.dart';
 import '../../core/game_engine.dart';
 import '../../core/story_deck.dart';
 import '../../host/host_controller.dart';
 import '../../models/game_phase.dart';
 import '../../models/game_state.dart';
+import '../../models/player.dart';
+import '../../models/role.dart';
 import '../story_card_view.dart';
+import '../role_card_view.dart';
 import '../app_sheet.dart';
 import '../theme.dart';
 import '../widgets.dart';
@@ -191,9 +195,18 @@ class _HostGameScreenState extends State<HostGameScreen>
                 isNight: isNight,
               ),
               // ---- Гейт раздачи ролей: первая ночь ждёт всех ----
-              if (c.waitingForRoleCheck) ...[
+              if (s.phase == GamePhase.rolesCheck &&
+                  s.localPlayer != null &&
+                  !s.localPlayer!.roleAcknowledged) ...[
+                const SizedBox(height: 10),
+                _LocalRoleRevealCard(controller: c, player: s.localPlayer!),
+              ] else if (c.waitingForRoleCheck) ...[
                 const SizedBox(height: 10),
                 _RoleCheckCard(controller: c),
+              ],
+              if (s.phase != GamePhase.rolesCheck && s.localPlayer != null) ...[
+                const SizedBox(height: 10),
+                _LocalPlayerPanel(controller: c),
               ],
               // Таймер в фазе раздачи ролей не имеет смысла: ночь ещё
               // не началась, время не идёт. Показываем вместо него
@@ -310,25 +323,14 @@ class _HostGameScreenState extends State<HostGameScreen>
                     highlighted: isNight && s.actsTonight(p) ||
                         p.id == s.lastWordId ||
                         p.id == s.verdictId,
-                    subtitle: _revealRoles && p.role != null
-                        ? '${p.role!.emoji} ${p.role!.name}'
-                        : (p.id == s.lastWordId
-                            ? 'говорит последнее слово'
-                            : p.id == s.verdictId
-                            ? 'ждёт решения стола'
-                            : !p.isAlive
-                            ? 'выбыл'
-                            : p.role == null
-                                ? 'в лобби'
-                                : (p.roleAcknowledged
-                                    ? 'роль прочитана'
-                                    : 'изучает роль')),
+                    subtitle: _playerSubtitle(s, p),
                     onTap: () => _renameDialog(p.id, p.name),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         // Повторный показ роли (вопрос 4 из OPEN_QUESTIONS).
-                        if (p.role != null)
+                        // Боту показывать нечего: у него нет экрана.
+                        if (p.role != null && !p.isBot)
                           IconButton(
                             tooltip: 'Показать роль ещё раз',
                             icon: const Icon(Icons.visibility_outlined,
@@ -479,6 +481,26 @@ class _HostGameScreenState extends State<HostGameScreen>
     ctrl.dispose();
   }
 
+  /// Подпись под именем в списке ведущего.
+  ///
+  /// Бот и локальный игрок — первыми: иначе «роль прочитана» или «нет связи»
+  /// выглядели бы как проблема у живого человека, а это не так.
+  String _playerSubtitle(GameState s, Player p) {
+    if (_revealRoles && p.role != null) {
+      return '${p.role!.emoji} ${p.role!.name}';
+    }
+    if (!p.isAlive) {
+      if (p.isBot) return 'бот · выбыл';
+      return p.isLocal ? 'это вы · выбыли' : 'выбыл';
+    }
+    if (p.isBot) return 'бот · играет сам';
+    if (p.isLocal) return 'это вы';
+    if (p.id == s.lastWordId) return 'говорит последнее слово';
+    if (p.id == s.verdictId) return 'ждёт решения стола';
+    if (p.role == null) return 'в лобби';
+    return p.roleAcknowledged ? 'роль прочитана' : 'изучает роль';
+  }
+
   String _forceLabel(GameState s) {
     if (s.lastWordId != null) return 'Слово сказано → голосовать ещё раз';
     if (s.isIntroNight) return 'Разбудить город';
@@ -522,6 +544,11 @@ class _HostGameScreenState extends State<HostGameScreen>
           : const StatusDot(AppColors.warn);
     }
     if (s.phase == GamePhase.voting) {
+      // Запуганный шантажистом в этот день не голосует. Без пометки
+      // ведущий ждал бы его голос до конца таймера.
+      if (s.isSilencedNow(p)) {
+        return const Text('🕶', style: TextStyle(fontSize: 14));
+      }
       return s.votes.containsKey(p.id)
           ? const Icon(Icons.check, color: AppColors.ok, size: 20)
           : const StatusDot(AppColors.warn);
@@ -691,8 +718,14 @@ class _RoleCheckCard extends StatelessWidget {
     final s = controller.state;
     if (s == null) return const SizedBox.shrink();
     final total = s.players.length;
-    final waiting = s.unacknowledged;
+    // Боты роль уже «прочитали» (startGame ставит им флаг сам). Если
+    // старый слот всё же остался без флага, в список ожидания его не
+    // ставим: подойти к боту и попросить нажать «Понятно» нельзя.
+    final waiting = s.unacknowledged.where((p) => !p.isBot).toList();
     final ready = controller.roleAckCount;
+    // Бот не нажмёт «Понятно» никогда, поэтому для карточки он готов.
+    // Иначе при одном неотмеченном боте экран показывал бы «Читают: »
+    // с пустым списком имён.
     final done = waiting.isEmpty;
 
     return Container(
@@ -782,6 +815,7 @@ class _RoleCheckCard extends StatelessWidget {
 
   Future<void> _confirmSkip(BuildContext context, int waitingCount) async {
     final names = controller.state?.unacknowledged
+            .where((p) => !p.isBot)
             .map((p) => p.name)
             .join(', ') ??
         '';
@@ -811,6 +845,393 @@ class _RoleCheckCard extends StatelessWidget {
       ),
     );
     if (ok == true) controller.skipRoleCheck();
+  }
+}
+
+/// Роль ведущего, который сам играет. До подтверждения карта закрыта:
+/// сосед не должен увидеть её раньше времени.
+class _LocalRoleRevealCard extends StatefulWidget {
+  final HostController controller;
+  final Player player;
+
+  const _LocalRoleRevealCard({
+    required this.controller,
+    required this.player,
+  });
+
+  @override
+  State<_LocalRoleRevealCard> createState() => _LocalRoleRevealCardState();
+}
+
+class _LocalRoleRevealCardState extends State<_LocalRoleRevealCard> {
+  bool _revealed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final role = widget.player.role;
+    if (role == null) return const SizedBox.shrink();
+
+    return PanelCard(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            RoleCardView(
+              asset: A.card(role.type),
+              name: role.name,
+              emoji: role.emoji,
+              subtitle: _revealed ? role.description : null,
+              revealed: _revealed,
+              height: 260,
+            ),
+            const SizedBox(height: 12),
+            if (!_revealed) ...[
+              const Text(
+                'Убедитесь, что никто не смотрит в ваш экран. '
+                'Роль знаете только вы.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12.5, color: AppColors.dim),
+              ),
+              const SizedBox(height: 10),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.visibility, size: 18),
+                label: const Text('Я один — показать роль'),
+                onPressed: () => setState(() => _revealed = true),
+              ),
+            ] else ...[
+              Text(
+                role.description,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12.5, color: AppColors.dim),
+              ),
+              const SizedBox(height: 10),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.check, size: 18),
+                label: const Text('Понятно, я готов'),
+                onPressed: widget.controller.acknowledgeLocalRole,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Панель локального игрока: его роль, команда, проверки и кнопки хода.
+/// Появляется только после подтверждения роли; до этого карта скрыта.
+class _LocalPlayerPanel extends StatefulWidget {
+  final HostController controller;
+  const _LocalPlayerPanel({required this.controller});
+
+  @override
+  State<_LocalPlayerPanel> createState() => _LocalPlayerPanelState();
+}
+
+class _LocalPlayerPanelState extends State<_LocalPlayerPanel> {
+  String? _selected;
+  bool _piercing = false;
+  String _signature = '';
+
+  @override
+  void didUpdateWidget(covariant _LocalPlayerPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final s = widget.controller.state;
+    final signature = s == null
+        ? ''
+        : '${s.phase.name}:${s.round}:${s.isVerdictVote}:${s.verdictId}';
+    if (signature != _signature) {
+      _signature = signature;
+      _piercing = false;
+      _selected = null;
+    }
+  }
+
+  String _prompt(GameState s, Player local) {
+    if (s.isVerdictVote) {
+      return 'Выгнать ${s.nameOf(s.verdictId)} или оставить?';
+    }
+    if (s.phase == GamePhase.night) {
+      switch (local.role?.type) {
+        case RoleType.mafia:
+        case RoleType.don:
+          return 'Кого убить этой ночью?';
+        case RoleType.doctor:
+          return 'Кого спасти?';
+        case RoleType.commissioner:
+          return 'Кого проверить?';
+        case RoleType.prostitute:
+          return 'Кого заблокировать?';
+        case RoleType.maniac:
+          return 'Кого убить?';
+        case RoleType.bodyguard:
+          return 'Кого прикрыть собой?';
+        case RoleType.witness:
+          return 'За кем наблюдать?';
+        case RoleType.hunter:
+          return 'Кого забрать с собой?';
+        case RoleType.blackmailer:
+          return 'Кого запугать на завтра?';
+        default:
+          return 'Спите';
+      }
+    }
+    return 'Кого отправляем из города?';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.controller.state;
+    final local = s?.localPlayer;
+    final role = local?.role;
+    if (s == null || local == null || role == null) {
+      return const SizedBox.shrink();
+    }
+
+    final nightTurn = s.phase == GamePhase.night &&
+        s.actsTonight(local) &&
+        !s.nightActions.containsKey(local.id);
+    final voteTurn = s.phase == GamePhase.voting &&
+        s.voters.any((p) => p.id == local.id) &&
+        !s.votes.containsKey(local.id);
+    final acting = !s.paused && (nightTurn || voteTurn);
+    final targets = GameEngine.legalTargetsFor(s, local);
+    if (_selected != null &&
+        !targets.any((t) => t.id == _selected)) {
+      _selected = null;
+    }
+
+    final mates = s.mafiaTeam
+        .where((p) => p.id != local.id)
+        .map((p) => p.name)
+        .toList();
+    final checks = s.privateCheck && role.type == RoleType.commissioner
+        ? s.checksBy(local.id).reversed.take(5).toList()
+        : const <CheckRecord>[];
+    // Свидетель видит ровно один факт — за кем следил и выходил ли тот.
+    final watchName =
+        role.type == RoleType.witness ? s.nameOf(s.watchTargetId) : null;
+    final watchActed = s.watchActed == true;
+    final silenced = s.isSilencedNow(local);
+    // Охотник видит свою метку всегда: она переживает ночи, и забыть,
+    // на кого она стоит, — самая дорогая ошибка в его игре.
+    final hunterMark = role.type == RoleType.hunter && s.hunterMarkId != null
+        ? s.nameOf(s.hunterMarkId)
+        : null;
+
+    return PanelCard(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(role.emoji, style: const TextStyle(fontSize: 22)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Вы: ${role.name}',
+                        style: const TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        !local.isAlive
+                            ? 'вы выбыли — наблюдайте за партией'
+                            : mates.isNotEmpty
+                                ? 'команда: ${mates.join(', ')}'
+                                : 'вы в игре',
+                        style: const TextStyle(
+                            fontSize: 11.5, color: AppColors.dim),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (acting) ...[
+              if (s.canRequestPiercing(local))
+                CheckboxListTile(
+                  value: _piercing,
+                  onChanged: (v) => setState(() => _piercing = v == true),
+                  title: const Text('Выстрел навылет'),
+                  subtitle: const Text('Один заряд команды. Пробивает лечение, но не телохранителя.'),
+                ),
+              Text(
+                _prompt(s, local),
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 8),
+              if (s.isVerdictVote)
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => widget.controller
+                            .submitLocalVote(s.verdictId),
+                        child: Text('Выгнать ${s.nameOf(s.verdictId)}'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () =>
+                            widget.controller.submitLocalVote(null),
+                        child: const Text('Оставить'),
+                      ),
+                    ),
+                  ],
+                )
+              else ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.bg,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.line),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _selected,
+                      isExpanded: true,
+                      hint: const Text('Выберите игрока'),
+                      items: [
+                        for (final target in targets)
+                          DropdownMenuItem(
+                            value: target.id,
+                            child: Text(
+                              target.name,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (value) => setState(() => _selected = value),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: _selected == null
+                            ? null
+                            : () {
+                                if (s.phase == GamePhase.voting) {
+                                  widget.controller.submitLocalVote(_selected);
+                                } else {
+                                  widget.controller
+                                      .submitLocalNightAction(_selected, piercing: _piercing);
+                                }
+                                setState(() => _selected = null);
+                              },
+                        child: Text(s.phase == GamePhase.voting
+                            ? 'Проголосовать'
+                            : 'Отправить выбор'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () {
+                          if (s.phase == GamePhase.voting) {
+                            widget.controller.submitLocalVote(null);
+                          } else {
+                            widget.controller.submitLocalNightAction(null);
+                          }
+                          setState(() => _selected = null);
+                        },
+                        child: Text(s.phase == GamePhase.voting
+                            ? 'Воздержаться'
+                            : 'Пропустить'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ] else if (silenced && s.phase == GamePhase.voting) ...[
+              const Text(
+                '🤐 Вас запугал шантажист: сегодня вы не голосуете. '
+                'Скажите об этом вслух — стол вправе это учесть.',
+                style: TextStyle(fontSize: 12.5, color: AppColors.warn),
+              ),
+            ] else ...[
+              if (s.paused)
+                const Text('⏸ Пауза — действия временно недоступны.',
+                    style: TextStyle(fontSize: 12, color: AppColors.dim))
+              else if (s.lastWordId == local.id)
+                const Text(
+                  '🎤 Ваше последнее слово. Скажите его вслух, затем нажмите «Слово сказано» ниже.',
+                  style: TextStyle(fontSize: 12.5, color: AppColors.warn),
+                )
+              else if (s.isVerdictVote && s.verdictId == local.id)
+                const Text(
+                  '⚖ Стол решает вашу судьбу: вы не голосуете, дождитесь итога.',
+                  style: TextStyle(fontSize: 12.5, color: AppColors.warn),
+                )
+              else if (s.nightActions.containsKey(local.id) &&
+                  s.phase == GamePhase.night)
+                const Text('✅ Ваш ночной ход принят. Ждите рассвета.',
+                    style: TextStyle(fontSize: 12.5, color: AppColors.ok))
+              else if (s.votes.containsKey(local.id) &&
+                  s.phase == GamePhase.voting)
+                const Text('✅ Ваш голос принят. Он скрыт от остальных.',
+                    style: TextStyle(fontSize: 12.5, color: AppColors.ok))
+              else
+                const Text('Сейчас от вас не требуется действий.',
+                    style: TextStyle(fontSize: 12.5, color: AppColors.dim)),
+            ],
+            if (watchName != null && s.watchTargetId != null) ...[
+              const SizedBox(height: 8),
+              const Text('Ваше наблюдение',
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+              Text(
+                watchActed
+                    ? '${s.nameOf(s.watchTargetId)} выходил из дома ночью'
+                    : '${s.nameOf(s.watchTargetId)} не выходил из дома',
+                style: TextStyle(
+                    fontSize: 12,
+                    color: watchActed ? AppColors.warn : AppColors.dim),
+              ),
+            ],
+            if (hunterMark != null) ...[
+              const SizedBox(height: 8),
+              const Text('Ваша метка',
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+              Text('$hunterMark погибнет вместе с вами — от ножа или от голосования',
+                  style: const TextStyle(fontSize: 12, color: AppColors.warn)),
+            ],
+            if (checks.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              const Text('Ваши проверки',
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+              for (final check in checks)
+                Text(
+                  check.blocked
+                      ? 'Ночь ${check.round}: проверка не состоялась'
+                      : 'Ночь ${check.round}: ${s.nameOf(check.targetId)} — '
+                          '${check.isMafia ? 'МАФИЯ' : 'не мафия'}',
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: check.isMafia && !check.blocked
+                          ? AppColors.bad
+                          : AppColors.dim),
+                ),
+            ],
+            const SizedBox(height: 6),
+            const Text(
+              'Вы играете за столом: не открывайте список ролей '
+              'и не подглядывайте в чужие ночные ходы.',
+              style: TextStyle(fontSize: 11, color: AppColors.dim),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -890,7 +1311,11 @@ class _GameOverView extends StatelessWidget {
                   const SizedBox(height: 4),
                   Center(
                     child: Text(
-                      'Раундов: ${s.round} · игроков: ${s.players.length}',
+                      s.hasBots
+                          ? 'Раундов: ${s.round} · игроков: ${s.players.length} '
+                              '(ботов: ${s.bots.length})'
+                          : 'Раундов: ${s.round} · игроков: ${s.players.length}',
+                      textAlign: TextAlign.center,
                       style:
                           const TextStyle(color: AppColors.dim, fontSize: 13),
                     ),
@@ -907,8 +1332,12 @@ class _GameOverView extends StatelessWidget {
                         name: p.name,
                         colorHex: p.colorHex,
                         alive: p.isAlive,
-                        subtitle:
-                            '${p.role?.emoji ?? ''} ${p.role?.name ?? ''}',
+                        // Пометка бота — в подписи, а не в имени: имя
+                        // игрока ведущий мог задать сам, и портить его
+                        // эмодзи в итоговом раскладе не нужно.
+                        subtitle: p.isBot
+                            ? '🤖 ${p.role?.name ?? ''}'
+                            : '${p.role?.emoji ?? ''} ${p.role?.name ?? ''}',
                         trailing: Text(
                           p.isAlive ? 'выжил' : 'выбыл',
                           style: const TextStyle(

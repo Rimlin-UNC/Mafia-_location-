@@ -90,7 +90,20 @@ jobs:
               echo '#### flutter test'
               echo ''
               echo '```'
-              grep -E "^(  |✓|✗|[0-9]+:[0-9]+)" test.log | tail -n 200 || tail -n 200 test.log
+              # Раньше здесь стоял grep по «красивым» строкам. Если он не
+              # находил совпадений, конвейер завершался успешно (код
+              # возврата даёт tail), `||` не срабатывал — и в PR уезжал
+              # пустой блок: падение видно, причины нет.
+              #
+              # Сначала — выжимка всех падений: тестов бывает больше
+              # четырёхсот, и хвост лога обрезал первые из них (ровно так
+              # в 1.13.0 спряталось второе падение, и пришлось гонять CI
+              # лишний раз). Потом — хвост как был.
+              grep -A 12 '❌' test.log | head -n 200 || true
+              echo ''
+              echo '…'
+              echo ''
+              tail -n 300 test.log
               echo '```'
             fi
           } > /tmp/ci_comment.md
@@ -151,8 +164,15 @@ jobs:
       # Pillow нужен один, ставится за секунды.
       - name: Web images are fresh (rules book in browser)
         run: |
-          pip install --quiet pillow
+          pip install --quiet pillow numpy
           python3 tools/web_images.py --check
+
+      # Иконку не проверяет ни analyze, ни сборка APK: битая иконка видна
+      # только на телефоне. Проверяем то, на чём ломались: прозрачные углы
+      # диска, отсутствие линий по кромке, незалитый монохром, отсутствие
+      # альфы у iOS и размеры слоёв адаптивной иконки.
+      - name: App icon is consistent
+        run: python3 tools/make_icon.py --verify
 
       - name: Version has a changelog
         run: |
@@ -178,6 +198,14 @@ jobs:
         run: |
           node --check assets/web/app.js
           node --check assets/web/sw.js
+          # `///` — это док-комментарий Dart, но не JavaScript. В браузере
+          # такая строка превращается в три деления подряд и роняет скрипт
+          # с SyntaxError — при этом `node --check` спокойно пропускает её
+          # как «деление-деление-деление» в некоторых позициях. Ловим явно.
+          if grep -rn '^[[:space:]]*///' assets/web/*.js; then
+            echo '::error::в JS найдены док-комментарии Dart (///) — это не синтаксис JavaScript'
+            exit 1
+          fi
           echo "Web client JS syntax OK"
 
       # Синтаксиса мало: обработчик пакетов в app.js глотает исключения,
@@ -236,8 +264,10 @@ jobs:
           sed -i 's/kotlin.incremental=false/kotlin.incremental=true/' android/gradle.properties
 
       - name: Build arm64 APK
+        id: apk
         run: |
-          flutter build apk --release --target-platform android-arm64
+          set -o pipefail
+          flutter build apk --release --target-platform android-arm64 2>&1 | tee apk-build.log
           VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: *//' | cut -d+ -f1)
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           mkdir -p dist
@@ -250,12 +280,25 @@ jobs:
             exit 1
           fi
 
+      - name: Publish APK failure details
+        if: failure() && steps.apk.outcome == 'failure' && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          {
+            echo '### Ошибка сборки APK'
+            echo '```'
+            tail -n 160 apk-build.log
+            echo '```'
+          } > /tmp/apk-comment.md
+          gh pr comment "$PR_NUMBER" --body-file /tmp/apk-comment.md
+
       # Сборку можно скачать со страницы запуска и поставить на телефон
       # до слияния. Подпись — debug-ключ, как и у релизов.
       #
-      # Путь — dist/, а не MafiaOffline/dist/: у job задан
-      # working-directory: MafiaOffline, поэтому прежний путь указывал на
-      # несуществующую папку. Загрузка падала бы и без квоты.
+      # defaults.run.working-directory действует только на run, не на uses.
+      # upload-artifact ищет от корня checkout: нужен MafiaOffline/dist/.
       #
       # continue-on-error: артефакт — удобство, а не проверка. Квота
       # хранилища общая на аккаунт и может быть занята другим проектом;
@@ -266,6 +309,6 @@ jobs:
         continue-on-error: true
         with:
           name: MafiaOffline-${{ env.VERSION }}-arm64-ci
-          path: dist/*.apk
+          path: MafiaOffline/dist/*.apk
           retention-days: 14
           if-no-files-found: warn

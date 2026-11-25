@@ -1,5 +1,6 @@
 import '../models/game_event.dart';
 import '../models/game_phase.dart';
+import '../models/role.dart';
 
 /// Протокол партии в виде текста (FR-7.7).
 ///
@@ -29,7 +30,16 @@ class ProtocolExport {
     if (players.isNotEmpty) {
       b.writeln('Расклад:');
       for (final p in players) {
-        final pname = (p['name'] ?? '—').toString();
+        // Пометки важны в протоколе не меньше, чем на экране: по тексту
+        // в чате должно быть видно, что партия шла с ботами и что
+        // ведущий тоже играл — иначе «Мирный житель» у ведущего читается
+        // как ошибка раздачи.
+        final marks = <String>[
+          if (p['isLocal'] == true) 'ведущий',
+          if (p['isBot'] == true) 'бот',
+        ];
+        final rawName = (p['name'] ?? '—').toString();
+        final pname = marks.isEmpty ? rawName : '$rawName (${marks.join(', ')})';
         final role = (p['role'] ?? '').toString();
         final alive = p['isAlive'] as bool? ?? true;
         final mark = alive ? 'выжил' : 'выбыл';
@@ -91,24 +101,10 @@ class ProtocolExport {
   }
 
   /// Имя роли по wire-имени (`don` → «Дон»).
-  static String _roleRu(String wire) {
-    switch (wire) {
-      case 'mafia':
-        return 'Мафия';
-      case 'don':
-        return 'Дон';
-      case 'doctor':
-        return 'Доктор';
-      case 'commissioner':
-        return 'Комиссар';
-      case 'prostitute':
-        return 'Проститутка';
-      case 'maniac':
-        return 'Маньяк';
-      case 'civilian':
-        return 'Мирный житель';
-      default:
-        return wire;
-    }
-  }
+  /// Русское название роли по служебному имени из истории.
+  ///
+  /// Словарь живёт в модели роли (`Role.nameRuFor`): здесь раньше была
+  /// своя копия на семь ролей, и новые роли 1.12.0 выпадали из протокола
+  /// английским словом. Неизвестное имя по-прежнему возвращается как есть.
+  static String _roleRu(String wire) => Role.nameRuFor(wire);
 }

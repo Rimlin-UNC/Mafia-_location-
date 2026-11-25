@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/constants.dart';
+import '../../core/lobby_plan.dart';
 import '../../host/host_controller.dart';
 import '../../net/join_code.dart';
 import '../../storage/wifi_store.dart';
@@ -150,13 +151,15 @@ class _LobbyScreenState extends State<LobbyScreen> {
     final s = c.state;
     if (s == null) return const Scaffold(body: SizedBox.shrink());
 
-    final connected = s.players.length;
-    final enough = connected >= Rules.minPlayers;
-    final full = connected >= s.plannedPlayers;
+    final plan = c.lobbyPlan;
+    if (plan == null) return const Scaffold(body: SizedBox.shrink());
+    final connected = plan.players;
+    final enough = plan.enough;
+    final full = plan.full;
 
     // Вопрос 1 из OPEN_QUESTIONS: старт не блокируем, но показываем имена,
     // которые за столом невозможно различить. Решение остаётся за ведущим.
-    final shortNames = s.players
+    final shortNames = s.humans
         .where((p) => p.name.trim().length < 2)
         .map((p) => '«${p.name}»')
         .toList();
@@ -195,6 +198,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 child: ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
+                    _BotSetupCard(controller: c, plan: plan),
+                    const SizedBox(height: 10),
                     _JoinWizard(
                       code: s.code,
                       hostAddress: c.hostAddress,
@@ -221,12 +226,15 @@ class _LobbyScreenState extends State<LobbyScreen> {
                           child: PlayerTile(
                             name: p.name,
                             colorHex: p.colorHex,
-                            subtitle:
-                                p.isConnected ? 'подключён' : 'нет связи',
+                            subtitle: p.isBot
+                                ? 'бот · играет автоматически'
+                                : p.isLocal
+                                    ? 'это вы · ведущий тоже играет'
+                                    : (p.isConnected ? 'подключён' : 'нет связи'),
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                StatusDot(p.isConnected
+                                StatusDot(p.isBot || p.isLocal || p.isConnected
                                     ? AppColors.ok
                                     : AppColors.bad),
                                 IconButton(
@@ -255,8 +263,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
-                          'Ожидаем ещё ${s.plannedPlayers - connected}. '
-                          'Можно начать раньше — недостающие роли уйдут в мирные.',
+                          // Ботов не считаем: «ожидаем ещё 4» при четырёх
+                          // ботах за столом читалось бы как ошибка.
+                          _waitingText(s.plannedPlayers - s.humans.length),
                           style: const TextStyle(
                               fontSize: 12.5, color: Color(0xFFF8C778)),
                         ),
@@ -270,14 +279,12 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   children: [
                     ElevatedButton.icon(
                       icon: const Icon(Icons.play_arrow),
-                      label: Text(full
-                          ? 'Старт игры — раздать роли'
-                          : 'Начать с $connected игроками'),
+                      label: Text(plan.startLabel),
                       style: ElevatedButton.styleFrom(
                         backgroundColor:
-                            full ? AppColors.accent : AppColors.warn,
+                            enough ? AppColors.accent : AppColors.warn,
                       ),
-                      onPressed: enough
+                      onPressed: plan.canStart
                           ? () {
                               c.startGame();
                               Navigator.pushReplacement(
@@ -290,13 +297,14 @@ class _LobbyScreenState extends State<LobbyScreen> {
                             }
                           : null,
                     ),
-                    if (!enough)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 8),
+                    if (plan.startHint != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
                         child: Text(
-                          'Минимум 6 игроков для старта',
-                          style:
-                              TextStyle(fontSize: 12, color: AppColors.dim),
+                          plan.startHint!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                              fontSize: 12, color: AppColors.dim),
                         ),
                       ),
                     if (enough && shortNames.isNotEmpty)
@@ -325,6 +333,132 @@ class _LobbyScreenState extends State<LobbyScreen> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Строка «ждём ещё N человек» со склонением и без ложных обещаний:
+/// при пустом лобби фраза про ботов — единственное, что объясняет старт.
+String _waitingText(int missingHumans) {
+  if (missingHumans <= 0) {
+    return 'Стол укомплектован. Можно раздавать роли.';
+  }
+  // «Ожидаем ещё 1 человека», «ещё 2 человека», «ещё 5 человек»:
+  // винительный падеж совпадает с родительным, отдельные формы не нужны.
+  return 'Ожидаем ещё $missingHumans ${missingHumans == 1 ? 'человека' : 'человек'}. '
+      'Можно начать раньше: '
+      'если за столом меньше ${Rules.minPlayers} игроков, свободные места '
+      'займут боты. Роли подстроятся под фактический состав.';
+}
+
+/// Боты в лобби: путь для одного человека и добор для неполного стола.
+class _BotSetupCard extends StatelessWidget {
+  final HostController controller;
+  final LobbyPlan plan;
+
+  const _BotSetupCard({required this.controller, required this.plan});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = controller.state;
+    if (s == null) return const SizedBox.shrink();
+    final local = s.localPlayer;
+    final humans = s.humans.length;
+    final full = plan.full;
+    final enough = plan.enough;
+
+    void error(String text) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(backgroundColor: AppColors.bad, content: Text(text)),
+      );
+    }
+
+    return PanelCard(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.smart_toy_outlined,
+                    size: 20, color: AppColors.accent2),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Не хватает игроков?',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                Text(
+                  plan.composition,
+                  style: const TextStyle(fontSize: 11.5, color: AppColors.dim),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              local != null
+                  ? 'Вы играете как ${local.name}. Роль и ходы будут на этом экране; кнопки ведущего останутся доступными.'
+                  : humans == 0
+                      ? 'Можно играть одному: вы получите роль, а остальные места займут боты. Либо подключите людей по QR.'
+                      : 'Люди остаются за столом, а боты занимают только свободные места и играют по общим правилам.',
+              style: const TextStyle(
+                  fontSize: 12, color: AppColors.dim, height: 1.35),
+            ),
+            const SizedBox(height: 10),
+            // Стол, забитый ботами, — тоже повод показать кнопку:
+            // иначе «Играть одному» исчезает, а партия из автоматов
+            // не стартует (см. LobbyPlan.canStart).
+            if (local == null && (!full || humans == 0))
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  // person_play появился в Material Symbols позже 3.24.5:
+                  // со старым Icons сборка APK не компилируется вовсе,
+                  // а CI (analyze) падает с undefined_getter.
+                  icon: const Icon(Icons.person_add_alt_1, size: 18),
+                  label: Text(humans == 0 ? 'Играть одному' : 'Ведущий тоже играет'),
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.accent),
+                  onPressed: () {
+                    final problem = controller.startSolo();
+                    if (problem != null) error(problem);
+                  },
+                ),
+              ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.smart_toy_outlined, size: 17),
+                  label: const Text('+1 бот'),
+                  // botRoom, а не full: стол мог быть создан «без плана»
+                  // (planned == 0), и тогда упереться можно только в 20.
+                  onPressed: plan.botRoom == 0
+                      ? null
+                      : () {
+                          if (controller.addBots() == 0) {
+                            error('Стол уже заполнен');
+                          }
+                        },
+                ),
+                if (!enough && s.players.isNotEmpty)
+                  // const: подпись складывается из константы, а обработчик
+                  // не захватывает ничего, кроме самого контроллера.
+                  TextButton.icon(
+                    icon: const Icon(Icons.group_add, size: 17),
+                    label: const Text('Добрать до ${Rules.minPlayers}'),
+                    onPressed: () =>
+                        controller.fillBotsTo(Rules.minPlayers),
+                  ),
+              ],
+            ),
+          ],
         ),
       ),
     );

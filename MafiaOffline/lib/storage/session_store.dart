@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/phase_timings.dart';
 import '../models/game_event.dart';
 import '../models/game_phase.dart';
 import '../models/game_state.dart';
@@ -20,7 +21,12 @@ class SessionStore {
   /// Партия считается устаревшей, если её не трогали дольше этого срока.
   static const _maxAge = Duration(hours: 6);
 
-  Future<void> save(GameState s) async {
+  Future<void> _writes = Future<void>.value();
+
+  /// Записи не обгоняют друг друга при быстрых ходах нескольких игроков.
+  Future<void> save(GameState s) => _writes = _writes.then((_) => _save(s));
+
+  Future<void> _save(GameState s) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_key, jsonEncode(_encode(s)));
@@ -30,6 +36,7 @@ class SessionStore {
   }
 
   Future<GameState?> load() async {
+    await _writes;
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_key);
@@ -60,7 +67,9 @@ class SessionStore {
 
   Future<bool> hasSession() async => (await load()) != null;
 
-  Future<void> clear() async {
+  Future<void> clear() => _writes = _writes.then((_) => _clear());
+
+  Future<void> _clear() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_key);
@@ -82,6 +91,12 @@ class SessionStore {
         'round': s.round,
         'timeLeft': s.timeLeft,
         'lastHealedId': s.lastHealedId,
+        'lastGuardedId': s.lastGuardedId,
+        'actionEpoch': s.actionEpoch,
+        'timings': s.timings.toJson(),
+        'piercingShot': s.piercingShot,
+        'piercingSpent': s.piercingSpent,
+        'piercingRequests': s.piercingRequests,
         'openCards': s.openCards,
         // Правила стола и служебное состояние 1.2.0. Без них перезапуск
         // посреди партии молча менял бы правила на значения по умолчанию.
@@ -95,6 +110,16 @@ class SessionStore {
         // показалась бы второй раз.
         'storySeen': s.storySeen,
         'noDeathsStreak': s.noDeathsStreak,
+        'lastBotSpeechRound': s.lastBotSpeechRound,
+        // 1.12.0: шантаж, наблюдение свидетеля и метка охотника.
+        // Без них перезапуск посреди дня «снимал» бы запугивание и
+        // заставлял свидетеля смотреть заново.
+        'silencedId': s.silencedId,
+        'silencedRound': s.silencedRound,
+        'watchTargetId': s.watchTargetId,
+        'watchActed': s.watchActed,
+        'watchRound': s.watchRound,
+        'hunterMarkId': s.hunterMarkId,
         'roleSetup': {
           for (final e in s.roleSetup.entries) e.key.name: e.value,
         },
@@ -132,8 +157,10 @@ class SessionStore {
         if (p is Map) {
           players.add(
             Player.fromStorageJson(Map<String, dynamic>.from(p))
-                // После перезапуска связи ни с кем нет, пока не переподключатся.
-                .copyWith(isConnected: false),
+                // После перезапуска связи ни с кем нет, пока не
+                // переподключатся. Боты и локальный игрок — исключение:
+                // их соединение не зависит от сети и не могло пропасть.
+                .copyWith(isConnected: p['isBot'] == true || p['isLocal'] == true),
           );
         }
       }
@@ -202,7 +229,15 @@ class SessionStore {
       timeLeft: _int(m['timeLeft']) ?? 0,
       paused: true,
       lastHealedId: _str(m['lastHealedId']),
+      // Сохранение из 1.11.x этого поля не знает — щит можно ставить
+      // на кого угодно.
+      lastGuardedId: _str(m['lastGuardedId']),
       // Старые сохранения поля не знают — считаем карту закрытой.
+      actionEpoch: _int(m['actionEpoch']) ?? 0,
+      timings: PhaseTimings.fromJson(m['timings']),
+      piercingShot: _bool(m['piercingShot']) ?? false,
+      piercingSpent: _bool(m['piercingSpent']) ?? false,
+      piercingRequests: strList(m['piercingRequests']),
       openCards: _bool(m['openCards']) ?? false,
       // Сохранение из 1.1.x этих полей не знает. Партия, начатая по старым
       // правилам, по ним и доигрывается: без знакомства, без таймера
@@ -215,6 +250,13 @@ class SessionStore {
       checks: checks,
       storySeen: strList(m['storySeen']),
       noDeathsStreak: _int(m['noDeathsStreak']) ?? 0,
+      lastBotSpeechRound: _int(m['lastBotSpeechRound']) ?? 0,
+      silencedId: _str(m['silencedId']),
+      silencedRound: _int(m['silencedRound']) ?? 0,
+      watchTargetId: _str(m['watchTargetId']),
+      watchActed: _bool(m['watchActed']),
+      watchRound: _int(m['watchRound']) ?? 0,
+      hunterMarkId: _str(m['hunterMarkId']),
       roleSetup: setup,
       players: players,
       log: log,
