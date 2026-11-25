@@ -21,7 +21,12 @@ class SessionStore {
   /// Партия считается устаревшей, если её не трогали дольше этого срока.
   static const _maxAge = Duration(hours: 6);
 
-  Future<void> save(GameState s) async {
+  Future<void> _writes = Future<void>.value();
+
+  /// Записи не обгоняют друг друга при быстрых ходах нескольких игроков.
+  Future<void> save(GameState s) => _writes = _writes.then((_) => _save(s));
+
+  Future<void> _save(GameState s) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_key, jsonEncode(_encode(s)));
@@ -31,6 +36,7 @@ class SessionStore {
   }
 
   Future<GameState?> load() async {
+    await _writes;
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_key);
@@ -61,7 +67,9 @@ class SessionStore {
 
   Future<bool> hasSession() async => (await load()) != null;
 
-  Future<void> clear() async {
+  Future<void> clear() => _writes = _writes.then((_) => _clear());
+
+  Future<void> _clear() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_key);
@@ -84,6 +92,7 @@ class SessionStore {
         'timeLeft': s.timeLeft,
         'lastHealedId': s.lastHealedId,
         'lastGuardedId': s.lastGuardedId,
+        'actionEpoch': s.actionEpoch,
         'timings': s.timings.toJson(),
         'piercingShot': s.piercingShot,
         'piercingSpent': s.piercingSpent,
@@ -224,6 +233,7 @@ class SessionStore {
       // на кого угодно.
       lastGuardedId: _str(m['lastGuardedId']),
       // Старые сохранения поля не знают — считаем карту закрытой.
+      actionEpoch: _int(m['actionEpoch']) ?? 0,
       timings: PhaseTimings.fromJson(m['timings']),
       piercingShot: _bool(m['piercingShot']) ?? false,
       piercingSpent: _bool(m['piercingSpent']) ?? false,

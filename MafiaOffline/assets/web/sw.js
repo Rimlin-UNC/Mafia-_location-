@@ -21,7 +21,7 @@
  */
 'use strict';
 
-const VERSION = 'mafia-v19';
+const VERSION = 'mafia-v20';
 const CORE = ['/', '/style.css', '/app.js', '/manifest.webmanifest',
               '/instructions/guides/01_host.jpg'];
 
@@ -37,7 +37,7 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k)));
+    await Promise.all(keys.filter((k) => k.startsWith('mafia-') && k !== VERSION).map((k) => caches.delete(k)));
     await self.clients.claim();
   })());
 });
@@ -67,7 +67,8 @@ self.addEventListener('fetch', (e) => {
       } catch (err) {
         // Хост недоступен — отдаём последнюю рабочую страницу.
         // Она сама начнёт стучаться в сокет и вернёт игрока в партию.
-        const cached = await caches.match('/');
+        const c = await caches.open(VERSION);
+        const cached = await c.match('/');
         return cached || new Response(
           '<meta charset="utf-8"><body style="background:#0e0f14;color:#eee;'
           + 'font:16px system-ui;padding:40px;text-align:center">'
@@ -81,13 +82,18 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
+  if (!/^\/(cards|instructions|crimes|sounds|images)\//.test(url.pathname) &&
+      !['/app.js', '/style.css', '/manifest.webmanifest'].includes(url.pathname)) return;
+
   // Статика: кеш первым, сеть только при промахе.
   e.respondWith((async () => {
-    const cached = await caches.match(req);
+    const c = await caches.open(VERSION);
+    const cached = await c.match(req);
     if (cached) return cached;
     try {
       const fresh = await fetch(req);
-      if (fresh.ok && fresh.status === 200) {
+      if (fresh.ok && fresh.status === 200 && !fresh.redirected &&
+          !(fresh.headers.get('Cache-Control') || '').includes('no-store')) {
         const c = await caches.open(VERSION);
         c.put(req, fresh.clone()).catch(() => {});
       }

@@ -198,6 +198,7 @@ class GameState {
   /// Показывать ли всем роль выбывшего игрока. По умолчанию закрыта:
   /// раскрытая карта упрощает город, но убивает интригу первого круга.
   /// Опциональный общий заряд мафии. Запросы — приватные ночные действия.
+  final int actionEpoch;
   final PhaseTimings timings;
   final bool piercingShot;
   final bool piercingSpent;
@@ -295,6 +296,7 @@ class GameState {
     this.winner,
     this.lastHealedId,
     this.lastGuardedId,
+    this.actionEpoch = 0,
     this.timings = const PhaseTimings(),
     this.piercingShot = false,
     this.piercingSpent = false,
@@ -337,6 +339,7 @@ class GameState {
     WinnerSide? winner,
     String? lastHealedId,
     String? lastGuardedId,
+    int? actionEpoch,
     PhaseTimings? timings,
     bool? piercingShot,
     bool? piercingSpent,
@@ -392,6 +395,7 @@ class GameState {
       lastHealedId: clearLastHealed ? null : (lastHealedId ?? this.lastHealedId),
       lastGuardedId:
           clearLastGuarded ? null : (lastGuardedId ?? this.lastGuardedId),
+      actionEpoch: actionEpoch ?? this.actionEpoch,
       timings: timings ?? this.timings,
       piercingShot: piercingShot ?? this.piercingShot,
       piercingSpent: piercingSpent ?? this.piercingSpent,

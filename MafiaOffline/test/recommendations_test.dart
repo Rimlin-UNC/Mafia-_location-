@@ -488,30 +488,30 @@ void main() {
     test('имя занято живым игроком с другого устройства — отказ', () {
       final s = state(phase: GamePhase.waiting, players: [named('Аня')]);
       expect(
-        ask(s, name: 'Аня', deviceId: 'dev-2', online: {'Аня'}),
+        ask(s, name: 'Аня', deviceId: 'device-0002', online: {'Аня'}),
         RegisterVerdict.denyNameTaken,
       );
     });
 
-    test('имя занято, но связи нет — это он вернулся, отдаём слот', () {
+    test('офлайн-слот без доказательства нельзя захватить по имени', () {
       final s = state(phase: GamePhase.waiting, players: [named('Аня')]);
-      expect(ask(s, name: 'Аня', online: {}), RegisterVerdict.reclaim);
+      expect(ask(s, name: 'Аня', online: {}), RegisterVerdict.denyNameTaken);
     });
 
     test('тот же deviceId с другого устройства — слот его же', () {
       final s = state(
-          phase: GamePhase.waiting, players: [named('Аня', device: 'dev-1')]);
+          phase: GamePhase.waiting, players: [named('Аня', device: 'device-0001')]);
       expect(
-        ask(s, name: 'Аня', deviceId: 'dev-1', online: {'Аня'}),
+        ask(s, name: 'Аня', deviceId: 'device-0001', online: {'Аня'}),
         RegisterVerdict.reclaimOtherDevice,
       );
     });
 
     test('другой deviceId при живой связи — отказ, а не захват слота', () {
       final s = state(
-          phase: GamePhase.waiting, players: [named('Аня', device: 'dev-1')]);
+          phase: GamePhase.waiting, players: [named('Аня', device: 'device-0001')]);
       expect(
-        ask(s, name: 'Аня', deviceId: 'dev-2', online: {'Аня'}),
+        ask(s, name: 'Аня', deviceId: 'device-0002', online: {'Аня'}),
         RegisterVerdict.denyNameTaken,
       );
     });
@@ -520,8 +520,8 @@ void main() {
       // Главный смысл правила: возврат в свой слот проверяется ДО фазы.
       // Если порядок перепутать, игрок с разрядившимся телефоном получит
       // «игра уже началась» и потеряет роль.
-      final s = state(phase: GamePhase.night, players: [named('Аня')]);
-      expect(ask(s, name: 'Аня', online: {}), RegisterVerdict.reclaim);
+      final s = state(phase: GamePhase.night, players: [named('Аня', device: 'device-0001')]);
+      expect(ask(s, name: 'Аня', deviceId: 'device-0001', online: {}), RegisterVerdict.reclaim);
     });
 
     test('чужое имя посреди партии — «игра уже началась»', () {

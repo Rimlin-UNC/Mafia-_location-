@@ -15,6 +15,7 @@ import '../models/player.dart';
 import '../models/role.dart';
 import '../core/assets.dart';
 import '../core/bot_engine.dart';
+import '../net/network_policy.dart';
 import '../net/host_server.dart';
 import '../net/protocol.dart';
 import '../services/audio_service.dart';
@@ -330,6 +331,27 @@ class HostController extends ChangeNotifier {
   }
 
   void _dispatchMessage(ClientConn conn, Envelope msg) {
+    if (msg.type != Msg.register && msg.type != Msg.resyncRequest) {
+      if (!NetworkPolicy.ownsCommand(conn.playerId, msg.data['playerId'])) return;
+    }
+    if (msg.type == Msg.nightAction || msg.type == Msg.vote) {
+      final s = _state!;
+      final actor = s.byId(conn.playerId);
+      if (actor == null) return;
+      if (msg.get<int>('actionEpoch') == null) {
+        server.sendToConn(conn, Envelope(Msg.registerDenied, {'reason': DenyReason.badVersion}));
+        return;
+      }
+      if (!NetworkPolicy.currentTurn(msg.data['actionEpoch'], s.actionEpoch)) {
+        server.sendToConn(conn, _syncEnvelopeFor(actor));
+        return;
+      }
+      final recorded = msg.type == Msg.vote ? s.votes : s.nightActions;
+      if (recorded.containsKey(conn.playerId)) {
+        server.sendToConn(conn, Envelope(Msg.ack, {'accepted': true, 'actionEpoch': s.actionEpoch}));
+        return;
+      }
+    }
     switch (msg.type) {
       case Msg.register:
         _handleRegister(conn, msg);
@@ -356,7 +378,12 @@ class HostController extends ChangeNotifier {
 
   void _handleRegister(ClientConn conn, Envelope msg) {
     final s = _state!;
+    if (msg.get<String>('code') != s.code) {
+      server.sendToConn(conn, Envelope(Msg.registerDenied, {'reason': DenyReason.badCode}));
+      return;
+    }
     final rawName = (msg.get<String>('name') ?? '').trim();
+    if (rawName.length > 40) return;
     final name = rawName.isEmpty ? 'Игрок' : rawName;
     final deviceId = msg.get<String>('deviceId');
 
@@ -492,7 +519,8 @@ class HostController extends ChangeNotifier {
       }
     }
 
-    if (player == null || player.isBot || player.isLocal) {
+    if (player == null || player.isBot || player.isLocal ||
+        !NetworkPolicy.ownsSlot(player.deviceId, msg.get<String>('deviceId'))) {
       // Игрока нет — например, партия перезапущена. Слоты ботов и
       // локального игрока по сети недоступны: иначе по имени можно
       // получить чужую роль через sync.
@@ -523,6 +551,7 @@ class HostController extends ChangeNotifier {
     final s = _state!;
     return Envelope(Msg.sync, {
       ..._phaseFieldsFor(player),
+      'publicLog': s.log.reversed.where((e) => e.visibleToPlayers).take(40).map((e) => e.text).toList(),
       'alreadyActed': s.phase == GamePhase.night
           ? s.nightActions.containsKey(player.id)
           : s.votes.containsKey(player.id),
@@ -586,7 +615,7 @@ class HostController extends ChangeNotifier {
         if (piercing && target != null && s.canRequestPiercing(player)) playerId],
     );
 
-    server.sendTo(playerId, Envelope(Msg.ack, {'accepted': true}));
+    server.sendTo(playerId, Envelope(Msg.ack, {'accepted': true, 'actionEpoch': s.actionEpoch}));
     _persist();
     // Комиссар видит ответ сразу, как выбрал игрока. Вызываем после
     // каждого хода, а не только комиссарского: если он сходил раньше
@@ -712,7 +741,7 @@ class HostController extends ChangeNotifier {
     votes[voterId] = target;
     _state = s.copyWith(votes: votes);
 
-    server.sendTo(voterId, Envelope(Msg.ack, {'accepted': true}));
+    server.sendTo(voterId, Envelope(Msg.ack, {'accepted': true, 'actionEpoch': s.actionEpoch}));
     _persist();
     notifyListeners();
 
@@ -1264,6 +1293,7 @@ class HostController extends ChangeNotifier {
     if (s == null) return;
 
     _state = s.copyWith(
+      actionEpoch: s.actionEpoch + 1,
       phase: GamePhase.night,
       round: s.round + 1,
       piercingRequests: const [],
@@ -1545,6 +1575,7 @@ class HostController extends ChangeNotifier {
     if (s == null) return;
     final isVerdict = verdictId != null;
     _state = s.copyWith(
+      actionEpoch: s.actionEpoch + 1,
       phase: GamePhase.voting,
       votes: <String, String?>{},
       runoffCandidates: candidates,
@@ -1720,6 +1751,7 @@ class HostController extends ChangeNotifier {
     if (s == null) return;
     final votesFor = s.voteTally[playerId] ?? 0;
     _state = s.copyWith(
+      actionEpoch: s.actionEpoch + 1,
       phase: GamePhase.day,
       lastWordId: playerId,
       clearVerdict: true,
@@ -1967,6 +1999,7 @@ class HostController extends ChangeNotifier {
     final speaker = s.byId(s.lastWordId);
     final accused = s.isVerdictVote ? s.byId(s.verdictId) : null;
     return {
+      'actionEpoch': s.actionEpoch,
       'phase': s.phase.wire,
       'round': s.round,
       'time': s.timeLeft,

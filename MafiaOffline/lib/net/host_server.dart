@@ -169,7 +169,18 @@ class HostServer {
     }
 
     try {
-      final socket = await WebSocketTransformer.upgrade(request);
+      final origin = request.headers.value('origin');
+      if (origin != null && Uri.tryParse(origin)?.authority != request.headers.value('host')) {
+        request.response.statusCode = HttpStatus.forbidden;
+        await request.response.close();
+        return;
+      }
+      if (_clients.length >= 64) {
+        request.response.statusCode = HttpStatus.serviceUnavailable;
+        await request.response.close();
+        return;
+      }
+      final socket = await WebSocketTransformer.upgrade(request, compression: CompressionOptions.compressionOff);
 
       // Пинг-понг на уровне протокола WebSocket: система сама заметит
       // разрыв, даже если приложение игрока заморожено в фоне.
@@ -180,8 +191,10 @@ class HostServer {
 
       socket.listen(
         (raw) {
-          if (raw is! String) return;
-          if (conn.isFlooding) return;
+          if (raw is! String || raw.length > 16384 || conn.isFlooding) {
+            socket.close(WebSocketStatus.policyViolation, 'message limit');
+            return;
+          }
 
           final msg = Envelope.decode(raw);
           if (msg == null) {
@@ -262,6 +275,15 @@ class HostServer {
   Future<void> _serveStatic(HttpRequest request) async {
     final path = request.uri.path;
     final response = request.response;
+    response.headers.set('X-Content-Type-Options', 'nosniff');
+    response.headers.set('Referrer-Policy', 'no-referrer');
+    response.headers.set('X-Frame-Options', 'DENY');
+    response.headers.set(HttpHeaders.varyHeader, 'Accept-Encoding');
+    if (request.method != 'GET' && request.method != 'HEAD') {
+      response.statusCode = HttpStatus.methodNotAllowed;
+      await response.close();
+      return;
+    }
 
     // Служебная проверка: клиент дёргает её, чтобы понять, жив ли хост,
     // не поднимая WebSocket. Отвечаем до всякой очереди — это дёшево.
@@ -277,6 +299,12 @@ class HostServer {
       return;
     }
 
+    if (_staticQueue.length >= 32) {
+      response.statusCode = HttpStatus.serviceUnavailable;
+      response.headers.set('Retry-After', '1');
+      await response.close();
+      return;
+    }
     await _acquireSlot();
     try {
       final asset = WebAssets.resolve(path);
@@ -316,7 +344,8 @@ class HostServer {
         return;
       }
 
-      final etag = WebAssets.etagFor(path, body.length);
+      final baseEtag = WebAssets.etagFor(path, body.length);
+      final etag = '${baseEtag.substring(0, baseEtag.length - 1)}-${encoded ? 'gz' : 'id'}"';
 
       // Браузер уже держит этот файл — не гоним мегабайты повторно.
       // Особенно важно для звуков: игрок, перезагрузивший страницу,
@@ -336,7 +365,8 @@ class HostServer {
         // Картинки и звуки — кешируем надолго, они статичны.
         ..headers.set(
           HttpHeaders.cacheControlHeader,
-          isHtml ? 'no-store' : 'public, max-age=604800, immutable',
+          isHtml ? 'no-store' : (request.uri.query == WebAssets.assetVersion
+              ? 'public, max-age=604800, immutable' : 'public, max-age=0, must-revalidate'),
         )
         ..headers.set('X-Content-Type-Options', 'nosniff');
 
@@ -346,7 +376,7 @@ class HostServer {
       // Явная длина позволяет браузеру показать прогресс и не гадать,
       // а нам — не держать chunked-обвязку.
       response.headers.contentLength = body.length;
-      response.add(body);
+      if (request.method != 'HEAD') response.add(body);
       await response.close();
     } catch (_) {
       try {
@@ -370,6 +400,7 @@ class HostServer {
 
   void _drop(ClientConn c) {
     _clients.remove(c);
+    c.playerId = null;
     try {
       c.socket.close();
     } catch (_) {}

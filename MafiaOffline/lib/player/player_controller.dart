@@ -94,6 +94,10 @@ class PlayerController extends ChangeNotifier {
   bool paused = false;
 
   bool isAlive = true;
+  int actionEpoch = 0;
+  Envelope? _pendingCommand;
+  bool _awaitingSync = false;
+  int _retryTicks = 0;
   bool canAct = false;
   bool actionSent = false;
   bool canPierce = false;
@@ -186,10 +190,15 @@ class PlayerController extends ChangeNotifier {
     _statusSub = conn.statusStream.listen((s) {
       // После обрыва маршрут мог смениться — старые замеры часов уже не годятся.
       if (s == ConnStatus.reconnecting) synced.reset();
+      if (s == ConnStatus.connected || s == ConnStatus.reconnecting) _awaitingSync = true;
       notifyListeners();
     });
     // Локальный отсчёт между пакетами синхронизации — таймер идёт плавно.
     _localTick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (++_retryTicks % 3 == 0 && !_awaitingSync &&
+          conn.status == ConnStatus.connected && _pendingCommand != null) {
+        conn.send(_pendingCommand!);
+      }
       if (!paused && timeLeft > 0 && phase != GamePhase.ended) {
         timeLeft--;
         notifyListeners();
@@ -226,6 +235,8 @@ class PlayerController extends ChangeNotifier {
 
       case Msg.registerDenied:
         deniedReason = msg.get<String>('reason');
+        _pendingCommand = null;
+        conn.close();
         break;
 
       case Msg.lobby:
@@ -449,6 +460,8 @@ class PlayerController extends ChangeNotifier {
         break;
 
       case Msg.ack:
+        if ((msg.get<int>('actionEpoch') ?? 0) != actionEpoch) break;
+        _pendingCommand = null;
         actionSent = true;
         canAct = false;
         break;
@@ -479,6 +492,16 @@ class PlayerController extends ChangeNotifier {
   }
 
   void _applyPhase(Envelope msg) {
+    final publicLog = msg.get<List>('publicLog');
+    if (publicLog != null) eventLog = publicLog.whereType<String>().take(40).toList();
+    _awaitingSync = false;
+    final nextEpoch = msg.get<int>('actionEpoch') ?? 0;
+    if (nextEpoch != actionEpoch || msg.get<bool>('alreadyActed') == true ||
+        (msg.get<String>('phase') != null && msg.get<String>('phase') != phase.wire) ||
+        (msg.get<int>('round') != null && msg.get<int>('round') != round)) {
+      _pendingCommand = null;
+    }
+    actionEpoch = nextEpoch;
     final prevPhase = phase;
     final prevSpeaker = lastWordName;
     final prevVerdict = verdictName;
@@ -490,7 +513,8 @@ class PlayerController extends ChangeNotifier {
     canAct = msg.get<bool>('canAct') ?? false;
     canPierce = msg.get<bool>('canPierce') == true;
     piercingSelected = false;
-    actionSent = msg.get<bool>('alreadyActed') ?? false;
+    actionSent = (msg.get<bool>('alreadyActed') ?? false) || _pendingCommand != null;
+    if (_pendingCommand != null) canAct = false;
     prompt = msg.get<String>('prompt') ?? prompt;
     gameName = msg.get<String>('gameName') ?? gameName;
 
@@ -683,11 +707,14 @@ class PlayerController extends ChangeNotifier {
     if (!skip && target == null) return;
 
     final type = phase == GamePhase.voting ? Msg.vote : Msg.nightAction;
-    conn.send(Envelope(type, {
+    final command = Envelope(type, {
+      'actionEpoch': actionEpoch,
       'playerId': playerId,
       'targetId': target,
       if (phase == GamePhase.night && canPierce && !skip && piercingSelected) 'piercing': true,
-    }));
+    });
+    _pendingCommand = command;
+    conn.send(command);
 
     actionSent = true;
     canAct = false;

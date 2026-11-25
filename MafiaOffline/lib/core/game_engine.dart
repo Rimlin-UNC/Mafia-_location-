@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import '../core/constants.dart';
+import '../net/network_policy.dart';
 import '../models/phase_timings.dart';
 import '../models/game_phase.dart';
 import '../models/game_state.dart';
@@ -772,7 +773,9 @@ RegisterVerdict resolveRegister({
         existing.deviceId != null &&
         deviceId == existing.deviceId;
     // Тот же человек с планшета: слот его, даже если телефон ещё в сети.
-    if (online && !sameDevice) return RegisterVerdict.denyNameTaken;
+    if (!NetworkPolicy.ownsSlot(existing.deviceId, deviceId)) {
+      return RegisterVerdict.denyNameTaken;
+    }
     if (sameDevice && online) return RegisterVerdict.reclaimOtherDevice;
     return RegisterVerdict.reclaim;
   }

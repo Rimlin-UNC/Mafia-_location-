@@ -59,7 +59,7 @@ void main() {
         () {
       // Версия входит в ETag и в адрес app.js. Если она не изменилась,
       // сервис-воркер покажет игроку прошлую (короткую) книгу правил.
-      expect(WebAssets.assetVersion, 'v20');
+      expect(WebAssets.assetVersion, 'v21');
     });
   });
 

@@ -31,10 +31,11 @@
 
 const V = 1;                       // версия протокола — должна совпадать с Dart
 const $ = (id) => document.getElementById(id);
+const assetUrl = path => path + '?' + ((window.__MAFIA__ && window.__MAFIA__.v) || 'v21');
 
 // ---------------------------------------------------------------- состояние
 const S = {
-  ws: null, playerId: null, name: '', code: '',
+  ws: null, playerId: null, name: '', code: '', actionEpoch: 0,
   phase: 'waiting', round: 0, paused: false,
   // deadline — момент (в наших часах), когда фаза закончится.
   // time держим только для показа, источник истины — deadline.
@@ -147,7 +148,7 @@ const Sound = {
     if (!this.ctx) return null;
     if (this.cache[name]) return this.cache[name];
     try {
-      const r = await fetch('/sounds/' + name, { cache: 'force-cache' });
+      const r = await fetch(assetUrl('/sounds/' + name), { cache: 'force-cache' });
       const buf = await this.ctx.decodeAudioData(await r.arrayBuffer());
       this.cache[name] = buf;
       return buf;
@@ -343,6 +344,7 @@ function connect() {
     S.attempt = 0;
     S.lastPongAt = Date.now();
     setConn(true);
+    S.awaitingSync = true;
     // Повторный вход после обрыва — сервер вернёт нас в свой слот
     // по имени (см. reclaim в host_controller.dart).
     send('register', {
@@ -367,7 +369,7 @@ function connect() {
 }
 
 function send(type, data) {
-  if (!S.ws || S.ws.readyState !== 1) return false;
+  if (!S.ws || S.ws.readyState !== 1 || S.ws.bufferedAmount > 65536) return false;
   try {
     S.ws.send(JSON.stringify({ v: V, ts: Date.now(), type, ...(data || {}) }));
     return true;
@@ -379,6 +381,7 @@ function startPing() {
   const beat = () => {
     lastPing = Date.now();
     send('ping', { playerId: S.playerId, t: lastPing, rtt: Clock.rtt || undefined });
+    if (S.joined && !S.awaitingSync) flushPending();
   };
   beat();
   pingTimer = setInterval(beat, 5000);
@@ -459,7 +462,7 @@ function onMessage(m) {
         if (!S.reclaimShown) { banner('Вы вернулись в игру', 'ok'); }
         S.reclaimShown = true;
         // Ход, отправленный в момент обрыва, мог не дойти — повторяем.
-        flushPending();
+        // Ждём персональный sync: старый ход нельзя повторять до проверки эпохи.
       }
       if (S.phase === 'waiting') show('scr-lobby');
       Screen.acquire();
@@ -658,7 +661,8 @@ function onMessage(m) {
       break;
 
     case 'ack':
-      // Хост подтвердил приём — можно забыть про повтор.
+      if (m.actionEpoch != null && m.actionEpoch !== S.actionEpoch) break;
+      // Хост подтвердил приём текущего хода.
       S.pendingAction = null;
       S.sent = true; S.canAct = false;
       render();
@@ -672,11 +676,18 @@ function flushPending() {
   const p = S.pendingAction;
   if (!p) return;
   // Фаза могла смениться, пока нас не было — тогда ход уже не нужен.
-  if (p.phase !== S.phase || p.round !== S.round) { S.pendingAction = null; return; }
-  send(p.type, { playerId: S.playerId, targetId: p.targetId, piercing: p.piercing === true });
+  if (p.actionEpoch !== S.actionEpoch || p.phase !== S.phase || p.round !== S.round) { S.pendingAction = null; return; }
+  send(p.type, { playerId: S.playerId, targetId: p.targetId, actionEpoch: p.actionEpoch, piercing: p.piercing === true });
 }
 
 function applyPhase(m) {
+  if (Array.isArray(m.publicLog)) S.log = m.publicLog.filter(t => typeof t === 'string').slice(0, 40);
+  S.awaitingSync = false;
+  const epoch = Number.isInteger(m.actionEpoch) ? m.actionEpoch : 0;
+  if (S.actionEpoch !== epoch || m.alreadyActed ||
+      (S.pendingAction && ((m.phase && S.pendingAction.phase !== m.phase) ||
+       (m.round != null && S.pendingAction.round !== m.round)))) S.pendingAction = null;
+  S.actionEpoch = epoch;
   const prevPhase = S.phase;
   S.phase = m.phase || S.phase;
   S.round = m.round ?? S.round;
@@ -686,7 +697,8 @@ function applyPhase(m) {
   S.canAct = m.canAct ?? false;
   S.canPierce = m.canPierce === true;
   $('in-piercing').checked = false;
-  S.sent = m.alreadyActed ?? false;
+  S.sent = (m.alreadyActed ?? false) || !!S.pendingAction;
+  if (S.pendingAction) S.canAct = false;
   S.targets = m.targets || [];
   S.selected = null;
   if (m.prompt) $('prompt').textContent = m.prompt;
@@ -746,6 +758,7 @@ function applyPhase(m) {
   // нужно показать заново, иначе игрок останется на экране входа.
   if (S.awaitingReveal && S.roleName) show('scr-reveal');
   if (S.phase !== 'waiting' && !S.awaitingReveal) show('scr-game');
+  flushPending();
   startTick();
 }
 
@@ -821,7 +834,7 @@ function showStory(m) {
   // Картинка не обязательна: у части карточек её нет, текст самодостаточен.
   if (m.image) {
     const img = document.createElement('img');
-    img.src = '/' + m.image.replace(/^assets\//, '');
+    img.src = assetUrl('/' + m.image.replace(/^assets\//, ''));
     img.alt = m.title || '';
     img.style.cssText = 'width:100%;display:block;aspect-ratio:2/3;object-fit:cover';
     img.onerror = () => img.remove();
@@ -1032,7 +1045,7 @@ function renderTargets() {
 // Компактная полоса роли: миниатюра карты + название в одну строку.
 function renderStrip() {
   const dis = S.disguised;
-  $('rs-img').src = dis ? '/cards/civilian.jpg' : `/cards/${S.role || 'civilian'}.jpg`;
+  $('rs-img').src = assetUrl(dis ? '/cards/civilian.jpg' : `/cards/${S.role || 'civilian'}.jpg`);
   $('rs-emoji').textContent = dis ? '👤' : (S.roleEmoji || '');
   $('rs-name').textContent = dis ? 'Мирный житель' : (S.roleName || '');
   $('rs-mates').textContent = (!dis && S.mates.length)
@@ -1042,7 +1055,7 @@ function renderStrip() {
 
 function renderCard() {
   const dis = S.disguised;
-  $('role-img').src = dis ? '/cards/civilian.jpg' : `/cards/${S.role || 'civilian'}.jpg`;
+  $('role-img').src = assetUrl(dis ? '/cards/civilian.jpg' : `/cards/${S.role || 'civilian'}.jpg`);
   $('role-emoji').textContent = dis ? '👤' : (S.roleEmoji || '');
   $('role-name').textContent = dis ? 'Мирный житель' : (S.roleName || '');
   $('role-mates').textContent = (!dis && S.mates.length)
@@ -1337,7 +1350,7 @@ const WEB_PHASES = [
 // видел пустые прямоугольники вместо карточек ролей.
 function ruleCard(img, title, body) {
   const pic = img
-    ? `<div class="rcard-imgwrap"><img src="${esc(img)}" alt="" loading="lazy"`
+    ? `<div class="rcard-imgwrap"><img src="${esc(assetUrl(img))}" alt="" loading="lazy"`
       + ` onerror="this.classList.add('noimg');this.insertAdjacentHTML('afterend',`
       + `'<div class=noimg-t>Картинка не загрузилась</div>')"></div>`
     : '';
@@ -1547,7 +1560,7 @@ function openNotes() {
 function openSheet() {
   const dis = S.disguised;
   const g = GUIDE[dis ? 'civilian' : (S.role || 'civilian')] || GUIDE.civilian;
-  const img = dis ? '/cards/civilian.jpg' : `/cards/${S.role || 'civilian'}.jpg`;
+  const img = assetUrl(dis ? '/cards/civilian.jpg' : `/cards/${S.role || 'civilian'}.jpg`);
   const nm = dis ? 'Мирный житель' : (S.roleName || '');
   const em = dis ? '👤' : (S.roleEmoji || '');
 
@@ -1637,8 +1650,8 @@ function submitChoice(targetId) {
   const type = S.phase === 'voting' ? 'vote' : 'night_action';
   // Запоминаем до отправки: если сокет оборвётся, повторим после возврата.
   const piercing = type === 'night_action' && targetId != null && S.canPierce && $('in-piercing').checked;
-  S.pendingAction = { type, targetId, piercing, phase: S.phase, round: S.round };
-  const ok = send(type, { playerId: S.playerId, targetId, piercing });
+  S.pendingAction = { type, targetId, piercing, actionEpoch: S.actionEpoch, phase: S.phase, round: S.round };
+  const ok = send(type, { playerId: S.playerId, targetId, piercing, actionEpoch: S.actionEpoch });
   S.sent = true; S.canAct = false;
   buzz(30);
   if (!ok) banner('Нет связи — выбор отправится, как только она вернётся', 'warn');
@@ -1688,7 +1701,7 @@ document.addEventListener('visibilitychange', () => {
   Sound.unlock();
   Screen.acquire();
   if (S.ws && S.ws.readyState === 1) {
-    send('resync_request', { playerId: S.playerId, name: S.name });
+    send('resync_request', { playerId: S.playerId, name: S.name, deviceId: deviceId() });
     // Ждём ответа: если хост молчит 4 секунды, значит сокет мёртв.
     const mark = S.lastPongAt;
     setTimeout(() => {

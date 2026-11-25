@@ -226,7 +226,7 @@ async function dealRole(page, role, roleName) {
     check('памятка роли: ночью, днём и условие победы',
       body.includes('Ночью:') && body.includes('Днём:') && body.includes('Победа:'));
     check('у каждой роли есть карточка', node.querySelectorAll('.rcard').length >= 11);
-    const imgs = [...node.querySelectorAll('.rcard img')].map(i => i.getAttribute('src'));
+    const imgs = [...node.querySelectorAll('.rcard img')].map(i => new URL(i.getAttribute('src'), 'http://mafia.local').pathname);
     check('карточки ролей с картинками',
       imgs.filter(s => s.includes('/instructions/roles/')).length === 11);
     check('карточки фаз с картинками',
@@ -306,7 +306,7 @@ async function dealRole(page, role, roleName) {
     const page = openPage({ acceptOffer: true });
     page.click('btn-rules-join');
     const urls = [...page.$('sheet-body').querySelectorAll('.rcard img')]
-      .map(i => i.getAttribute('src'));
+      .map(i => new URL(i.getAttribute('src'), 'http://mafia.local').pathname);
     page.close();
     check('книга правил просит картинки', urls.length >= 20);
     check('все URL — с диска, без внешних адресов',
@@ -908,6 +908,44 @@ async function dealRole(page, role, roleName) {
   check('старые правила показывают авто', tm.text('sheet-body').includes('ночь — авто'));
   check('нет ошибок JS в таймингах', tm.errors.length === 0);
   tm.close();
+
+  console.log('\nНадёжная доставка: эпоха, подтверждение и повтор после sync');
+  const net = openPage();
+  await join(net, 'Аня');
+  await dealRole(net, 'mafia', 'Мафия');
+  const phasePacket = {phase:'night', round:2, actionEpoch:7, time:60,
+    isAlive:true, canAct:true, targets:PLAYERS.slice(1)};
+  net.push('phase', phasePacket);
+  net.$('targets').querySelector('[data-id="p1"]').click();
+  net.click('btn-send');
+  const actions = () => net.sent.filter(m => m.type === 'night_action');
+  check('ход содержит эпоху', actions().at(-1).actionEpoch === 7);
+  const sent = actions().length;
+  net.push('reclaimed', {id:'p0'});
+  check('до sync ход не повторяется', actions().length === sent);
+  net.push('ack', {accepted:true, actionEpoch:6});
+  net.push('sync', {...phasePacket, alreadyActed:false});
+  check('чужая эпоха ack не удаляет pending: повтор после sync', actions().length === sent + 1);
+  check('повтор сохраняет цель и эпоху', actions().at(-1).targetId === 'p1' && actions().at(-1).actionEpoch === 7);
+  net.push('ack', {accepted:true, actionEpoch:7});
+  net.push('sync', {...phasePacket, alreadyActed:true, publicLog:['День восстановлен']});
+  check('подтверждённый ход не повторяется', actions().length === sent + 1);
+  net.push('phase', {...phasePacket, round:3, actionEpoch:8});
+  net.$('targets').querySelector('[data-id="p2"]').click(); net.click('btn-send');
+  const beforeNew = actions().length;
+  net.push('sync', {...phasePacket, actionEpoch:9});
+  check('смена эпохи отменяет старый ход даже в той же фазе', actions().length === beforeNew);
+  net.push('phase', {...phasePacket, actionEpoch:10});
+  net.$('targets').querySelector('[data-id="p1"]').click();
+  net.sock.bufferedAmount = 70000;
+  net.click('btn-send');
+  const beforeDrain = actions().length;
+  check('переполненный сокет не накапливает отправки', beforeDrain === beforeNew);
+  net.sock.bufferedAmount = 0;
+  net.push('sync', {...phasePacket, actionEpoch:10, alreadyActed:false});
+  check('после разгрузки pending доставляется', actions().length === beforeDrain + 1);
+  check('ошибок JS нет (надёжность)', net.errors.length === 0);
+  net.close();
 
   // ------------------------------------------------------------------ итог
   const bad = results.filter(([, ok]) => !ok);

@@ -34,6 +34,7 @@ class WebAssets {
   WebAssets._();
 
   /// Кеш распакованных файлов: путь в бандле → байты.
+  static final Map<String, Future<Uint8List?>> _inflight = {};
   static final Map<String, Uint8List> _cache = {};
 
   /// Кеш gzip-версий для текстовых файлов.
@@ -84,7 +85,7 @@ class WebAssets {
 
   /// Версия набора ассетов. Входит в ETag: подняли версию приложения —
   /// у всех игроков автоматически обновится кеш браузера.
-  static const String assetVersion = 'v20';
+  static const String assetVersion = 'v21';
 
   static String contentTypeFor(String path) {
     if (path.endsWith('.html') || path == '/') return 'text/html; charset=utf-8';
@@ -185,6 +186,7 @@ class WebAssets {
     final raw = await load(path, gameCode: gameCode);
     if (raw == null) return null;
 
+    if (_gzipCache[key] != null) return _gzipCache[key];
     final packed = Uint8List.fromList(gzip.encode(raw));
     if (packed.length >= raw.length) return null;
 
@@ -214,13 +216,20 @@ class WebAssets {
         '<script>window.__MAFIA__=$boot;</script>\n'
         '<script src="/app.js?$assetVersion"></script>',
       );
+      // Version static URLs even on insecure LAN HTTP (no Service Worker).
+      text = text.replaceAllMapped(RegExp(r'(src|href)="(/[^"?]+\.(?:css|png|webmanifest))"'),
+        (m) => '${m[1]}="${m[2]}?$assetVersion"');
       return Uint8List.fromList(utf8.encode(text));
     } catch (_) {
       return null;
     }
   }
 
-  static Future<Uint8List?> _fromCacheOrBundle(String asset) async {
+  static Future<Uint8List?> _fromCacheOrBundle(String asset) {
+    return _inflight[asset] ??= _loadOnce(asset).whenComplete(() { _inflight.remove(asset); });
+  }
+
+  static Future<Uint8List?> _loadOnce(String asset) async {
     final cached = _cache[asset];
     if (cached != null) {
       _touch(asset);
@@ -255,6 +264,9 @@ class WebAssets {
       final removed = _cache.remove(victim);
       if (removed != null) _cacheBytes -= removed.length;
     }
+    final old = _cache.remove(asset);
+    if (old != null) _cacheBytes -= old.length;
+    _lru.remove(asset);
     _cache[asset] = bytes;
     _cacheBytes += bytes.length;
     _lru.add(asset);
