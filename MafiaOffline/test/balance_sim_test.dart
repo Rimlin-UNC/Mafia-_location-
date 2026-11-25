@@ -65,50 +65,51 @@ Map<RoleType, int> _setup({
 
 void main() {
   group('Вердикт симуляции совпадает с движком', () {
-    /// Все расклады до 5 игроков, где у каждой роли два состояния (жив/
-    /// выбыл) — кроме заведомо пустых. На них и ловятся расхождения:
-    /// равенство мафии и города, маньяк один, «все погибли».
-    final cases = <List<RoleType>>[
-      [RoleType.mafia, RoleType.civilian],
-      [RoleType.mafia, RoleType.civilian, RoleType.civilian],
-      [RoleType.mafia, RoleType.mafia, RoleType.civilian],
-      [RoleType.mafia, RoleType.mafia, RoleType.civilian, RoleType.civilian],
-      [RoleType.maniac, RoleType.civilian],
-      [RoleType.maniac, RoleType.mafia],
-      [RoleType.maniac, RoleType.mafia, RoleType.civilian],
-      [RoleType.maniac, RoleType.mafia, RoleType.mafia],
-      [RoleType.maniac, RoleType.mafia, RoleType.mafia, RoleType.civilian],
-      [RoleType.maniac, RoleType.maniac, RoleType.civilian],
-      [RoleType.maniac, RoleType.maniac, RoleType.mafia],
-      [RoleType.maniac, RoleType.civilian, RoleType.civilian],
-      [RoleType.don, RoleType.mafia, RoleType.civilian, RoleType.civilian],
-      [RoleType.blackmailer, RoleType.doctor, RoleType.civilian],
-      [RoleType.doctor, RoleType.civilian],
-      [RoleType.civilian],
-    ];
+    test('все расклады до 5 игроков дают тот же исход', () {
+      // Наборы выбраны по границам правила: равенство мафии и города,
+      // живой маньяк рядом с мафией, пустой стол.
+      final cases = <List<RoleType>>[
+        [RoleType.mafia, RoleType.civilian],
+        [RoleType.mafia, RoleType.civilian, RoleType.civilian],
+        [RoleType.mafia, RoleType.mafia, RoleType.civilian],
+        [RoleType.mafia, RoleType.mafia, RoleType.civilian, RoleType.civilian],
+        [RoleType.maniac, RoleType.civilian],
+        [RoleType.maniac, RoleType.mafia],
+        [RoleType.maniac, RoleType.mafia, RoleType.civilian],
+        [RoleType.maniac, RoleType.mafia, RoleType.mafia],
+        [RoleType.maniac, RoleType.mafia, RoleType.mafia, RoleType.civilian],
+        [RoleType.maniac, RoleType.maniac, RoleType.civilian],
+        [RoleType.maniac, RoleType.maniac, RoleType.mafia],
+        [RoleType.maniac, RoleType.civilian, RoleType.civilian],
+        [RoleType.don, RoleType.mafia, RoleType.civilian, RoleType.civilian],
+        [RoleType.blackmailer, RoleType.doctor, RoleType.civilian],
+        [RoleType.doctor, RoleType.civilian],
+        [RoleType.civilian],
+      ];
 
-    for (final roles in cases) {
-      final n = roles.length;
-      final combos = 1 << n;
-      for (var mask = 0; mask < combos; mask++) {
-        final alive = [for (var i = 0; i < n; i++) (mask >> i) & 1 == 1];
-        final spec = [
-          for (var i = 0; i < n; i++) (roles[i], alive[i]),
-        ];
-        final engine = _state(spec).checkWinner();
-        final sim = BalanceSim.debugWinner(roles, alive);
+      for (final roles in cases) {
+        final n = roles.length;
+        for (var mask = 0; mask < (1 << n); mask++) {
+          final alive = [for (var i = 0; i < n; i++) (mask >> i) & 1 == 1];
+          final spec = [
+            for (var i = 0; i < n; i++) (roles[i], alive[i]),
+          ];
+          final engine = _state(spec).checkWinner();
+          final sim = BalanceSim.debugWinner(roles, alive);
 
-        final expected = switch (engine) {
-          WinnerSide.mafia => 'mafia',
-          WinnerSide.civilians => 'city',
-          WinnerSide.maniac => 'maniac',
-          WinnerSide.nobody => 'nobody',
-          _ => null, // партия продолжается (или прервана — так не бывает)
-        };
-        expect(sim, expected,
-            reason: 'роли=$roles живые=$alive: движок=$engine, симуляция=$sim');
+          final expected = switch (engine) {
+            WinnerSide.mafia => 'mafia',
+            WinnerSide.civilians => 'city',
+            WinnerSide.maniac => 'maniac',
+            WinnerSide.nobody => 'nobody',
+            _ => null, // партия продолжается
+          };
+          expect(sim, expected,
+              reason: 'роли=$roles живые=$alive: '
+                  'движок=$engine, симуляция=$sim');
+        }
       }
-    }
+    });
   });
 
   group('Оценка состава', () {
