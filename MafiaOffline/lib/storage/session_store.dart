@@ -83,6 +83,9 @@ class SessionStore {
         'timeLeft': s.timeLeft,
         'lastHealedId': s.lastHealedId,
         'lastGuardedId': s.lastGuardedId,
+        'piercingShot': s.piercingShot,
+        'piercingSpent': s.piercingSpent,
+        'piercingRequests': s.piercingRequests,
         'openCards': s.openCards,
         // Правила стола и служебное состояние 1.2.0. Без них перезапуск
         // посреди партии молча менял бы правила на значения по умолчанию.
@@ -219,6 +222,9 @@ class SessionStore {
       // на кого угодно.
       lastGuardedId: _str(m['lastGuardedId']),
       // Старые сохранения поля не знают — считаем карту закрытой.
+      piercingShot: _bool(m['piercingShot']) ?? false,
+      piercingSpent: _bool(m['piercingSpent']) ?? false,
+      piercingRequests: strList(m['piercingRequests']),
       openCards: _bool(m['openCards']) ?? false,
       // Сохранение из 1.1.x этих полей не знает. Партия, начатая по старым
       // правилам, по ним и доигрывается: без знакомства, без таймера

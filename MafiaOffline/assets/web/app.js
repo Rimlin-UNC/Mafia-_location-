@@ -39,7 +39,7 @@ const S = {
   // deadline — момент (в наших часах), когда фаза закончится.
   // time держим только для показа, источник истины — deadline.
   time: 0, deadline: 0,
-  isAlive: true, canAct: false, sent: false,
+  isAlive: true, canAct: false, sent: false, canPierce: false,
   role: null, roleName: null, roleEmoji: null, roleDesc: null,
   watch: null,        // наблюдение свидетеля: {round, name, acted}
   silenced: false,    // запуган шантажистом: сегодня без голоса
@@ -673,7 +673,7 @@ function flushPending() {
   if (!p) return;
   // Фаза могла смениться, пока нас не было — тогда ход уже не нужен.
   if (p.phase !== S.phase || p.round !== S.round) { S.pendingAction = null; return; }
-  send(p.type, { playerId: S.playerId, targetId: p.targetId });
+  send(p.type, { playerId: S.playerId, targetId: p.targetId, piercing: p.piercing === true });
 }
 
 function applyPhase(m) {
@@ -684,6 +684,8 @@ function applyPhase(m) {
   S.paused = m.paused ?? false;
   S.isAlive = m.isAlive ?? S.isAlive;
   S.canAct = m.canAct ?? false;
+  S.canPierce = m.canPierce === true;
+  $('in-piercing').checked = false;
   S.sent = m.alreadyActed ?? false;
   S.targets = m.targets || [];
   S.selected = null;
@@ -869,6 +871,7 @@ function nightCheck() {
 }
 
 function render() {
+  $('piercing-choice').classList.toggle('hidden', !(S.canPierce && S.canAct && !S.sent && S.phase === 'night'));
   const [ico, nm, cls] = PHASES[S.phase] || PHASES.waiting;
   // Последнее слово, повторное голосование и ночь знакомства — не отдельные
   // фазы протокола, а «день», «голосование» и «ночь» с пометкой: старый
@@ -1262,6 +1265,7 @@ function tableRuleLines() {
   const out = [];
   out.push(r.openCards ? 'Карта выбывшего открывается сразу.'
                        : 'Карта выбывшего закрыта до конца партии.');
+  if (r.piercingShot) out.push('Мафия: один общий выстрел навылет за партию — пробивает лечение, но не телохранителя.');
   if (r.introNight) out.push('Первая ночь — знакомство: никто не погибает.');
   out.push(r.lastWord
     ? `Перед изгнанием — последнее слово, ${r.lastWordSeconds || 30} секунд, и повторное голосование: стол может оставить игрока.`
@@ -1629,8 +1633,9 @@ $('btn-disguise').onclick = () => {
 function submitChoice(targetId) {
   const type = S.phase === 'voting' ? 'vote' : 'night_action';
   // Запоминаем до отправки: если сокет оборвётся, повторим после возврата.
-  S.pendingAction = { type, targetId, phase: S.phase, round: S.round };
-  const ok = send(type, { playerId: S.playerId, targetId });
+  const piercing = type === 'night_action' && targetId != null && S.canPierce && $('in-piercing').checked;
+  S.pendingAction = { type, targetId, piercing, phase: S.phase, round: S.round };
+  const ok = send(type, { playerId: S.playerId, targetId, piercing });
   S.sent = true; S.canAct = false;
   buzz(30);
   if (!ok) banner('Нет связи — выбор отправится, как только она вернётся', 'warn');

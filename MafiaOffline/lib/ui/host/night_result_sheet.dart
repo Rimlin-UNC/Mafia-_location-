@@ -79,6 +79,8 @@ class _NightResultSheetState extends State<NightResultSheet> {
                       subtitle: 'убийств этой ночью нет',
                     ),
 
+                  if (outcome.piercingUsed)
+                    const Text('Выстрел навылет: общий заряд мафии будет потрачен при оглашении. Лечение пробито, щит работает.'),
                   if (!intro) ...[
                   if (outcome.mafiaTargetId != null)
                     _OutcomeRow(
@@ -86,7 +88,7 @@ class _NightResultSheetState extends State<NightResultSheet> {
                       title: 'Мафия выбрала: ${s.nameOf(outcome.mafiaTargetId)}',
                       subtitle: outcome.killedIds.contains(outcome.mafiaTargetId)
                           ? 'убийство состоялось'
-                          : 'жертва спасена доктором',
+                          : 'жертва спасена',
                       danger: outcome.killedIds.contains(outcome.mafiaTargetId),
                       onEdit: () => _pickTarget(
                         title: 'Кого убила мафия',
@@ -288,51 +290,15 @@ class _NightResultSheetState extends State<NightResultSheet> {
     final newHealed =
         identical(healed, _keep) ? o.healedId : healed as String?;
 
-    // Пересчёт ровно по тем же правилам, что в GameEngine.resolveNight:
-    // доктор снимает попадание, щит телохранителя забирает удар на себя,
-    // охотник забирает отмеченного. Иначе ведущий правил бы одну строку,
-    // а в партии срабатывало другое — это и было бы «сломанной игрой».
-    final shots = <String>[];
-    if (newMafia != null && newMafia != newHealed) shots.add(newMafia);
-    if (newManiac != null &&
-        newManiac != newHealed &&
-        !shots.contains(newManiac)) {
-      shots.add(newManiac);
-    }
-
-    final guard = s.bodyguard;
-    final killed = <String>[];
-    String? guardDied;
-    for (final id in shots) {
-      if (o.guardedId != null && id == o.guardedId && guard != null) {
-        if (!killed.contains(guard.id)) killed.add(guard.id);
-        guardDied = guard.id;
-      } else if (!killed.contains(id)) {
-        killed.add(id);
-      }
-    }
-
-    // Лечение спасает и телохранителя, принявшего удар, — ровно как
-    // в движке. Иначе ручная правка итога расходилась бы с правилами.
-    if (newHealed != null) killed.remove(newHealed);
-
-    // Месть охотника: он забирает отмеченного прошлой ночью, если погиб
-    // сам. Метка этой ночи ещё не «созрела» — её ставили только что.
-    final revenge = <String>[];
-    final hunter = s.hunter;
-    if (hunter != null && killed.contains(hunter.id)) {
-      final marked = s.byId(s.hunterMarkId);
-      if (marked != null &&
-          marked.isAlive &&
-          marked.id != hunter.id &&
-          !killed.contains(marked.id)) {
-        revenge.add(marked.id);
-        killed.add(marked.id);
-      }
-    }
+    // Усиление сохраняется при ручной правке, отменяется при снятии цели.
+    final piercing = o.piercingUsed && newMafia != null;
+    final deaths = GameEngine.resolveAttacks(s, mafiaTarget: newMafia,
+      maniacTarget: newManiac, healedId: newHealed,
+      guardedId: o.guardedId, piercing: piercing);
 
     c.editNightOutcome(NightOutcome(
-      killedIds: killed,
+      piercingUsed: piercing,
+      killedIds: deaths.killed,
       mafiaTargetId: newMafia,
       maniacTargetId: newManiac,
       healedId: newHealed,
@@ -340,12 +306,12 @@ class _NightResultSheetState extends State<NightResultSheet> {
       checkedId: o.checkedId,
       checkResultIsMafia: o.checkResultIsMafia,
       guardedId: o.guardedId,
-      guardDiedId: guardDied,
+      guardDiedId: deaths.guardDied,
       silencedId: o.silencedId,
       watchedId: o.watchedId,
       watchedActed: o.watchedActed,
       hunterMarkId: o.hunterMarkId,
-      revengeIds: revenge,
+      revengeIds: deaths.revenge,
     ));
     setState(() {});
   }

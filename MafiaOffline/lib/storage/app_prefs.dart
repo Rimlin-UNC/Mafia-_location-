@@ -135,6 +135,7 @@ class AppPrefs {
   static Future<TableRulePrefs> tableRules() async {
     final p = await SharedPreferences.getInstance();
     return TableRulePrefs(
+      piercingShot: p.getBool('rule_piercing_shot') ?? false,
       openCards: p.getBool(_kOpenCards) ?? false,
       introNight: p.getBool(_kIntroNight) ?? false,
       lastWord: p.getBool(_kLastWord) ?? true,
@@ -144,6 +145,7 @@ class AppPrefs {
 
   static Future<void> setTableRules(TableRulePrefs r) async {
     final p = await SharedPreferences.getInstance();
+    await p.setBool('rule_piercing_shot', r.piercingShot);
     await p.setBool(_kOpenCards, r.openCards);
     await p.setBool(_kIntroNight, r.introNight);
     await p.setBool(_kLastWord, r.lastWord);
@@ -153,12 +155,14 @@ class AppPrefs {
 
 /// Четыре переключателя экрана создания партии.
 class TableRulePrefs {
+  final bool piercingShot;
   final bool openCards;
   final bool introNight;
   final bool lastWord;
   final bool privateCheck;
 
   const TableRulePrefs({
+    this.piercingShot = false,
     this.openCards = false,
     this.introNight = false,
     this.lastWord = true,

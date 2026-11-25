@@ -78,6 +78,7 @@ class HostController extends ChangeNotifier {
     required String name,
     required int plannedPlayers,
     required Map<RoleType, int> setup,
+    bool piercingShot = false,
     bool openCards = false,
     bool introNight = false,
     bool lastWord = true,
@@ -104,6 +105,7 @@ class HostController extends ChangeNotifier {
       plannedPlayers: plannedPlayers,
       roleSetup: Map<RoleType, int>.from(setup),
       phase: GamePhase.waiting,
+      piercingShot: piercingShot,
       openCards: openCards,
       introNight: introNight,
       lastWord: lastWord,
@@ -554,13 +556,13 @@ class HostController extends ChangeNotifier {
 
   void _handleNightAction(Envelope msg) {
     final playerId = msg.get<String>('playerId');
-    if (playerId != null) _applyNightAction(playerId, msg.get<String>('targetId'));
+    if (playerId != null) _applyNightAction(playerId, msg.get<String>('targetId'), piercing: msg.get<bool>('piercing') == true);
   }
 
   /// Общий путь для ночного хода из сети и для локального игрока.
-  void _applyNightAction(String playerId, String? target) {
+  void _applyNightAction(String playerId, String? target, {bool piercing = false}) {
     final s = _state;
-    if (s == null || s.phase != GamePhase.night) return;
+    if (s == null || s.phase != GamePhase.night || s.pendingNight != null) return;
     final player = s.byId(playerId);
     if (player == null || !player.isAlive || player.isBot) return;
     // actsTonight учитывает ночь знакомства: ход убийцы в первую ночь
@@ -576,7 +578,10 @@ class HostController extends ChangeNotifier {
 
     final actions = Map<String, String?>.from(s.nightActions);
     actions[playerId] = target;
-    _state = s.copyWith(nightActions: actions);
+    _state = s.copyWith(nightActions: actions,
+      piercingRequests: [...s.piercingRequests,
+        if (piercing && target != null && s.canRequestPiercing(player)) playerId],
+    );
 
     server.sendTo(playerId, Envelope(Msg.ack, {'accepted': true}));
     _persist();
@@ -592,9 +597,9 @@ class HostController extends ChangeNotifier {
   }
 
   /// Ход локального игрока (ведущий сам играет против ботов или людей).
-  void submitLocalNightAction(String? targetId) {
+  void submitLocalNightAction(String? targetId, {bool piercing = false}) {
     final local = _state?.localPlayer;
-    if (local != null) _applyNightAction(local.id, targetId);
+    if (local != null) _applyNightAction(local.id, targetId, piercing: piercing);
   }
 
   void _afterHumanAction() {
@@ -1211,7 +1216,9 @@ class HostController extends ChangeNotifier {
     if (s == null || s.phase != GamePhase.night) return;
     final additions = BotEngine.nightActionsFor(s, _rnd);
     if (additions.isEmpty) return;
-    _state = s.copyWith(nightActions: {...s.nightActions, ...additions});
+    _state = s.copyWith(nightActions: {...s.nightActions, ...additions},
+      piercingRequests: [...s.piercingRequests, ...BotEngine.piercingRequestsFor(s, additions, _rnd)],
+    );
     _deliverCheck();
     _persist();
     notifyListeners();
@@ -1256,6 +1263,7 @@ class HostController extends ChangeNotifier {
     _state = s.copyWith(
       phase: GamePhase.night,
       round: s.round + 1,
+      piercingRequests: const [],
       nightActions: <String, String?>{},
       votes: <String, String?>{},
       runoffCandidates: const [],
@@ -1361,6 +1369,7 @@ class HostController extends ChangeNotifier {
         outcome.hunterMarkId ?? (hunterDied ? null : s.hunterMarkId);
     _state = s.copyWith(
       players: players,
+      piercingSpent: s.piercingSpent || outcome.piercingUsed,
       lastHealedId: outcome.healedId,
       clearLastHealed: outcome.healedId == null,
       lastGuardedId: outcome.guardedId,
@@ -1960,6 +1969,7 @@ class HostController extends ChangeNotifier {
       'time': s.timeLeft,
       'paused': s.paused,
       'isAlive': p.isAlive,
+      'canPierce': canAct && s.canRequestPiercing(p),
       'canAct': canAct,
       'targets': canAct ? _targetsFor(p) : <Map<String, dynamic>>[],
       'prompt': _promptFor(p),

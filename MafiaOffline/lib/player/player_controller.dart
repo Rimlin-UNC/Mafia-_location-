@@ -96,6 +96,8 @@ class PlayerController extends ChangeNotifier {
   bool isAlive = true;
   bool canAct = false;
   bool actionSent = false;
+  bool canPierce = false;
+  bool piercingSelected = false;
   String prompt = 'Ожидание начала игры...';
 
   String? roleName;
@@ -486,6 +488,8 @@ class PlayerController extends ChangeNotifier {
     paused = msg.get<bool>('paused') ?? false;
     isAlive = msg.get<bool>('isAlive') ?? isAlive;
     canAct = msg.get<bool>('canAct') ?? false;
+    canPierce = msg.get<bool>('canPierce') == true;
+    piercingSelected = false;
     actionSent = msg.get<bool>('alreadyActed') ?? false;
     prompt = msg.get<String>('prompt') ?? prompt;
     gameName = msg.get<String>('gameName') ?? gameName;
@@ -661,6 +665,11 @@ class PlayerController extends ChangeNotifier {
     return RoleType.civilian;
   }
 
+  void selectPiercing(bool value) {
+    piercingSelected = canPierce && value;
+    notifyListeners();
+  }
+
   void select(String id) {
     if (!canAct || actionSent) return;
     selectedTargetId = (selectedTargetId == id) ? null : id;
@@ -677,6 +686,7 @@ class PlayerController extends ChangeNotifier {
     conn.send(Envelope(type, {
       'playerId': playerId,
       'targetId': target,
+      if (phase == GamePhase.night && canPierce && !skip && piercingSelected) 'piercing': true,
     }));
 
     actionSent = true;

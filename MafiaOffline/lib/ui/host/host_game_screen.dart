@@ -930,6 +930,7 @@ class _LocalPlayerPanel extends StatefulWidget {
 
 class _LocalPlayerPanelState extends State<_LocalPlayerPanel> {
   String? _selected;
+  bool _piercing = false;
   String _signature = '';
 
   @override
@@ -941,6 +942,7 @@ class _LocalPlayerPanelState extends State<_LocalPlayerPanel> {
         : '${s.phase.name}:${s.round}:${s.isVerdictVote}:${s.verdictId}';
     if (signature != _signature) {
       _signature = signature;
+      _piercing = false;
       _selected = null;
     }
   }
@@ -1052,6 +1054,13 @@ class _LocalPlayerPanelState extends State<_LocalPlayerPanel> {
             ),
             const SizedBox(height: 8),
             if (acting) ...[
+              if (s.canRequestPiercing(local))
+                CheckboxListTile(
+                  value: _piercing,
+                  onChanged: (v) => setState(() => _piercing = v == true),
+                  title: const Text('Выстрел навылет'),
+                  subtitle: const Text('Один заряд команды. Пробивает лечение, но не телохранителя.'),
+                ),
               Text(
                 _prompt(s, local),
                 style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
@@ -1116,7 +1125,7 @@ class _LocalPlayerPanelState extends State<_LocalPlayerPanel> {
                                   widget.controller.submitLocalVote(_selected);
                                 } else {
                                   widget.controller
-                                      .submitLocalNightAction(_selected);
+                                      .submitLocalNightAction(_selected, piercing: _piercing);
                                 }
                                 setState(() => _selected = null);
                               },

@@ -296,6 +296,42 @@ class GameEngine {
     return leaders[rnd.nextInt(leaders.length)];
   }
 
+  /// Общий расчёт попаданий для движка и ручной правки ведущим.
+  /// Усиленный выстрел пробивает лечение цели, но не щит. Доктор
+  /// по-прежнему может спасти телохранителя, принявшего удар.
+  static ({List<String> killed, String? guardDied, List<String> revenge})
+      resolveAttacks(GameState s, {String? mafiaTarget, String? maniacTarget,
+      String? healedId, String? guardedId, bool piercing = false}) {
+    final shots = <String>{
+      if (mafiaTarget != null && (piercing || mafiaTarget != healedId)) mafiaTarget,
+      if (maniacTarget != null && maniacTarget != healedId) maniacTarget,
+    };
+    final killed = <String>{};
+    String? guardDied;
+    final guard = s.bodyguard;
+    for (final id in shots) {
+      if (guardedId == id && guard != null) {
+        killed.add(guard.id);
+        guardDied = guard.id;
+      } else {
+        killed.add(id);
+      }
+    }
+    if (healedId != null && !(piercing && healedId == mafiaTarget &&
+        (guardedId != mafiaTarget || guard == null))) {
+      killed.remove(healedId);
+    }
+    final revenge = <String>[];
+    final hunter = s.hunter;
+    final marked = s.byId(s.hunterMarkId);
+    if (hunter != null && killed.contains(hunter.id) && marked != null &&
+        marked.isAlive && marked.id != hunter.id && !killed.contains(marked.id)) {
+      revenge.add(marked.id);
+      killed.add(marked.id);
+    }
+    return (killed: killed.toList(), guardDied: guardDied, revenge: revenge);
+  }
+
   /// Разрешение ночи в строгом порядке:
   /// проститутка → доктор → мафия → маньяк → комиссар.
   static NightOutcome resolveNight(GameState s, {Random? random}) {
@@ -383,6 +419,16 @@ class GameEngine {
       mafiaTarget = resolveMafiaTarget(s, rnd);
     }
 
+    // Запрос действителен только от незаблокированного живого стрелка,
+    // чей обычный голос совпал с итоговой целью команды.
+    final piercing = s.piercingShot && !s.piercingSpent &&
+        mafiaTarget != null && s.piercingRequests.any((id) {
+          final p = s.byId(id);
+          return p != null && p.isAlive && !isBlocked(p) &&
+              (p.role?.type == RoleType.mafia || p.role?.type == RoleType.don) &&
+              s.nightActions[id] == mafiaTarget;
+        });
+
     // 5. Маньяк убивает независимо от мафии.
     String? maniacTarget;
     final man = s.maniac;
@@ -433,73 +479,23 @@ class GameEngine {
       }
     }
 
-    // Применение: защита доктора спасает и от мафии, и от маньяка.
-    final shot = <String>[];
-    if (mafiaTarget != null && mafiaTarget != healedId) {
-      shot.add(mafiaTarget);
-    }
-    if (maniacTarget != null &&
-        maniacTarget != healedId &&
-        !shot.contains(maniacTarget)) {
-      shot.add(maniacTarget);
-    }
-
-    // Телохранитель принимает удар на себя. Порядок важен: сначала
-    // считается попадание в прикрытого, и только потом решается, кто
-    // погиб. Если стреляли в самого телохранителя, щит не работает —
-    // он защищает другого, а не себя.
-    //
-    // Исключение — двойной удар в прикрытого (мафия и маньяк выбрали
-    // одного): одного телохранителя хватает на обоих. Щит — не «одна
-    // жизнь», а «эту ночь этот человек не умирает».
-    final killed = <String>[];
-    String? guardDiedId;
-    void addDeath(String id) {
-      if (!killed.contains(id)) killed.add(id);
-    }
-
-    for (final id in shot) {
-      // Попали в прикрытого — умирает телохранитель. Если в эту же ночь
-      // стреляли и в самого телохранителя, смерть всё равно одна: дважды
-      // один человек не погибает, а список убитых не должен дублироваться
-      // (по нему строится и лог, и экран итогов).
-      if (guardedId != null && id == guardedId && guard != null) {
-        addDeath(guard.id);
-        guardDiedId = guard.id;
-      } else {
-        addDeath(id);
-      }
-    }
-
-    // Доктор спасает и телохранителя, принявшего удар: «вылечен» значит
-    // «этой ночью не умирает». Без этой строки лечение телохранителя
-    // выглядело бы издевательством — щит забирал удар и всё равно погибал.
-    if (healedId != null) killed.remove(healedId);
-
-    // Охотник забирает с собой того, на кого оставил метку. Метка
-    // прошлой ночи (s.hunterMarkId) — единственная, что «созрела»:
-    // сегодняшняя ставится только что и убийце ещё не известна.
-    final revenge = <String>[];
-    final hunterPlayer = s.hunter;
-    if (hunterPlayer != null && killed.contains(hunterPlayer.id)) {
-      final mark = s.hunterMarkId;
-      if (mark != null && !killed.contains(mark) && mark != hunterPlayer.id) {
-        final target = s.byId(mark);
-        if (target != null && target.isAlive) {
-          revenge.add(mark);
-          killed.add(mark);
-        }
-      }
-    }
+    final deaths = resolveAttacks(s, mafiaTarget: mafiaTarget,
+      maniacTarget: maniacTarget, healedId: healedId,
+      guardedId: guardedId, piercing: piercing);
+    final killed = deaths.killed;
+    final guardDiedId = deaths.guardDied;
+    final revenge = deaths.revenge;
 
     // Мёртвый охотник метку не ставит: если его убили этой же ночью,
     // его ход не в счёт. Старую метку это не трогает — её судьбу решает
     // ведущий (см. HostController.announceNight).
+    final hunterPlayer = s.hunter;
     final markOut = hunterPlayer != null && killed.contains(hunterPlayer.id)
         ? null
         : hunterMarkId;
 
     return NightOutcome(
+      piercingUsed: piercing,
       killedIds: killed,
       mafiaTargetId: mafiaTarget,
       maniacTargetId: maniacTarget,
@@ -558,6 +554,8 @@ class TableRules {
       on('openCards')
           ? 'Карта выбывшего открывается сразу'
           : 'Карта выбывшего закрыта до конца партии',
+      if (on('piercingShot'))
+        'Мафия: один общий выстрел навылет за партию — пробивает лечение, но не телохранителя',
       if (on('introNight')) 'Первая ночь — знакомство: никто не погибает',
       if (on('lastWord'))
         'Перед изгнанием — последнее слово, '
@@ -574,6 +572,7 @@ class TableRules {
 
   /// То же самое для клиента: он сам решает, как это показать.
   static Map<String, dynamic> toWire(GameState s) => {
+        'piercingShot': s.piercingShot,
         'openCards': s.openCards,
         'introNight': s.introNight,
         'lastWord': s.lastWord,

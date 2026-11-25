@@ -315,6 +315,13 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
+                if (c.canPierce)
+                  CheckboxListTile(
+                    value: c.piercingSelected,
+                    onChanged: (v) => c.selectPiercing(v == true),
+                    title: const Text('Выстрел навылет'),
+                    subtitle: const Text('Общий заряд команды: пробивает лечение, но не телохранителя. Тратится при совпадении с итоговой целью мафии.'),
+                  ),
                 ElevatedButton(
                   onPressed:
                       c.selectedTargetId == null ? null : () => c.submit(),

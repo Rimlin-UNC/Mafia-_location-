@@ -872,6 +872,30 @@ async function dealRole(page, role, roleName) {
   check('блокнот без ошибок JS', n.errors.length === 0);
   n.close();
 
+  console.log('\nВыстрел навылет');
+  const ps = openPage();
+  await join(ps, 'Аня');
+  ps.push('lobby', {players: PLAYERS, rules: {...RULES, piercingShot:true}});
+  await dealRole(ps, 'mafia', 'Мафия');
+  ps.push('phase', {phase:'night', round:2, time:45, isAlive:true, canAct:true, canPierce:true, targets:PLAYERS.slice(1), prompt:'Выберите цель'});
+  check('стрелок видит усиление', ps.visible('piercing-choice'));
+  ps.$('in-piercing').checked = true;
+  ps.click('btn-skip');
+  check('пропуск не отправляет усиление', ps.sent.filter(m => m.type === 'night_action').at(-1).piercing === false);
+  ps.push('phase', {phase:'night', round:3, time:45, isAlive:true, canAct:true, canPierce:true, targets:PLAYERS.slice(1)});
+  ps.$('in-piercing').checked = true;
+  ps.$('targets').querySelector('[data-id="p1"]').click();
+  ps.click('btn-send');
+  check('усиление отправляется с целью', ps.sent.filter(m => m.type === 'night_action').at(-1).piercing === true);
+  check('запрос скрыт после хода', !ps.visible('piercing-choice'));
+  ps.push('phase', {phase:'day', round:3, time:100, isAlive:true, canAct:false});
+  check('днём усиление не показывается', !ps.visible('piercing-choice'));
+  ps.push('phase', {phase:'night', round:4, time:45, isAlive:true, canAct:true, targets:PLAYERS.slice(1)});
+  check('старый ведущий не предлагает усиление', !ps.visible('piercing-choice'));
+  check('выбор сброшен при смене фазы', !ps.$('in-piercing').checked);
+  check('нет ошибок JS при усилении', ps.errors.length === 0);
+  ps.close();
+
   // ------------------------------------------------------------------ итог
   const bad = results.filter(([, ok]) => !ok);
   console.log('\n' + '='.repeat(56));

@@ -34,6 +34,7 @@ class _SetupScreenState extends State<SetupScreen> {
   String _simKey = '';
 
   /// Открывать ли карту выбывшего всем. По умолчанию закрыта (классика).
+  bool _piercingShot = false;
   bool _openCards = false;
 
   /// Первая ночь без убийств: мафия знакомится, комиссар проверяет.
@@ -76,6 +77,7 @@ class _SetupScreenState extends State<SetupScreen> {
     final r = await AppPrefs.tableRules();
     if (!mounted) return;
     setState(() {
+      _piercingShot = r.piercingShot;
       _openCards = r.openCards;
       _introNight = r.introNight;
       _lastWord = r.lastWord;
@@ -276,6 +278,7 @@ class _SetupScreenState extends State<SetupScreen> {
       name: _nameCtrl.text.trim().isEmpty ? 'Игра' : _nameCtrl.text.trim(),
       plannedPlayers: _total,
       setup: _setup,
+      piercingShot: _piercingShot,
       openCards: _openCards,
       introNight: _introNight,
       lastWord: _lastWord,
@@ -283,6 +286,7 @@ class _SetupScreenState extends State<SetupScreen> {
     );
     if (ok) {
       await AppPrefs.setTableRules(TableRulePrefs(
+        piercingShot: _piercingShot,
         openCards: _openCards,
         introNight: _introNight,
         lastWord: _lastWord,
@@ -504,6 +508,15 @@ class _SetupScreenState extends State<SetupScreen> {
                   // Классика: карта выбывшего закрыта. Открытая карта —
                   // для новичков и коротких партий, где важно понимать,
                   // кого город только что потерял.
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: _piercingShot,
+                    onChanged: (v) => setState(() => _piercingShot = v),
+                    title: const Text('Выстрел навылет'),
+                    subtitle: const Text('Один общий заряд мафии за партию. '
+                        'Пробивает лечение, но не телохранителя. '
+                        'Прогноз баланса не учитывает эту опцию.'),
+                  ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     value: _openCards,

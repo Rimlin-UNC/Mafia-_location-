@@ -25,6 +25,7 @@ extension WinnerSideX on WinnerSide {
 
 /// Результат разрешения ночи — то, что видит ведущий перед оглашением.
 class NightOutcome {
+  final bool piercingUsed;
   final List<String> killedIds;
   final String? mafiaTargetId;
   final String? maniacTargetId;
@@ -51,6 +52,7 @@ class NightOutcome {
   final List<String> revengeIds;
 
   const NightOutcome({
+    this.piercingUsed = false,
     this.killedIds = const [],
     this.mafiaTargetId,
     this.maniacTargetId,
@@ -68,6 +70,7 @@ class NightOutcome {
   });
 
   NightOutcome copyWith({
+    bool? piercingUsed,
     List<String>? killedIds,
     String? mafiaTargetId,
     String? maniacTargetId,
@@ -84,6 +87,7 @@ class NightOutcome {
     List<String>? revengeIds,
   }) {
     return NightOutcome(
+      piercingUsed: piercingUsed ?? this.piercingUsed,
       killedIds: killedIds ?? this.killedIds,
       mafiaTargetId: mafiaTargetId ?? this.mafiaTargetId,
       maniacTargetId: maniacTargetId ?? this.maniacTargetId,
@@ -192,6 +196,16 @@ class GameState {
 
   /// Показывать ли всем роль выбывшего игрока. По умолчанию закрыта:
   /// раскрытая карта упрощает город, но убивает интригу первого круга.
+  /// Опциональный общий заряд мафии. Запросы — приватные ночные действия.
+  final bool piercingShot;
+  final bool piercingSpent;
+  final List<String> piercingRequests;
+
+  bool canRequestPiercing(Player p) => piercingShot && !piercingSpent &&
+      phase == GamePhase.night && !isIntroNight && p.isAlive &&
+      (p.role?.type == RoleType.mafia || p.role?.type == RoleType.don) &&
+      !nightActions.containsKey(p.id);
+
   final bool openCards;
 
   /// Сюжетная карточка, показанная прямо сейчас (id из StoryDeck).
@@ -279,6 +293,9 @@ class GameState {
     this.winner,
     this.lastHealedId,
     this.lastGuardedId,
+    this.piercingShot = false,
+    this.piercingSpent = false,
+    this.piercingRequests = const [],
     this.openCards = false,
     this.storyId,
     this.storySeen = const [],
@@ -317,6 +334,9 @@ class GameState {
     WinnerSide? winner,
     String? lastHealedId,
     String? lastGuardedId,
+    bool? piercingShot,
+    bool? piercingSpent,
+    List<String>? piercingRequests,
     bool? openCards,
     String? storyId,
     List<String>? storySeen,
@@ -368,6 +388,9 @@ class GameState {
       lastHealedId: clearLastHealed ? null : (lastHealedId ?? this.lastHealedId),
       lastGuardedId:
           clearLastGuarded ? null : (lastGuardedId ?? this.lastGuardedId),
+      piercingShot: piercingShot ?? this.piercingShot,
+      piercingSpent: piercingSpent ?? this.piercingSpent,
+      piercingRequests: piercingRequests ?? this.piercingRequests,
       openCards: openCards ?? this.openCards,
       storyId: clearStory ? null : (storyId ?? this.storyId),
       storySeen: storySeen ?? this.storySeen,

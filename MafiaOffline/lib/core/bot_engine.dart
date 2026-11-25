@@ -129,6 +129,14 @@ class BotEngine {
   /// Ночные ходы ботов, которые ещё не сходили.
   ///
   /// Возвращает только новые записи; уже принятые ходы людей не трогает.
+  /// Решение без знания лечения/ходов противника. Не читает чужие роли.
+  static List<String> piercingRequestsFor(GameState s,
+      Map<String, String?> actions, Random random) => [
+    for (final p in s.players)
+      if (p.isBot && s.canRequestPiercing(p) && actions[p.id] != null &&
+          random.nextInt(3) == 0) p.id,
+  ];
+
   static Map<String, String?> nightActionsFor(GameState s, Random random) {
     final actions = <String, String?>{};
     for (final bot in s.pendingActors.where((p) => p.isBot)) {
