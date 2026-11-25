@@ -108,7 +108,7 @@ class PlayerController extends ChangeNotifier {
   String? selectedTargetId;
 
   /// Публичный список игроков в лобби.
-  List<({String name, String color, bool alive, bool online, bool bot})> lobby =
+  List<({String id, String name, String color, bool alive, bool online, bool bot})> lobby =
       const [];
 
   List<String> eventLog = [];
@@ -232,6 +232,7 @@ class PlayerController extends ChangeNotifier {
         lobby = list
             .whereType<Map>()
             .map((p) => (
+                  id: p['id'] as String? ?? '',
                   name: p['name'] as String? ?? '',
                   color: p['color'] as String? ?? '#888888',
                   alive: p['isAlive'] as bool? ?? true,

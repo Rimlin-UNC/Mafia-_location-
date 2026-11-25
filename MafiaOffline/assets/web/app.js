@@ -1473,6 +1473,70 @@ function openTable() {
   $('sheet').classList.remove('hidden');
 }
 
+// Личный блокнот НЕ входит в S и никогда не передаётся через send().
+function notesKey() {
+  return 'private_notes_v1:' + location.host + '|' + S.code + '|' + S.playerId;
+}
+const notesMemory = new Map();
+function readNotes() {
+  const key = notesKey();
+  if (notesMemory.has(key)) return notesMemory.get(key);
+  let data = {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || '{}');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) data = parsed;
+  } catch (_) { /* повреждённое или недоступное хранилище */ }
+  notesMemory.set(key, data);
+  return data;
+}
+function openNotes() {
+  const data = readNotes();
+  const body = $('sheet-body');
+  body.replaceChildren();
+  const title = document.createElement('h3');
+  title.textContent = 'Мои подозрения';
+  body.append(title);
+  const hint = document.createElement('p');
+  hint.textContent = 'Только на этом устройстве. Никому не отправляются. Отметки — предположения, а не проверки.';
+  body.append(hint);
+  const status = document.createElement('p');
+  status.setAttribute('role', 'status');
+  body.append(status);
+  S.lobby.filter(p => p.id && p.id !== S.playerId).forEach(p => {
+    const row = document.createElement('div');
+    row.className = 'blk';
+    const label = document.createElement('h4');
+    label.textContent = p.name + (p.isAlive === false ? ' · выбыл' : '');
+    const note = Object.hasOwn(data, p.id) && data[p.id] && typeof data[p.id] === 'object' ? data[p.id] : {};
+    const select = document.createElement('select');
+    select.setAttribute('aria-label', 'Отметка: ' + p.name);
+    [['', '— Без отметки'], ['suspect', '? Подозреваю'], ['trust', '✓ Доверяю']].forEach(([value, text]) => {
+      select.add(new Option(text, value));
+    });
+    select.value = ['', 'suspect', 'trust'].includes(note.mark) ? note.mark : '';
+    const text = document.createElement('textarea');
+    text.maxLength = 500;
+    text.rows = 3;
+    text.style.width = '100%';
+    text.setAttribute('aria-label', 'Наблюдения: ' + p.name);
+    text.value = typeof note.text === 'string' ? note.text.slice(0, 500) : '';
+    const save = () => {
+      Object.defineProperty(data, p.id, {value: {mark: select.value, text: text.value.slice(0, 500)}, enumerable: true, configurable: true, writable: true});
+      try {
+        localStorage.setItem(notesKey(), JSON.stringify(data));
+        status.textContent = 'Сохранено на устройстве';
+      } catch (_) {
+        status.textContent = 'Хранилище недоступно: заметки останутся только до перезагрузки страницы.';
+      }
+    };
+    select.onchange = save;
+    text.oninput = save;
+    row.append(label, select, text);
+    body.append(row);
+  });
+  $('sheet').classList.remove('hidden');
+}
+
 function openSheet() {
   const dis = S.disguised;
   const g = GUIDE[dis ? 'civilian' : (S.role || 'civilian')] || GUIDE.civilian;
@@ -1576,6 +1640,7 @@ function submitChoice(targetId) {
 $('btn-send').onclick = () => { if (S.selected) submitChoice(S.selected); };
 $('btn-skip').onclick = () => submitChoice(null);
 
+$('btn-notes').onclick = openNotes;
 $('btn-myrole').onclick = openSheet;
 $('btn-rules').onclick = openRules;
 $('btn-rules-lobby').onclick = openRules;
@@ -1610,6 +1675,7 @@ document.body.addEventListener('click', () => Sound.unlock());
 // Это самый частый сценарий: игрок свернул браузер, экран погас,
 // система заморозила вкладку и, возможно, тихо убила сокет.
 document.addEventListener('visibilitychange', () => {
+  if (document.hidden) $('sheet').classList.add('hidden');
   if (document.hidden) return;
   Sound.unlock();
   Screen.acquire();

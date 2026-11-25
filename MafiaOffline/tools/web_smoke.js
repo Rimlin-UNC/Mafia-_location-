@@ -844,6 +844,34 @@ async function dealRole(page, role, roleName) {
   if (o.errors.length) console.log(o.errors.slice(0, 3).join('\n'));
   o.close();
 
+  console.log('\nПриватный блокнот');
+  const n = openPage();
+  await join(n, 'Аня');
+  n.push('lobby', {players: PLAYERS});
+  await dealRole(n, 'civilian', 'Мирный житель');
+  n.click('btn-notes');
+  const field = n.$('sheet-body').querySelector('textarea');
+  const mark = n.$('sheet-body').querySelector('select');
+  check('свои заметки только на других игроков', n.$('sheet-body').querySelectorAll('textarea').length === 3);
+  const sentBefore = n.sent.length;
+  field.value = '<script>SECRET</script>';
+  field.dispatchEvent(new n.w.Event('input'));
+  mark.value = 'suspect';
+  mark.dispatchEvent(new n.w.Event('change'));
+  check('запись не отправляется в сеть', n.sent.length === sentBefore);
+  n.click('sheet-close');
+  n.push('lobby', {players: PLAYERS.map(p => p.id === 'p1' ? {...p, name: 'Новое имя', isAlive: false} : p)});
+  n.click('btn-notes');
+  check('заметка переживает переименование и выбывание', n.$('sheet-body').querySelector('textarea').value === '<script>SECRET</script>');
+  check('отметка восстановлена', n.$('sheet-body').querySelector('select').value === 'suspect');
+  check('заметка не исполняется как HTML', !n.$('sheet-body').querySelector('script'));
+  check('сохранение в localStorage', Array.from({length:n.w.localStorage.length}, (_,i) => n.w.localStorage.key(i)).some(k => k.startsWith('private_notes_v1:') && n.w.localStorage.getItem(k).includes('SECRET')));
+  n.push('register_ok', {id: 'other', gameName: 'Тест'});
+  n.click('btn-notes');
+  check('другой участник не получает заметки', Array.from(n.$('sheet-body').querySelectorAll('textarea')).every(t => t.value === ''));
+  check('блокнот без ошибок JS', n.errors.length === 0);
+  n.close();
+
   // ------------------------------------------------------------------ итог
   const bad = results.filter(([, ok]) => !ok);
   console.log('\n' + '='.repeat(56));

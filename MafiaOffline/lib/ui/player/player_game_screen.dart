@@ -8,6 +8,7 @@ import '../../net/client_connection.dart';
 import '../../player/player_controller.dart';
 import '../role_card_view.dart';
 import 'role_reveal_screen.dart';
+import 'suspicion_screen.dart';
 import '../rules_screen.dart';
 import '../theme.dart';
 import '../widgets.dart';
@@ -63,6 +64,13 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
         title: Text(c.gameName.isEmpty ? 'Мафия' : c.gameName,
             overflow: TextOverflow.ellipsis),
         actions: [
+          IconButton(
+            tooltip: 'Мои подозрения',
+            icon: const Icon(Icons.edit_note),
+            onPressed: () => Navigator.push(context, MaterialPageRoute(
+              builder: (_) => SuspicionScreen(controller: c),
+            )),
+          ),
           // Правила — у всех и всегда: по этой кнопке нельзя понять роль.
           IconButton(
             tooltip: 'Правила',
