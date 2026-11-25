@@ -197,7 +197,7 @@ class BalanceSim {
     ///
     /// Как в движке: мафия бьёт город и одиночку, но не своих, маньяк —
     /// всех, кроме себя (в том числе мафию).
-    bool _isHitTarget(_SideKind kind, int i) => kind == _SideKind.maniac
+    bool isHitTarget(_SideKind kind, int i) => kind == _SideKind.maniac
         ? roles[i] != RoleType.maniac
         : side[i] != _SideKind.maniac && side[i] != _SideKind.mafia;
 
@@ -208,7 +208,7 @@ class BalanceSim {
     int? victimFor(_SideKind kind) {
       final pool = <int>[
         for (var i = 0; i < roles.length; i++)
-          if (alive[i] && _isHitTarget(kind, i)) i,
+          if (alive[i] && isHitTarget(kind, i)) i,
       ];
       if (pool.isEmpty) return null;
       return pool[rnd.nextInt(pool.length)];
