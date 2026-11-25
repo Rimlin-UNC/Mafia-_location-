@@ -264,8 +264,10 @@ jobs:
           sed -i 's/kotlin.incremental=false/kotlin.incremental=true/' android/gradle.properties
 
       - name: Build arm64 APK
+        id: apk
         run: |
-          flutter build apk --release --target-platform android-arm64
+          set -o pipefail
+          flutter build apk --release --target-platform android-arm64 2>&1 | tee apk-build.log
           VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: *//' | cut -d+ -f1)
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           mkdir -p dist
@@ -277,6 +279,20 @@ jobs:
             echo "::error::APK подозрительно мал: $SIZE байт"
             exit 1
           fi
+
+      - name: Publish APK failure details
+        if: failure() && steps.apk.outcome == 'failure' && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          {
+            echo '### Ошибка сборки APK'
+            echo '```'
+            tail -n 160 apk-build.log
+            echo '```'
+          } > /tmp/apk-comment.md
+          gh pr comment "$PR_NUMBER" --body-file /tmp/apk-comment.md
 
       # Сборку можно скачать со страницы запуска и поставить на телефон
       # до слияния. Подпись — debug-ключ, как и у релизов.

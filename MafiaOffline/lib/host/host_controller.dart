@@ -331,6 +331,7 @@ class HostController extends ChangeNotifier {
   }
 
   void _dispatchMessage(ClientConn conn, Envelope msg) {
+    if (!server.isActive(conn)) return;
     if (msg.type != Msg.register && msg.type != Msg.resyncRequest) {
       if (!NetworkPolicy.ownsCommand(conn.playerId, msg.data['playerId'])) return;
     }

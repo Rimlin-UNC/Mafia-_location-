@@ -93,6 +93,7 @@ class ClientConnection {
 
       _sub = socket.listen(
         (raw) {
+          if (!identical(_socket, socket)) return;
           if (raw is! String) return;
           final env = Envelope.decode(raw);
           if (env == null) return;

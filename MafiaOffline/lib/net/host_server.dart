@@ -102,6 +102,9 @@ class HostServer {
   /// Полезно ведущему: видно, что люди грузят страницу.
   int get socketCount => _clients.length;
 
+  bool isActive(ClientConn conn) => _clients.contains(conn) &&
+      conn.socket.readyState == WebSocket.open;
+
   /// Запуск сервера. [gameCode] используется UDP-обнаружением.
   Future<String?> start({
     required String gameCode,

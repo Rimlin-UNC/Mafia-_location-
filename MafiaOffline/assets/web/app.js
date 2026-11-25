@@ -340,6 +340,7 @@ function connect() {
   }, 8000);
 
   ws.onopen = () => {
+    if (S.ws !== ws) return;
     clearTimeout(openGuard);
     S.attempt = 0;
     S.lastPongAt = Date.now();
@@ -355,11 +356,13 @@ function connect() {
   };
 
   ws.onmessage = (e) => {
+    if (S.ws !== ws) return;
     try { onMessage(JSON.parse(e.data)); } catch (err) {}
   };
 
   ws.onclose = () => {
     clearTimeout(openGuard);
+    if (S.ws !== ws) return;
     setConn(false);
     stopPing();
     if (!S.manualClose) scheduleRetry();

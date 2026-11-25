@@ -945,6 +945,13 @@ async function dealRole(page, role, roleName) {
   net.push('sync', {...phasePacket, actionEpoch:10, alreadyActed:false});
   check('после разгрузки pending доставляется', actions().length === beforeDrain + 1);
   check('ошибок JS нет (надёжность)', net.errors.length === 0);
+  const oldSocket = net.sock;
+  const lateMessage = oldSocket.onmessage;
+  oldSocket.close();
+  await sleep(2000);
+  check('сокет восстановлен после обрыва', net.sock !== oldSocket && net.sock.readyState === 1);
+  lateMessage({data:JSON.stringify({v:1,type:'kick',reason:'removed_by_host'})});
+  check('поздний пакет старого сокета не исключает игрока', !net.visible('scr-fatal'));
   net.close();
 
   // ------------------------------------------------------------------ итог
