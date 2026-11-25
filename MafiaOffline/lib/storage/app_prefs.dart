@@ -1,3 +1,5 @@
+import 'dart:convert';
+import '../models/phase_timings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Мелкие настройки приложения, не относящиеся к звуку или партии.
@@ -134,7 +136,10 @@ class AppPrefs {
   /// круге.
   static Future<TableRulePrefs> tableRules() async {
     final p = await SharedPreferences.getInstance();
+    Object? timingData;
+    try { timingData = jsonDecode(p.getString('rule_timings') ?? 'null'); } catch (_) {}
     return TableRulePrefs(
+      timings: PhaseTimings.fromJson(timingData),
       piercingShot: p.getBool('rule_piercing_shot') ?? false,
       openCards: p.getBool(_kOpenCards) ?? false,
       introNight: p.getBool(_kIntroNight) ?? false,
@@ -145,6 +150,7 @@ class AppPrefs {
 
   static Future<void> setTableRules(TableRulePrefs r) async {
     final p = await SharedPreferences.getInstance();
+    await p.setString('rule_timings', jsonEncode(r.timings.toJson()));
     await p.setBool('rule_piercing_shot', r.piercingShot);
     await p.setBool(_kOpenCards, r.openCards);
     await p.setBool(_kIntroNight, r.introNight);
@@ -155,6 +161,7 @@ class AppPrefs {
 
 /// Четыре переключателя экрана создания партии.
 class TableRulePrefs {
+  final PhaseTimings timings;
   final bool piercingShot;
   final bool openCards;
   final bool introNight;
@@ -162,6 +169,7 @@ class TableRulePrefs {
   final bool privateCheck;
 
   const TableRulePrefs({
+    this.timings = const PhaseTimings(),
     this.piercingShot = false,
     this.openCards = false,
     this.introNight = false,

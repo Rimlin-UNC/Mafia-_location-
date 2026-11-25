@@ -5,11 +5,13 @@ import 'package:flutter/material.dart';
 import '../../core/balance_sim.dart';
 import '../../core/constants.dart';
 import '../../host/host_controller.dart';
+import '../../models/phase_timings.dart';
 import '../../models/role.dart';
 import '../../storage/app_prefs.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'lobby_screen.dart';
+import 'timing_settings.dart';
 
 /// Экран создания партии: состав игроков и ролей.
 class SetupScreen extends StatefulWidget {
@@ -34,6 +36,7 @@ class _SetupScreenState extends State<SetupScreen> {
   String _simKey = '';
 
   /// Открывать ли карту выбывшего всем. По умолчанию закрыта (классика).
+  PhaseTimings _timings = const PhaseTimings();
   bool _piercingShot = false;
   bool _openCards = false;
 
@@ -77,6 +80,7 @@ class _SetupScreenState extends State<SetupScreen> {
     final r = await AppPrefs.tableRules();
     if (!mounted) return;
     setState(() {
+      _timings = r.timings;
       _piercingShot = r.piercingShot;
       _openCards = r.openCards;
       _introNight = r.introNight;
@@ -278,6 +282,7 @@ class _SetupScreenState extends State<SetupScreen> {
       name: _nameCtrl.text.trim().isEmpty ? 'Игра' : _nameCtrl.text.trim(),
       plannedPlayers: _total,
       setup: _setup,
+      timings: _timings,
       piercingShot: _piercingShot,
       openCards: _openCards,
       introNight: _introNight,
@@ -286,6 +291,7 @@ class _SetupScreenState extends State<SetupScreen> {
     );
     if (ok) {
       await AppPrefs.setTableRules(TableRulePrefs(
+        timings: _timings,
         piercingShot: _piercingShot,
         openCards: _openCards,
         introNight: _introNight,
@@ -549,8 +555,8 @@ class _SetupScreenState extends State<SetupScreen> {
                     title: const Text('Последнее слово и повторное голосование',
                         style: TextStyle(fontSize: 14)),
                     subtitle: const Text(
-                      'Тот, кого выбрал стол, говорит ${Rules.lastWordSeconds} '
-                      'секунд, потом все голосуют ещё раз: выгнать или '
+                      'Тот, кого выбрал стол, говорит заданное время '
+                      '(по умолчанию 30 секунд), потом голосуют ещё раз: выгнать или '
                       'оставить. Поровну — остаётся. Выключено — выбывает сразу.',
                       style: TextStyle(fontSize: 12, color: AppColors.dim),
                     ),
@@ -569,6 +575,8 @@ class _SetupScreenState extends State<SetupScreen> {
                     ),
                   ),
                   const SizedBox(height: 6),
+                  TimingSettings(value: _timings,
+                    onChanged: (v) => setState(() => _timings = v)),
                   const Text('Готовые составы',
                       style: TextStyle(color: AppColors.dim, fontSize: 12)),
                   const SizedBox(height: 6),

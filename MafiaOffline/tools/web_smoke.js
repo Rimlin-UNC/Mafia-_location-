@@ -896,6 +896,19 @@ async function dealRole(page, role, roleName) {
   check('нет ошибок JS при усилении', ps.errors.length === 0);
   ps.close();
 
+  console.log('\nТайминги стола');
+  const tm = openPage();
+  await join(tm, 'Аня');
+  tm.push('lobby', {players:PLAYERS, rules:{...RULES, lastWordSeconds:17,
+    timings:{night:42,day:155,voting:64,runoff:22,lastWord:17}}});
+  tm.click('btn-rules-lobby');
+  check('браузер показывает настроенные длительности', ['ночь — 42 с','день — 155 с','голосование — 64 с','переголосование — 22 с','17 секунд'].every(t => tm.text('sheet-body').includes(t)));
+  tm.push('lobby', {players:PLAYERS, rules:RULES});
+  tm.click('btn-rules-lobby');
+  check('старые правила показывают авто', tm.text('sheet-body').includes('ночь — авто'));
+  check('нет ошибок JS в таймингах', tm.errors.length === 0);
+  tm.close();
+
   // ------------------------------------------------------------------ итог
   const bad = results.filter(([, ok]) => !ok);
   console.log('\n' + '='.repeat(56));

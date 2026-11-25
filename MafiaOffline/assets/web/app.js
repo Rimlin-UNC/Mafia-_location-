@@ -1263,6 +1263,9 @@ function tableRuleLines() {
   const r = S.rules;
   if (!r) return [];
   const out = [];
+  const t = r.timings || {};
+  const duration = key => Number.isInteger(t[key]) && t[key] >= 10 && t[key] <= 1800 ? t[key] + ' с' : 'авто';
+  out.push(`Тайминги: ночь — ${duration('night')}, день — ${duration('day')}, голосование — ${duration('voting')}, переголосование — ${duration('runoff')}`);
   out.push(r.openCards ? 'Карта выбывшего открывается сразу.'
                        : 'Карта выбывшего закрыта до конца партии.');
   if (r.piercingShot) out.push('Мафия: один общий выстрел навылет за партию — пробивает лечение, но не телохранителя.');

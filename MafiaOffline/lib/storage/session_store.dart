@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/phase_timings.dart';
 import '../models/game_event.dart';
 import '../models/game_phase.dart';
 import '../models/game_state.dart';
@@ -83,6 +84,7 @@ class SessionStore {
         'timeLeft': s.timeLeft,
         'lastHealedId': s.lastHealedId,
         'lastGuardedId': s.lastGuardedId,
+        'timings': s.timings.toJson(),
         'piercingShot': s.piercingShot,
         'piercingSpent': s.piercingSpent,
         'piercingRequests': s.piercingRequests,
@@ -222,6 +224,7 @@ class SessionStore {
       // на кого угодно.
       lastGuardedId: _str(m['lastGuardedId']),
       // Старые сохранения поля не знают — считаем карту закрытой.
+      timings: PhaseTimings.fromJson(m['timings']),
       piercingShot: _bool(m['piercingShot']) ?? false,
       piercingSpent: _bool(m['piercingSpent']) ?? false,
       piercingRequests: strList(m['piercingRequests']),

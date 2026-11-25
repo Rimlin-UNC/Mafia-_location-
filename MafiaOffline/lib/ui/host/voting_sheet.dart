@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../core/constants.dart';
 import '../../host/host_controller.dart';
 import '../../models/game_state.dart';
 import '../theme.dart';
@@ -146,14 +145,14 @@ class _VotingSheetState extends State<VotingSheet> {
                       },
                     ),
                   if (leaders.length == 1 && s.lastWord)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 6),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
                       child: Text(
-                        'Игрок ещё не выбыл: у него ${Rules.lastWordSeconds} '
+                        'Игрок ещё не выбыл: у него ${s.timings.lastWord} '
                         'секунд на последнее слово, потом стол голосует '
                         'ещё раз — выгнать или оставить.',
                         textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 12, color: AppColors.dim),
+                        style: const TextStyle(fontSize: 12, color: AppColors.dim),
                       ),
                     ),
                   const SizedBox(height: 8),

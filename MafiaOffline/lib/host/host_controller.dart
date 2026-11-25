@@ -7,6 +7,7 @@ import '../core/constants.dart';
 import '../core/game_engine.dart';
 import '../core/lobby_plan.dart';
 import '../core/story_deck.dart';
+import '../models/phase_timings.dart';
 import '../models/game_event.dart';
 import '../models/game_phase.dart';
 import '../models/game_state.dart';
@@ -78,6 +79,7 @@ class HostController extends ChangeNotifier {
     required String name,
     required int plannedPlayers,
     required Map<RoleType, int> setup,
+    PhaseTimings timings = const PhaseTimings(),
     bool piercingShot = false,
     bool openCards = false,
     bool introNight = false,
@@ -105,6 +107,7 @@ class HostController extends ChangeNotifier {
       plannedPlayers: plannedPlayers,
       roleSetup: Map<RoleType, int>.from(setup),
       phase: GamePhase.waiting,
+      timings: timings,
       piercingShot: piercingShot,
       openCards: openCards,
       introNight: introNight,
@@ -1721,7 +1724,7 @@ class HostController extends ChangeNotifier {
       lastWordId: playerId,
       clearVerdict: true,
       paused: false,
-      timeLeft: Rules.lastWordSeconds,
+      timeLeft: s.timings.lastWord,
       votes: <String, String?>{},
       runoffCandidates: const [],
       awaitingVoteConfirm: false,

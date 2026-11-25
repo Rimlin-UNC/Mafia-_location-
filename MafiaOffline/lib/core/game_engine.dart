@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import '../core/constants.dart';
+import '../models/phase_timings.dart';
 import '../models/game_phase.dart';
 import '../models/game_state.dart';
 import '../models/player.dart';
@@ -550,10 +551,15 @@ class TableRules {
     if (w == null) return const [];
     bool on(String key) => w[key] == true;
     final seconds = w['lastWordSeconds'];
+    final timings = PhaseTimings.fromJson(w['timings']);
     return [
       on('openCards')
           ? 'Карта выбывшего открывается сразу'
           : 'Карта выбывшего закрыта до конца партии',
+      'Тайминги: ночь — ${timings.night == 0 ? 'авто' : '${timings.night} с'}, '
+          'день — ${timings.day == 0 ? 'авто' : '${timings.day} с'}, '
+          'голосование — ${timings.voting == 0 ? 'авто' : '${timings.voting} с'}, '
+          'переголосование — ${timings.runoff == 0 ? 'авто' : '${timings.runoff} с'}',
       if (on('piercingShot'))
         'Мафия: один общий выстрел навылет за партию — пробивает лечение, но не телохранителя',
       if (on('introNight')) 'Первая ночь — знакомство: никто не погибает',
@@ -576,7 +582,8 @@ class TableRules {
         'openCards': s.openCards,
         'introNight': s.introNight,
         'lastWord': s.lastWord,
-        'lastWordSeconds': Rules.lastWordSeconds,
+        'timings': s.timings.toJson(),
+        'lastWordSeconds': s.timings.lastWord,
         'privateCheck': s.privateCheck,
       };
 }

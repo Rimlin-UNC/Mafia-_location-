@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../core/assets.dart';
-import '../core/constants.dart';
 import '../core/crime_deck.dart';
 import '../core/role_guide.dart';
 import '../models/role.dart';
@@ -112,7 +111,7 @@ class RulesScreen extends StatelessWidget {
               _Card(
                 title: 'Последнее слово и повторное голосование',
                 body: 'Тот, кого выбрал стол, ещё не выбыл. У него '
-                    '${Rules.lastWordSeconds} секунд на последнее слово, '
+                    'время по настройке стола (по умолчанию 30 секунд), '
                     'а потом все, кроме него, голосуют ещё раз: выгнать '
                     'или оставить. Выбывает, только если «выгнать» больше, '
                     'чем «оставить»; поровну — остаётся. Убедил стол — '

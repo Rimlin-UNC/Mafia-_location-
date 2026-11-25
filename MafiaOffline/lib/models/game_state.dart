@@ -1,4 +1,5 @@
 import '../core/constants.dart';
+import 'phase_timings.dart';
 import 'game_event.dart';
 import 'game_phase.dart';
 import 'player.dart';
@@ -197,6 +198,7 @@ class GameState {
   /// Показывать ли всем роль выбывшего игрока. По умолчанию закрыта:
   /// раскрытая карта упрощает город, но убивает интригу первого круга.
   /// Опциональный общий заряд мафии. Запросы — приватные ночные действия.
+  final PhaseTimings timings;
   final bool piercingShot;
   final bool piercingSpent;
   final List<String> piercingRequests;
@@ -293,6 +295,7 @@ class GameState {
     this.winner,
     this.lastHealedId,
     this.lastGuardedId,
+    this.timings = const PhaseTimings(),
     this.piercingShot = false,
     this.piercingSpent = false,
     this.piercingRequests = const [],
@@ -334,6 +337,7 @@ class GameState {
     WinnerSide? winner,
     String? lastHealedId,
     String? lastGuardedId,
+    PhaseTimings? timings,
     bool? piercingShot,
     bool? piercingSpent,
     List<String>? piercingRequests,
@@ -388,6 +392,7 @@ class GameState {
       lastHealedId: clearLastHealed ? null : (lastHealedId ?? this.lastHealedId),
       lastGuardedId:
           clearLastGuarded ? null : (lastGuardedId ?? this.lastGuardedId),
+      timings: timings ?? this.timings,
       piercingShot: piercingShot ?? this.piercingShot,
       piercingSpent: piercingSpent ?? this.piercingSpent,
       piercingRequests: piercingRequests ?? this.piercingRequests,
@@ -578,6 +583,7 @@ class GameState {
   /// цель впервые. 20 базовых секунд хороши для третьего раунда и мало
   /// для первого — за столом это выглядит как «не дали даже подумать».
   int get nightDuration {
+    if (timings.night > 0) return timings.night;
     final base =
         Rules.nightBaseSeconds + Rules.nightPerActiveSeconds * nightActive.length;
     if (round <= 1) {
@@ -587,6 +593,7 @@ class GameState {
   }
 
   int get dayDuration {
+    if (timings.day > 0) return timings.day;
     // В соло-партии обсуждение нужно только чтобы прочитать реплики ботов:
     // живого спора между несколькими людьми нет, и пять минут таймера
     // превращали бы игру в ожидание.
@@ -598,9 +605,11 @@ class GameState {
   /// Голосование зависит от числа живых: читать список из 20 имён дольше,
   /// чем из шести.
   int get votingDuration =>
+      timings.voting > 0 ? timings.voting :
       Rules.votingBaseSeconds + Rules.votingPerPlayerSeconds * alive.length;
 
   int get runoffDuration =>
+      timings.runoff > 0 ? timings.runoff :
       Rules.runoffBaseSeconds + Rules.runoffPerPlayerSeconds * alive.length;
 
   // ---------- условия победы ----------
