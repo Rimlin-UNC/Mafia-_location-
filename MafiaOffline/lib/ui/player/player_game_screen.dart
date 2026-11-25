@@ -649,11 +649,29 @@ class _PlayerGameScreenState extends State<PlayerGameScreen> {
                       TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
               Text(
-                'Ваша роль: ${c.roleEmoji ?? ''} ${c.roleName ?? '—'}',
+                'Ваша роль: ${c.deathEmoji ?? c.roleEmoji ?? ''} '
+                '${c.deathRole ?? c.roleName ?? '—'}',
                 style: const TextStyle(fontSize: 13, color: AppColors.dim),
               ),
+              if (c.alsoKilled.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'В эту же ночь не стало: ${c.alsoKilled.join(', ')}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12.5, color: AppColors.dim),
+                ),
+              ],
             ],
           ),
+        ),
+        const SizedBox(height: 10),
+        // Выбывший — не «выключенный игрок», а смотритель: он видит стол,
+        // фазу и ленту. Это единственный способ не выпасть из партии,
+        // которая ещё идёт двадцать минут.
+        const Text(
+          'Вы остаётесь за столом: говорить нельзя, но всё, что '
+          'происходит, видно ниже. Так вы не выпадаете из игры до финала.',
+          style: TextStyle(fontSize: 12, color: AppColors.dim, height: 1.35),
         ),
         const SizedBox(height: 12),
         PhaseBanner(

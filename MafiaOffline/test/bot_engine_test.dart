@@ -66,6 +66,16 @@ List<Player> _six() => [
       _player('maniac', RoleType.maniac, name: 'Макс', bot: true),
     ];
 
+/// Формулировки, которыми бот именно обвиняет (а не рассуждает).
+/// Вынесены на уровень файла: по ним проверяются сразу два теста — «не
+/// обвиняет проверенного» и «вступается за проверенного».
+const List<String> _accusationMarkers = [
+  'не нравится',
+  'Мой кандидат на сегодня',
+  'слишком уверенно',
+  'Голосую за',
+];
+
 void main() {
   group('Добавление ботов в лобби', () {
     test('имена, id и цвета уникальны, флаги не теряются', () {
@@ -411,8 +421,81 @@ void main() {
       final own = lines.firstWhere((l) => l.playerId == 'commissioner');
       expect(own.text, contains('Марк'));
       expect(own.text.toLowerCase(), contains('мафия'));
-      expect(lines.length, lessThanOrEqualTo(3));
+      expect(lines.length, lessThanOrEqualTo(4));
       expect(lines.map((l) => l.playerId).toSet().length, lines.length);
+    });
+
+    test('обвиняемый отвечает на обвинение, а не молчит', () {
+      final s = _state(
+        _six(),
+        phase: GamePhase.day,
+        votes: const {'human': 'doctor', 'mafia': 'doctor', 'maniac': 'doctor'},
+      );
+      final lines = BotEngine.dayLinesFor(s, Random(3));
+      final doctor = lines.where((l) => l.playerId == 'doctor');
+      expect(doctor, isNotEmpty,
+          reason: 'того, кого назвали лидером голосования, город должен услышать');
+      expect(doctor.first.text, isNot(contains('{')));
+      expect(lines.length, lessThanOrEqualTo(4));
+    });
+
+    test('чистая проверка обвиняемого — бот вступается, а не обвиняет', () {
+      final s = _state(
+        _six(),
+        phase: GamePhase.day,
+        votes: const {'human': 'mafia', 'doctor': 'mafia', 'maniac': 'mafia'},
+        checks: const [
+          CheckRecord(
+            round: 1,
+            commissionerId: 'commissioner',
+            targetId: 'mafia',
+            isMafia: false,
+          ),
+        ],
+      );
+      final lines = BotEngine.dayLinesFor(s, Random(5));
+      final byCommissioner = lines.where((l) => l.playerId == 'commissioner');
+      expect(byCommissioner, isNotEmpty);
+      // Проверка оправдывает Марка — комиссар не имеет права голословно
+      // обвинять его, зато обязан сказать, что тот чист.
+      final line = byCommissioner.first.text;
+      expect(line, contains('Марк'));
+      expect(_accusationMarkers.any(line.contains), isFalse,
+          reason: 'комиссар обвиняет того, кого сам проверил чистым: $line');
+      // И это слышит стол: никто из ботов не называет Марка кандидатом.
+      for (final other in lines) {
+        final text = other.text;
+        expect(_accusationMarkers.any(text.contains) && text.contains('Марк'),
+            isFalse,
+            reason: 'защищённого всё равно обвиняют: $text');
+      }
+    });
+
+    test('проверенный чистый не попадает в шаблон обвинения', () {
+      // Доктор проверен комиссаром как мирный. Ни при каком зерне честный
+      // город не должен называть его кандидатом на выгон.
+      for (var seed = 0; seed < 40; seed++) {
+        final s = _state(
+          _six(),
+          phase: GamePhase.day,
+          checks: const [
+            CheckRecord(
+              round: 1,
+              commissionerId: 'commissioner',
+              targetId: 'doctor',
+              isMafia: false,
+            ),
+          ],
+        );
+        final lines = BotEngine.dayLinesFor(s, Random(seed));
+        for (final line in lines) {
+          final isAccusation =
+              _accusationMarkers.any((m) => line.text.contains(m));
+          if (!isAccusation) continue;
+          expect(line.text, isNot(contains('Дина')),
+              reason: 'проверенного мирного обвинили (зерно $seed)');
+        }
+      }
     });
 
     test('реплики не содержат названий чужих ролей', () {

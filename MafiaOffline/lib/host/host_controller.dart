@@ -1455,10 +1455,24 @@ class HostController extends ChangeNotifier {
     }));
 
     // Персональные уведомления погибшим.
+    //
+    // Выбывший остаётся за столом смотрителем, и ему нужен контекст:
+    // кем он был (карточку роли он уже видел, но за вечер забудет) и
+    // кто ещё погиб этой же ночью. Чужие роли сюда не попадают —
+    // открытая карта остаётся настройкой стола.
     for (final id in outcome.killedIds) {
       server.sendTo(
         id,
-        Envelope(Msg.eliminated, {'reason': 'kill', 'round': s.round}),
+        Envelope(Msg.eliminated, {
+          'reason': 'kill',
+          'round': s.round,
+          'role': s.byId(id)?.role?.name,
+          'roleEmoji': s.byId(id)?.role?.emoji,
+          'alsoKilled': [
+            for (final other in outcome.killedIds)
+              if (other != id) s.nameOf(other),
+          ],
+        }),
       );
     }
 
@@ -1667,8 +1681,14 @@ class HostController extends ChangeNotifier {
       if (s.openCards)
         'revealedRole': s.byId(playerId)?.role?.name,
     }));
-    server.sendTo(playerId,
-        Envelope(Msg.eliminated, {'reason': 'vote', 'round': s.round}));
+    server.sendTo(
+        playerId,
+        Envelope(Msg.eliminated, {
+          'reason': 'vote',
+          'round': s.round,
+          'role': s.byId(playerId)?.role?.name,
+          'roleEmoji': s.byId(playerId)?.role?.emoji,
+        }));
     _broadcastLobby();
 
     _maybeShowStory(exile: true);

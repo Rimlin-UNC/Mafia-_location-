@@ -169,6 +169,13 @@ class PlayerController extends ChangeNotifier {
   String? storyId;
   List<({String name, String role, String emoji, bool alive})> reveal = const [];
 
+  /// Кем был выбывший игрок: приходит только ему вместе с `eliminated`.
+  String? deathRole;
+  String? deathEmoji;
+
+  /// Кто ещё погиб этой же ночью — тоже только выбывшему.
+  List<String> alsoKilled = const [];
+
   ConnStatus get status => conn.status;
   int get reconnectAttempt => conn.attempt;
 
@@ -370,6 +377,14 @@ class PlayerController extends ChangeNotifier {
         isAlive = false;
         canAct = false;
         final reason = msg.get<String>('reason');
+        // Кем мы были и кто ещё погиб этой же ночью: выбывший остаётся
+        // за столом смотрителем, и без этого он «выпадает» из партии.
+        deathRole = msg.get<String>('role') ?? deathRole;
+        deathEmoji = msg.get<String>('roleEmoji') ?? deathEmoji;
+        final also = msg.get<List>('alsoKilled');
+        if (also != null) {
+          alsoKilled = also.map((e) => e.toString()).toList();
+        }
         banner = reason == 'vote'
             ? 'Вас выгнали голосованием'
             : 'Вас убили этой ночью';

@@ -51,6 +51,26 @@ class BotEngine {
     'Голосую за {x}, если никто не приведёт более веский аргумент.',
   ];
 
+  /// Защита того, кого город уже обвиняет.
+  ///
+  /// Раньше боты умели только обвинять: любой бот-город называл случайную
+  /// жертву, даже если она проверена комиссаром как мирная. За столом это
+  /// выглядело как «боты не слушают факты». Теперь есть отдельная ветка:
+  /// если обвиняемый чист по своей проверке — бот вступается.
+  static const List<String> _defend = [
+    'Не согласен по {x}: у меня он проходит как мирный. Ищите в другом месте.',
+    'За {x} я не голосую — и вам не советую. Это трата дня.',
+    '{x} сегодня не наш кандидат. Смотрите на тех, кто молчит.',
+  ];
+
+  /// Реплика того, кого обвинили. Защита без факта — так и должно быть:
+  /// бот не знает чужих ролей и может только сказать, что он свой.
+  static const List<String> _selfDefense = [
+    'Я мирный. Обвинение против меня ничего не даёт городу, кроме дня.',
+    'Если выгоните меня — потеряете день. Ищите мафию, а не удобного.',
+    'Голосуйте как хотите, но моя роль городу нужна. Я не уйду без боя.',
+  ];
+
   static const List<String> _foundMafia = [
     'Раскрываюсь: я комиссар. Проверка этой ночи: {x} — мафия!',
     'У меня есть факт, а не догадка: {x} — мафия. Проверено этой ночью.',
@@ -243,8 +263,14 @@ class BotEngine {
     return votes;
   }
 
-  /// Реплики дня. Максимум три, чтобы одиночная партия не превращалась
+  /// Реплики дня. Максимум четыре, чтобы одиночная партия не превращалась
   /// в простыню текста; комиссар раскрывается только при найденной мафии.
+  ///
+  /// Порядок и приоритет (1.13.0):
+  ///   1. комиссар называет найденную мафию — это факт, он важнее всего;
+  ///   2. обвиняемый отвечает на обвинение;
+  ///   3. тот, у кого есть чистая проверка обвиняемого, вступается;
+  ///   4. остальные — обвинение или общий разговор.
   static List<BotSpeech> dayLinesFor(GameState s, Random random) {
     final bots = s.alive.where((p) => p.isBot).toList()..shuffle(random);
     final lines = <BotSpeech>[];
@@ -265,8 +291,43 @@ class BotEngine {
       }
     }
 
+    // Кого город обвиняет прямо сейчас: лидер вчерашнего голосования.
+    final accusedId = _voteLeader(s, s.alive.map((p) => p.id).toList());
+
+    // 1) Обвиняемый бот отвечает на обвинение — один раз, первым.
+    if (accusedId != null) {
+      final accused = s.byId(accusedId);
+      if (accused != null && accused.isBot && accused.isAlive) {
+        lines.add(BotSpeech(
+          playerId: accused.id,
+          text: _selfDefense[random.nextInt(_selfDefense.length)],
+        ));
+      }
+    }
+
+    // 2) Бот-комиссар (и любой, у кого есть чистая проверка) защищает
+    //    того, кого обвиняют, если проверка его оправдывает.
+    //
+    //    Защищённого больше не обвиняют остальные: вслух сказанное «он
+    //    чистый» стол слышит. Иначе выходило нелепо — один бот заявляет,
+    //    что игрок проверен как мирный, а следующий тут же его выгоняет.
+    final protectedIds = <String>{};
+    if (accusedId != null) {
+      for (final bot in bots) {
+        if (lines.any((l) => l.playerId == bot.id)) continue;
+        if (!_hasCleanCheck(s, bot, accusedId)) continue;
+        lines.add(BotSpeech(
+          playerId: bot.id,
+          text: _defend[random.nextInt(_defend.length)]
+              .replaceAll('{x}', s.nameOf(accusedId)),
+        ));
+        protectedIds.add(accusedId);
+        break;
+      }
+    }
+
     for (final bot in bots) {
-      if (lines.length >= 3) break;
+      if (lines.length >= 4) break;
       if (lines.any((line) => line.playerId == bot.id)) continue;
       if (lines.isNotEmpty && random.nextDouble() < 0.45) continue;
 
@@ -285,6 +346,23 @@ class BotEngine {
           ));
           continue;
         }
+      }
+      // Город не обвиняет того, кого сам проверил чистым: за столом
+      // это выглядело бы как «бот не слушает собственные улики».
+      final cleanPool = s.alive
+          .where((p) =>
+              p.id != bot.id &&
+              !protectedIds.contains(p.id) &&
+              !_hasCleanCheck(s, bot, p.id))
+          .toList();
+      if (cleanPool.isNotEmpty && random.nextDouble() < 0.55) {
+        final target = _pick(cleanPool, random);
+        lines.add(BotSpeech(
+          playerId: bot.id,
+          text: _suspect[random.nextInt(_suspect.length)]
+              .replaceAll('{x}', target.name),
+        ));
+        continue;
       }
       lines.add(BotSpeech(
         playerId: bot.id,

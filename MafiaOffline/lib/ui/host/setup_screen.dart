@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../core/balance_sim.dart';
 import '../../core/constants.dart';
 import '../../host/host_controller.dart';
 import '../../models/role.dart';
@@ -22,6 +23,15 @@ class _SetupScreenState extends State<SetupScreen> {
   late final TextEditingController _nameCtrl;
   int _total = 10;
   bool _starting = false;
+
+  /// Последняя оценка баланса. Считается по кнопке, а не на каждое
+  /// нажатие «+»: 1200 партий на каждый тап — это заметные подвисания
+  /// при наборе состава, а ведущему нужен ответ один раз перед стартом.
+  BalanceReport? _sim;
+
+  /// Состав, для которого посчитан _sim: после правки цифр старый
+  /// результат нельзя показывать как актуальный.
+  String _simKey = '';
 
   /// Открывать ли карту выбывшего всем. По умолчанию закрыта (классика).
   bool _openCards = false;
@@ -178,6 +188,23 @@ class _SetupScreenState extends State<SetupScreen> {
       color: AppColors.warn,
       icon: Icons.trending_up,
     );
+  }
+
+  /// Ключ состава: если он изменился, прошлая оценка к текущему столу
+  /// уже не относится.
+  String get _setupKey =>
+      '$_total|${Role.configurable.map((r) => _setup[r] ?? 0).join(',')}';
+
+  void _runSim() {
+    final key = _setupKey;
+    final report = BalanceSim.estimate(
+      setup: _setup,
+      players: _total,
+    );
+    setState(() {
+      _sim = report;
+      _simKey = key;
+    });
   }
 
   void _applyPreset(int players) {
@@ -457,6 +484,14 @@ class _SetupScreenState extends State<SetupScreen> {
                       );
                     }),
                   ],
+                  if (!_overflow) ...[
+                    const SizedBox(height: 10),
+                    _BalanceCard(
+                      report: _sim,
+                      stale: _sim != null && _simKey != _setupKey,
+                      onRun: _runSim,
+                    ),
+                  ],
                   const SizedBox(height: 14),
                   const Text('Правила стола',
                       style: TextStyle(
@@ -638,6 +673,121 @@ class _StepButton extends StatelessWidget {
           border: Border.all(color: AppColors.line),
         ),
         child: Icon(icon, size: 18),
+      ),
+    );
+  }
+}
+
+/// Карточка «Проверить баланс»: прогон состава через тот же движок.
+///
+/// Почему по кнопке, а не автоматически: 1200 партий на каждое нажатие
+/// «+» — это заметные подвисания при наборе состава. Ведущему нужен
+/// ответ один раз, перед стартом, и он сам решает, когда его спросить.
+class _BalanceCard extends StatelessWidget {
+  final BalanceReport? report;
+  final bool stale;
+  final VoidCallback onRun;
+
+  const _BalanceCard({
+    required this.report,
+    required this.stale,
+    required this.onRun,
+  });
+
+  Color get _color {
+    final r = report;
+    if (r == null || stale) return AppColors.accent2;
+    return switch (r.verdict) {
+      BalanceVerdict.fair => AppColors.ok,
+      BalanceVerdict.tooEasyForCity => AppColors.warn,
+      BalanceVerdict.tooEasyForMafia => AppColors.bad,
+      BalanceVerdict.invalid => AppColors.dim,
+    };
+  }
+
+  IconData get _icon {
+    final r = report;
+    if (r == null || stale) return Icons.science_outlined;
+    return switch (r.verdict) {
+      BalanceVerdict.fair => Icons.verified_outlined,
+      BalanceVerdict.tooEasyForCity => Icons.trending_up,
+      BalanceVerdict.tooEasyForMafia => Icons.trending_down,
+      BalanceVerdict.invalid => Icons.help_outline,
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final r = report;
+    final color = _color;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: color.withAlpha(24),
+        border: Border.all(color: color.withAlpha(100)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(_icon, size: 17, color: color),
+              const SizedBox(width: 9),
+              const Expanded(
+                child: Text(
+                  'Прогноз баланса',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                ),
+              ),
+              TextButton(
+                onPressed: onRun,
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: Text(r == null || stale ? 'Посчитать' : 'Пересчитать'),
+              ),
+            ],
+          ),
+          if (r == null)
+            const Padding(
+              padding: EdgeInsets.only(top: 2),
+              child: Text(
+                'Прогонит этот состав через движок и покажет, сколько партий '
+                'выигрывает каждая сторона. Это оценка, а не приговор: '
+                'за столом решают разговоры.',
+                style: TextStyle(fontSize: 12, color: AppColors.dim, height: 1.35),
+              ),
+            )
+          else ...[
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                '${r.sharesRu}  ·  в среднем ${r.averageRounds.toStringAsFixed(1)} круга',
+                style: TextStyle(fontSize: 12.5, color: color),
+              ),
+            ),
+            if (r.note.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 5),
+                child: Text(
+                  stale ? 'Состав изменился — пересчитайте.' : r.note,
+                  style: const TextStyle(fontSize: 12, height: 1.35),
+                ),
+              ),
+            if (!stale && r.dealt.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 5),
+                child: Text(
+                  'Роздано: ${r.dealt.entries.map((e) => '${Role.fromType(e.key).emoji} '
+                      '${Role.fromType(e.key).name}×${e.value}').join(', ')}',
+                  style: const TextStyle(fontSize: 11, color: AppColors.dim),
+                ),
+              ),
+          ],
+        ],
       ),
     );
   }

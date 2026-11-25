@@ -45,6 +45,10 @@ const S = {
   silenced: false,    // запуган шантажистом: сегодня без голоса
   hunterMark: null,   // имя того, кого охотник заберёт с собой (1.12.0)
   mates: [], targets: [], selected: null,
+  // Кем были мы и кто ещё погиб этой же ночью (1.13.0). Нужно экрану
+  // выбывшего: он остаётся за столом смотрителем и должен понимать,
+  // почему в ленте появилось сразу две смерти.
+  deathRole: null, deathEmoji: null, alsoKilled: [],
   disguised: false, revealed: false, awaitingReveal: false,
   lobby: [], log: [], reveal: [],
   attempt: 0, tick: null, manualClose: false,
@@ -596,6 +600,11 @@ function onMessage(m) {
 
     case 'eliminated':
       S.isAlive = false; S.canAct = false;
+      // Роль и «кто ещё» приходят только самому выбывшему: это его
+      // собственные сведения, а не открытая карта для всего стола.
+      S.deathRole = m.role || null;
+      S.deathEmoji = m.roleEmoji || null;
+      S.alsoKilled = Array.isArray(m.alsoKilled) ? m.alsoKilled : [];
       banner(m.reason === 'vote' ? 'Вас выгнали голосованием' : 'Вас убили этой ночью', 'bad');
       flash(); buzz([100, 80, 100]); render();
       break;
@@ -901,7 +910,13 @@ function render() {
 
   if (dead) {
     $('dead-title').textContent = 'Вы выбыли из игры';
-    $('dead-role').textContent = `Ваша роль: ${S.roleEmoji || ''} ${S.roleName || '—'}`;
+    const dEmoji = S.deathEmoji || S.roleEmoji || '';
+    const dRole = S.deathRole || S.roleName || '—';
+    let deadLine = `Ваша роль: ${dEmoji} ${dRole}`;
+    if (S.alsoKilled.length) {
+      deadLine += `\nВ эту же ночь не стало: ${S.alsoKilled.join(', ')}`;
+    }
+    $('dead-role').textContent = deadLine;
     renderLog();
   } else if (verdictVote) {
     // Вопрос один, кандидат один — список не нужен, хватит двух кнопок.
