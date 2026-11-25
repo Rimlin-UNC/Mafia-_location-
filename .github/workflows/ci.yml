@@ -155,8 +155,15 @@ jobs:
       # Pillow нужен один, ставится за секунды.
       - name: Web images are fresh (rules book in browser)
         run: |
-          pip install --quiet pillow
+          pip install --quiet pillow numpy
           python3 tools/web_images.py --check
+
+      # Иконку не проверяет ни analyze, ни сборка APK: битая иконка видна
+      # только на телефоне. Проверяем то, на чём ломались: прозрачные углы
+      # диска, отсутствие линий по кромке, незалитый монохром, отсутствие
+      # альфы у iOS и размеры слоёв адаптивной иконки.
+      - name: App icon is consistent
+        run: python3 tools/make_icon.py --verify
 
       - name: Version has a changelog
         run: |
